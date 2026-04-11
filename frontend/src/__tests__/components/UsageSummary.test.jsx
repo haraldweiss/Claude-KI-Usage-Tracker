@@ -10,7 +10,8 @@ vi.mock('../../services/priceService', () => ({
   },
   formatTokens: (tokens) => {
     if (typeof tokens !== 'number') return '0';
-    return tokens.toLocaleString();
+    // Use German locale formatting (de-DE)
+    return tokens.toLocaleString('de-DE');
   }
 }));
 
@@ -36,9 +37,9 @@ describe('UsageSummary Component', () => {
   it('should display formatted numbers', () => {
     render(<UsageSummary stats={mockStats} />);
 
-    expect(screen.getByText('5,000')).toBeInTheDocument();
-    expect(screen.getByText('3,000')).toBeInTheDocument();
-    expect(screen.getByText('2,000')).toBeInTheDocument();
+    expect(screen.getByText('5.000')).toBeInTheDocument();
+    expect(screen.getByText('3.000')).toBeInTheDocument();
+    expect(screen.getByText('2.000')).toBeInTheDocument();
     expect(screen.getByText('$15.50')).toBeInTheDocument();
     expect(screen.getByText('25')).toBeInTheDocument();
   });
@@ -65,7 +66,7 @@ describe('UsageSummary Component', () => {
 
     render(<UsageSummary stats={largeStats} />);
 
-    expect(screen.getByText('1,000,000')).toBeInTheDocument();
+    expect(screen.getByText('1.000.000')).toBeInTheDocument();
     expect(screen.getByText('$5000.75')).toBeInTheDocument();
   });
 

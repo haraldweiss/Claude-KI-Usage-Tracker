@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Usage Tracker</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+    }
+
+    .container {
+      padding: 20px;
+    }
+
+    .header {
+      color: white;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .header p {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .stats {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .stat-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .stat-item:last-child {
+      border-bottom: none;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: #666;
+      font-weight: 500;
+    }
+
+    .stat-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #667eea;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: #f0f2f5;
+      color: #333;
+    }
+
+    .btn-secondary:hover {
+      background: #e4e6eb;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: white;
+      font-size: 12px;
+    }
+
+    .error {
+      background: #fee;
+      border-left: 4px solid #f44;
+      color: #c33;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+
+    .footer {
+      color: white;
+      text-align: center;
+      font-size: 11px;
+      opacity: 0.8;
+      margin-top: 12px;
+    }
+
+    .footer a {
+      color: white;
+      text-decoration: none;
+      border-bottom: 1px dotted white;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>📊 Usage Today</h2>
+      <p>Track your Claude usage in real-time</p>
+    </div>
+
+    <div id="error-container"></div>
+
+    <div id="loading" class="loading">Loading stats...</div>
+
+    <div id="stats-container" style="display: none;">
+      <div class="stats">
+        <div class="stat-item">
+          <span class="stat-label">Total Tokens</span>
+          <span class="stat-value" id="total-tokens">-</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Input Tokens</span>
+          <span class="stat-value" id="input-tokens">-</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Output Tokens</span>
+          <span class="stat-value" id="output-tokens">-</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Estimated Cost</span>
+          <span class="stat-value" id="total-cost">-</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Requests</span>
+          <span class="stat-value" id="request-count">-</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn-primary" id="sync-btn">↻ Sync Claude</button>
+        <button class="btn-secondary" id="refresh-btn">Refresh</button>
+      </div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="open-dashboard" style="flex: 1;">📊 Dashboard</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      Backend running on localhost:3000
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

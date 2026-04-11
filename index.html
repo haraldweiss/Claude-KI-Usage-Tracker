@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Usage Tracker - Setup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-20px); }
+    }
+    .float { animation: float 3s ease-in-out infinite; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-800 text-white">
+  <div class="min-h-screen flex flex-col items-center justify-center px-4">
+    <div class="max-w-4xl w-full">
+      <!-- Header -->
+      <div class="text-center mb-12">
+        <div class="text-7xl mb-4 float">📊</div>
+        <h1 class="text-5xl font-bold mb-4">Claude Usage Tracker</h1>
+        <p class="text-xl text-slate-400">Track your Claude.ai usage in real-time with automatic billing insights</p>
+      </div>
+
+      <!-- Features -->
+      <div class="grid md:grid-cols-3 gap-6 mb-12">
+        <div class="bg-slate-700 rounded-lg p-6">
+          <div class="text-3xl mb-3">🔍</div>
+          <h3 class="text-lg font-semibold mb-2">Real-time Tracking</h3>
+          <p class="text-slate-400">Automatically track every Claude.ai conversation and API call</p>
+        </div>
+        <div class="bg-slate-700 rounded-lg p-6">
+          <div class="text-3xl mb-3">💰</div>
+          <h3 class="text-lg font-semibold mb-2">Cost Analysis</h3>
+          <p class="text-slate-400">See exactly how much you're spending with auto-updating pricing</p>
+        </div>
+        <div class="bg-slate-700 rounded-lg p-6">
+          <div class="text-3xl mb-3">📈</div>
+          <h3 class="text-lg font-semibold mb-2">Analytics</h3>
+          <p class="text-slate-400">Beautiful dashboards with detailed usage analytics and trends</p>
+        </div>
+      </div>
+
+      <!-- Setup Instructions -->
+      <div class="bg-slate-700 rounded-lg p-8 mb-8">
+        <h2 class="text-2xl font-bold mb-6">🚀 Quick Start</h2>
+
+        <div class="space-y-6">
+          <!-- Step 1 -->
+          <div class="border-l-4 border-blue-500 pl-6">
+            <h3 class="text-lg font-semibold mb-2">Step 1: Install Backend</h3>
+            <p class="text-slate-300 mb-3">Open terminal and navigate to the backend directory:</p>
+            <div class="bg-slate-900 rounded p-4 font-mono text-sm overflow-x-auto">
+              <code>cd backend
+npm install
+npm run dev</code>
+            </div>
+            <p class="text-slate-400 text-sm mt-2">✅ Backend will run on http://localhost:3000</p>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="border-l-4 border-green-500 pl-6">
+            <h3 class="text-lg font-semibold mb-2">Step 2: Setup Frontend</h3>
+            <p class="text-slate-300 mb-3">Open a new terminal and install frontend:</p>
+            <div class="bg-slate-900 rounded p-4 font-mono text-sm overflow-x-auto">
+              <code>cd frontend
+npm install
+npm run dev</code>
+            </div>
+            <p class="text-slate-400 text-sm mt-2">✅ Dashboard will run on http://localhost:5173</p>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="border-l-4 border-purple-500 pl-6">
+            <h3 class="text-lg font-semibold mb-2">Step 3: Install Browser Extension</h3>
+            <p class="text-slate-300 mb-3">Load the extension in Chrome:</p>
+            <ol class="list-decimal list-inside text-slate-400 space-y-2 ml-4">
+              <li>Open Chrome and go to <code class="bg-slate-900 px-2 py-1 rounded">chrome://extensions</code></li>
+              <li>Enable "Developer mode" (top right)</li>
+              <li>Click "Load unpacked"</li>
+              <li>Select the <code class="bg-slate-900 px-2 py-1 rounded">extension</code> folder</li>
+            </ol>
+            <p class="text-slate-400 text-sm mt-2">✅ Extension will appear in your toolbar</p>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="border-l-4 border-orange-500 pl-6">
+            <h3 class="text-lg font-semibold mb-2">Step 4: Start Tracking</h3>
+            <p class="text-slate-300 mb-3">Go to <a href="https://claude.ai" class="text-blue-400 hover:underline">claude.ai</a> and use Claude normally. The extension will automatically track your usage!</p>
+            <p class="text-slate-400 text-sm">View your stats in the dashboard at <a href="http://localhost:5173" class="text-blue-400 hover:underline">http://localhost:5173</a></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Links -->
+      <div class="text-center space-y-4">
+        <div class="flex gap-4 justify-center flex-wrap">
+          <a href="http://localhost:5173" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition">
+            📊 Go to Dashboard
+          </a>
+          <a href="http://localhost:3000/health" class="bg-slate-600 hover:bg-slate-700 text-white font-semibold py-3 px-8 rounded-lg transition">
+            🔧 Check Backend
+          </a>
+        </div>
+
+        <div class="text-slate-400 text-sm mt-8 border-t border-slate-600 pt-6">
+          <p>Make sure all three services are running for full functionality</p>
+          <p class="mt-2">Backend: <code class="bg-slate-900 px-2 py-1 rounded">http://localhost:3000</code></p>
+          <p>Frontend: <code class="bg-slate-900 px-2 py-1 rounded">http://localhost:5173</code></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

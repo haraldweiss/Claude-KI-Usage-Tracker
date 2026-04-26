@@ -72,7 +72,11 @@ export function initDatabase(): Promise<void> {
           // Table might already exist from an older schema version; attempt a
           // non-destructive migration to add any missing columns.
           if (err.message.includes('already exists')) {
-            addMissingColumns().catch((migrationErr: Error) => {
+            addMissingColumns('usage_records', [
+              { name: 'task_description', ddl: 'TEXT' },
+              { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
+              { name: 'response_metadata', ddl: 'TEXT' }
+            ]).catch((migrationErr: Error) => {
               console.error('Failed to migrate usage_records table:', migrationErr);
             });
           } else {
@@ -94,6 +98,23 @@ export function initDatabase(): Promise<void> {
       `, (err: Error | null) => {
         if (err) reject(err);
       });
+
+      // Add missing columns to pricing table
+      addMissingColumns('pricing', [
+        { name: 'api_id', ddl: 'TEXT' },
+        { name: 'status', ddl: "TEXT DEFAULT 'active'" },
+        { name: 'tier', ddl: 'TEXT' }
+      ]).catch((migrationErr: Error) => {
+        console.error('Failed to migrate pricing table:', migrationErr);
+      });
+
+      // Migrate source='anthropic' to source='auto'
+      database.run(
+        "UPDATE pricing SET source = 'auto' WHERE source = 'anthropic'",
+        (err: Error | null) => {
+          if (err) console.error('Failed to migrate source values:', err);
+        }
+      );
 
       // Model analysis table (cached statistics)
       database.run(`
@@ -126,23 +147,22 @@ export function initDatabase(): Promise<void> {
 }
 
 /**
- * Non-destructive migration: adds any columns that were introduced after the
- * original schema to an existing `usage_records` table. Uses PRAGMA to detect
- * which columns already exist and only runs ALTER TABLE for missing ones.
- * Safe to call multiple times; already-present columns are skipped silently.
+ * Non-destructive migration: adds any missing columns to a specified table.
+ * Uses PRAGMA to detect which columns already exist and only runs ALTER TABLE
+ * for missing ones. Safe to call multiple times; already-present columns are skipped silently.
+ * @param tableName - Name of the table to migrate
+ * @param required - Array of required column definitions
  */
-function addMissingColumns(): Promise<void> {
+function addMissingColumns(
+  tableName: string,
+  required: ColumnDefinition[]
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const database = getDb();
-    database.all('PRAGMA table_info(usage_records)', (err: Error | null, rows: TableInfo[] | undefined) => {
+    database.all(`PRAGMA table_info(${tableName})`, (err: Error | null, rows: TableInfo[] | undefined) => {
       if (err) return reject(err);
 
       const existing = new Set<string>((rows || []).map((r) => r.name as string));
-      const required: ColumnDefinition[] = [
-        { name: 'task_description', ddl: 'TEXT' },
-        { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
-        { name: 'response_metadata', ddl: 'TEXT' }
-      ];
       const missing = required.filter((c) => !existing.has(c.name));
 
       if (missing.length === 0) {
@@ -153,7 +173,7 @@ function addMissingColumns(): Promise<void> {
       let failed = false;
       for (const col of missing) {
         database.run(
-          `ALTER TABLE usage_records ADD COLUMN ${col.name} ${col.ddl}`,
+          `ALTER TABLE ${tableName} ADD COLUMN ${col.name} ${col.ddl}`,
           (alterErr: Error | null) => {
             if (failed) return;
             if (alterErr) {

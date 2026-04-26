@@ -4,8 +4,11 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import cron from 'node-cron';
 import { initDatabase, closeDatabase } from './database/sqlite.js';
-import { initializePricing } from './controllers/pricingController.js';
-import { schedulePricingCheck } from './services/pricingService.js';
+import {
+  schedulePricingCheck,
+  seedFromFallbackIfEmpty,
+  checkAndUpdatePricing
+} from './services/pricingService.js';
 import { refreshModelAnalytics } from './services/modelRecommendationService.js';
 import usageRoutes from './routes/usage.js';
 import pricingRoutes from './routes/pricing.js';
@@ -45,12 +48,20 @@ async function start(): Promise<void> {
     await initDatabase();
     console.log('Database initialized');
 
-    await initializePricing();
-    console.log('Pricing initialized');
+    await seedFromFallbackIfEmpty();
+    console.log('Pricing seeded if empty');
+
+    // Kick off a one-time fetch at startup, but don't block the server on it.
+    // If LiteLLM is unreachable, log and continue — the daily cron will retry.
+    checkAndUpdatePricing()
+      .then((updated) =>
+        console.log(updated ? 'Startup pricing fetch updated rows' : 'Startup pricing fetch found no changes')
+      )
+      .catch((err) => console.error('Startup pricing fetch error:', (err as Error).message));
 
     // Schedule daily pricing check
     schedulePricingCheck(cron);
-    console.log('Pricing check scheduled');
+    console.log('Pricing check scheduled for daily at 2 AM');
 
     // Schedule daily model analytics refresh at 2 AM
     cron.schedule('0 2 * * *', async () => {
@@ -58,10 +69,9 @@ async function start(): Promise<void> {
         console.log('Running scheduled model analytics refresh...');
         await refreshModelAnalytics();
       } catch (error) {
-        console.error('Error in scheduled analytics refresh:', error);
+        console.error('Scheduled analytics refresh failed:', error);
       }
     });
-    console.log('Model analytics refresh scheduled');
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);

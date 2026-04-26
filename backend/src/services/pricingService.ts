@@ -1,14 +1,9 @@
-import { readFile } from 'fs/promises';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 import { getQuery, allQuery, runQuery } from '../database/sqlite.js';
 import { fetchLiteLLMPricing, type UpstreamModel } from './litellmPricingSource.js';
 import { decideUpdateAction } from './pricingUpdatePolicy.js';
 import { inferTier } from './modelNormalizer.js';
 import type { PricingUpdateResult, RecalculateCostsResult } from '../types/index.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const FALLBACK_PATH = join(__dirname, '../data/pricing-fallback.json');
+import { pricingFallback } from '../data/pricing-fallback.js';
 
 interface PricingRecord {
   model: string;
@@ -149,19 +144,10 @@ export async function updatePricingInDB(
   });
 }
 
-interface FallbackFile {
-  models: Array<{
-    api_id: string;
-    displayName: string;
-    tier: string;
-    inputPrice: number;
-    outputPrice: number;
-  }>;
-}
-
 /**
- * Seed the pricing table from the bundled fallback JSON when the table is empty.
- * Called on server startup.
+ * Seed the pricing table from the bundled fallback data when the table is empty.
+ * Called on server startup. Uses a TypeScript module instead of filesystem reads,
+ * ensuring the data is compiled into dist/ and available in production.
  */
 export async function seedFromFallbackIfEmpty(): Promise<void> {
   const countRow = (await getQuery('SELECT COUNT(*) as count FROM pricing')) as
@@ -169,9 +155,7 @@ export async function seedFromFallbackIfEmpty(): Promise<void> {
     | undefined;
   if (countRow && countRow.count > 0) return;
   try {
-    const raw = await readFile(FALLBACK_PATH, 'utf-8');
-    const parsed = JSON.parse(raw) as FallbackFile;
-    for (const m of parsed.models) {
+    for (const m of pricingFallback.models) {
       await upsertPricing({
         model: m.displayName,
         inputPrice: m.inputPrice,
@@ -182,7 +166,7 @@ export async function seedFromFallbackIfEmpty(): Promise<void> {
         apiId: m.api_id
       });
     }
-    console.log(`Seeded ${parsed.models.length} pricing rows from fallback`);
+    console.log(`Seeded ${pricingFallback.models.length} pricing rows from fallback`);
   } catch (err) {
     console.error('Failed to seed pricing from fallback:', (err as Error).message);
   }
@@ -206,48 +190,56 @@ export async function checkAndUpdatePricing(): Promise<boolean> {
 
   // 1. Apply updates to existing rows
   for (const row of current) {
-    const up = upstreamByName.get(row.model) ?? null;
-    const action = decideUpdateAction(row, up ? { input: up.inputPrice, output: up.outputPrice } : null);
-    if (action === 'skip') continue;
-    if (action === 'mark_deprecated') {
-      await runQuery(
-        "UPDATE pricing SET status = 'deprecated', last_updated = CURRENT_TIMESTAMP WHERE model = ?",
-        [row.model]
-      );
-      console.log(`Marked deprecated: ${row.model}`);
-      changed = true;
-      continue;
-    }
-    if (up && (action === 'overwrite' || action === 'graduate')) {
-      await upsertPricing({
-        model: row.model,
-        inputPrice: up.inputPrice,
-        outputPrice: up.outputPrice,
-        source: 'auto',
-        status: 'active',
-        tier: up.tier,
-        apiId: up.api_id
-      });
-      console.log(`${action} ${row.model}: ${up.inputPrice}/${up.outputPrice}`);
-      await recalculateCosts(row.model);
-      changed = true;
+    try {
+      const up = upstreamByName.get(row.model) ?? null;
+      const action = decideUpdateAction(row, up ? { input: up.inputPrice, output: up.outputPrice } : null);
+      if (action === 'skip') continue;
+      if (action === 'mark_deprecated') {
+        await runQuery(
+          "UPDATE pricing SET status = 'deprecated', last_updated = CURRENT_TIMESTAMP WHERE model = ?",
+          [row.model]
+        );
+        console.log(`Marked deprecated: ${row.model}`);
+        changed = true;
+        continue;
+      }
+      if (up && (action === 'overwrite' || action === 'graduate')) {
+        await upsertPricing({
+          model: row.model,
+          inputPrice: up.inputPrice,
+          outputPrice: up.outputPrice,
+          source: 'auto',
+          status: 'active',
+          tier: up.tier,
+          apiId: up.api_id
+        });
+        console.log(`${action} ${row.model}: ${up.inputPrice}/${up.outputPrice}`);
+        await recalculateCosts(row.model);
+        changed = true;
+      }
+    } catch (err) {
+      console.error(`Failed to update pricing for ${row.model}:`, (err as Error).message);
     }
   }
 
   // 2. Insert new upstream models that aren't in our DB yet
   for (const m of upstream) {
-    if (currentByName.has(m.displayName)) continue;
-    await upsertPricing({
-      model: m.displayName,
-      inputPrice: m.inputPrice,
-      outputPrice: m.outputPrice,
-      source: 'auto',
-      status: 'active',
-      tier: m.tier,
-      apiId: m.api_id
-    });
-    console.log(`Added new model from upstream: ${m.displayName}`);
-    changed = true;
+    try {
+      if (currentByName.has(m.displayName)) continue;
+      await upsertPricing({
+        model: m.displayName,
+        inputPrice: m.inputPrice,
+        outputPrice: m.outputPrice,
+        source: 'auto',
+        status: 'active',
+        tier: m.tier,
+        apiId: m.api_id
+      });
+      console.log(`Added new model from upstream: ${m.displayName}`);
+      changed = true;
+    } catch (err) {
+      console.error(`Failed to insert new model ${m.displayName}:`, (err as Error).message);
+    }
   }
 
   return changed;

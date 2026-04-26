@@ -1,6 +1,20 @@
 import * as db from '../database/sqlite.js';
 import type { TaskComplexity, SafetyScore, ModelAnalyticsRefreshResult } from '../types/index.js';
 
+interface ActiveModel {
+  model: string;
+  input_price: number;
+  output_price: number;
+  tier: string | null;
+}
+
+async function loadActiveModels(): Promise<ActiveModel[]> {
+  const rows = (await db.allQuery(
+    "SELECT model, input_price, output_price, tier FROM pricing WHERE status = 'active' ORDER BY model ASC"
+  )) as ActiveModel[];
+  return rows;
+}
+
 // Complexity keywords for task analysis
 const COMPLEXITY_KEYWORDS = {
   simple: ['summarize', 'list', 'format', 'extract', 'simple', 'search', 'translate', 'rewrite', 'capitalize'],
@@ -19,15 +33,6 @@ const COMPLEXITY_KEYWORDS = {
     'challenging'
   ]
 } as const;
-
-// Model pricing (current as of April 2026)
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'Claude 3.5 Haiku': { input: 0.8, output: 4 },
-  'Claude 3.5 Sonnet': { input: 3, output: 15 },
-  'Claude 3 Opus': { input: 15, output: 75 }
-};
-
-const AVAILABLE_MODELS = ['Claude 3.5 Haiku', 'Claude 3.5 Sonnet', 'Claude 3 Opus'];
 
 interface RecommendationConstraints {
   maxCost?: number | null;
@@ -211,24 +216,29 @@ export async function calculateSafetyScore(model: string): Promise<SafetyScore> 
 export async function calculateCostBenefit(
   model: string,
   complexity: number,
-  costWeightage: number = 0.3
+  costWeightage: number = 0.3,
+  activeModels?: ActiveModel[]
 ): Promise<CostBenefitResult> {
   try {
     const safetyData = await calculateSafetyScore(model);
     const safetyScore = safetyData.score;
 
-    // Get model pricing
-    const pricing = MODEL_PRICING[model];
-    if (!pricing) {
+    // Load active models if not provided
+    const models = activeModels ?? (await loadActiveModels());
+
+    // Get model pricing from DB
+    const row = models.find(m => m.model === model);
+    if (!row) {
       return { score: 0, error: 'Unknown model' };
     }
+    const pricing = { input: row.input_price, output: row.output_price };
 
     // Calculate cost score (lower cost = higher score)
     const maxCost = Math.max(
-      ...AVAILABLE_MODELS.map(m => (MODEL_PRICING[m]?.input ?? 0) + (MODEL_PRICING[m]?.output ?? 0) / 2)
+      ...models.map(m => (m.input_price ?? 0) + (m.output_price ?? 0) / 2)
     );
     const modelCost = (pricing.input + pricing.output) / 2;
-    const costScore = ((maxCost - modelCost) / maxCost) * 100;
+    const costScore = maxCost > 0 ? ((maxCost - modelCost) / maxCost) * 100 : 0;
 
     // Complexity match scoring
     // Haiku: Best for simple (1-3), gets -20 for complex
@@ -281,12 +291,15 @@ export async function recommendModel(
   try {
     const { minSafety = 70, preferredModels = null, avoidModels = null } = constraints;
 
+    // Load active models from DB once for this call
+    const activeModels = await loadActiveModels();
+
     // Analyze task
     const taskAnalysis = analyzeTaskComplexity(taskDescription);
     const complexity = taskAnalysis.complexity;
 
     // Get all models to evaluate
-    let modelsToEvaluate = AVAILABLE_MODELS;
+    let modelsToEvaluate = activeModels.map(m => m.model);
     if (preferredModels) {
       modelsToEvaluate = modelsToEvaluate.filter(m => preferredModels.includes(m));
     }
@@ -297,11 +310,12 @@ export async function recommendModel(
     // Score each model
     const scores: ModelScore[] = [];
     for (const model of modelsToEvaluate) {
-      const costBenefit = await calculateCostBenefit(model, complexity);
+      const costBenefit = await calculateCostBenefit(model, complexity, 0.3, activeModels);
       const safety = await calculateSafetyScore(model);
-      const pricing = MODEL_PRICING[model];
+      const row = activeModels.find(m => m.model === model);
 
-      if (!pricing) continue;
+      if (!row) continue;
+      const pricing = { input: row.input_price, output: row.output_price };
 
       let finalScore = costBenefit.score || 0;
 
@@ -323,10 +337,22 @@ export async function recommendModel(
     // Sort by score (highest first)
     scores.sort((a, b) => b.score - a.score);
 
+    // Build tier-to-representative-model map for historicalData
+    const byTier: Record<string, ActiveModel | undefined> = {};
+    for (const m of activeModels) {
+      const tier = (m.tier ?? '').toLowerCase();
+      if (tier === 'haiku' || tier === 'sonnet' || tier === 'opus') {
+        if (!byTier[tier]) byTier[tier] = m;
+      }
+    }
+    const haikuModel = byTier['haiku']?.model;
+    const sonnetModel = byTier['sonnet']?.model;
+    const opusModel = byTier['opus']?.model;
+
     if (scores.length === 0) {
       return {
         error: 'No models available for evaluation',
-        fallback: 'Claude 3.5 Sonnet'
+        fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? 'Claude 3.5 Sonnet'
       };
     }
 
@@ -335,7 +361,7 @@ export async function recommendModel(
     if (!recommended) {
       return {
         error: 'Failed to select recommendation',
-        fallback: 'Claude 3.5 Sonnet'
+        fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? 'Claude 3.5 Sonnet'
       };
     }
 
@@ -365,6 +391,13 @@ export async function recommendModel(
       confidence = Math.min(0.99, confidence + 0.05);
     }
 
+    // Build historicalData using tier-representative models from active DB records
+    const historicalData: HistoricalData = {
+      successRateHaiku: haikuModel ? (await calculateSafetyScore(haikuModel)).successRate || 0 : 0,
+      successRateSonnet: sonnetModel ? (await calculateSafetyScore(sonnetModel)).successRate || 0 : 0,
+      successRateOpus: opusModel ? (await calculateSafetyScore(opusModel)).successRate || 0 : 0
+    };
+
     // Build response
     return {
       recommended: recommendedModel,
@@ -391,11 +424,7 @@ export async function recommendModel(
         riskOfFailure: alt.safetyScore >= 85 ? 'Low' : alt.safetyScore >= 70 ? 'Medium' : 'High',
         safetyImprovement: (((recommendedSafetyScore - alt.safetyScore) / 100) * 100).toFixed(0) + '%'
       })),
-      historicalData: {
-        successRateHaiku: (await calculateSafetyScore('Claude 3.5 Haiku')).successRate || 0,
-        successRateSonnet: (await calculateSafetyScore('Claude 3.5 Sonnet')).successRate || 0,
-        successRateOpus: (await calculateSafetyScore('Claude 3 Opus')).successRate || 0
-      }
+      historicalData
     };
   } catch (error) {
     console.error('Error in recommendModel:', error);

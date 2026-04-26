@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { runQuery, allQuery, getQuery } from '../database/sqlite.js';
-import { upsertPricing } from '../services/pricingService.js';
+import { upsertPricing, recalculateCosts } from '../services/pricingService.js';
 import type { PricingRecord, UpdatePricingRequest } from '../types/index.js';
 
 interface PricingRow {
@@ -98,6 +98,12 @@ export async function confirmPricing(
       apiId: existing.api_id
     });
 
+    try {
+      await recalculateCosts(model);
+    } catch (recalcErr) {
+      console.error(`Failed to recalculate costs for ${model}:`, (recalcErr as Error).message);
+    }
+
     res.json({
       success: true,
       model,
@@ -109,26 +115,6 @@ export async function confirmPricing(
   }
 }
 
-async function recalculateCosts(model: string): Promise<void> {
-  try {
-    const records = await allQuery(
-      `SELECT id, input_tokens, output_tokens FROM usage_records
-       WHERE model = ? AND datetime(timestamp) >= datetime('now', '-30 days')`,
-      [model]
-    );
-
-    const pricing = await getQuery('SELECT * FROM pricing WHERE model = ?', [model]) as PricingRow | undefined;
-
-    if (pricing && (records as any[]).length > 0) {
-      for (const record of records as any[]) {
-        const cost = (record.input_tokens * pricing.input_price + record.output_tokens * pricing.output_price) / 1000000;
-        await runQuery('UPDATE usage_records SET cost = ? WHERE id = ?', [cost, record.id]);
-      }
-    }
-  } catch (error) {
-    console.error('Error recalculating costs:', error);
-  }
-}
 
 export async function initializePricing(): Promise<void> {
   // Seeding is now handled by seedFromFallbackIfEmpty() in pricingService.

@@ -114,9 +114,21 @@ export const updatePricingValidator = [
  * Validates pricing confirmation request (optional prices)
  */
 export const confirmPricingValidator = [
-  param('model').isString().notEmpty().withMessage('Model is required'),
-  body('inputPrice').optional().isFloat({ min: 0, max: 1000 }),
-  body('outputPrice').optional().isFloat({ min: 0, max: 1000 })
+  param('model')
+    .trim()
+    .notEmpty()
+    .withMessage('Model is required')
+    .isLength({ max: 100 })
+    .withMessage('Model name must be 100 characters or less')
+    .escape(),
+  body('inputPrice')
+    .optional()
+    .isFloat({ min: 0, max: 1000 })
+    .withMessage('Input price must be a number between 0 and 1000'),
+  body('outputPrice')
+    .optional()
+    .isFloat({ min: 0, max: 1000 })
+    .withMessage('Output price must be a number between 0 and 1000')
 ];
 
 /**

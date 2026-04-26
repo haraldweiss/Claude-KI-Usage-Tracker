@@ -110,6 +110,16 @@ export const updatePricingValidator = [
 ];
 
 /**
+ * POST /api/pricing/:model/confirm
+ * Validates pricing confirmation request (optional prices)
+ */
+export const confirmPricingValidator = [
+  param('model').isString().notEmpty().withMessage('Model is required'),
+  body('inputPrice').optional().isFloat({ min: 0, max: 1000 }),
+  body('outputPrice').optional().isFloat({ min: 0, max: 1000 })
+];
+
+/**
  * POST /api/recommend
  * Validates model recommendation request
  */

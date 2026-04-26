@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { runQuery, allQuery, getQuery } from '../database/sqlite.js';
+import { upsertPricing } from '../services/pricingService.js';
 import type { PricingRecord, UpdatePricingRequest } from '../types/index.js';
 
 interface PricingRow {
@@ -64,6 +65,50 @@ export async function updatePricing(
   }
 }
 
+export async function confirmPricing(
+  req: Request<{ model: string }, unknown, { inputPrice?: number; outputPrice?: number }>,
+  res: Response
+): Promise<void> {
+  try {
+    const model = req.params.model as string;
+    const { inputPrice, outputPrice } = req.body;
+
+    const existing = (await getQuery(
+      'SELECT * FROM pricing WHERE model = ?',
+      [model]
+    )) as
+      | { input_price: number; output_price: number; tier: string | null; api_id: string | null }
+      | undefined;
+
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Model not found' });
+      return;
+    }
+
+    const finalInput = typeof inputPrice === 'number' ? inputPrice : existing.input_price;
+    const finalOutput = typeof outputPrice === 'number' ? outputPrice : existing.output_price;
+
+    await upsertPricing({
+      model,
+      inputPrice: finalInput,
+      outputPrice: finalOutput,
+      source: 'manual',
+      status: 'active',
+      tier: existing.tier,
+      apiId: existing.api_id
+    });
+
+    res.json({
+      success: true,
+      model,
+      pricing: { input_price: finalInput, output_price: finalOutput, source: 'manual', status: 'active' }
+    });
+  } catch (error) {
+    console.error('Error confirming pricing:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+}
+
 async function recalculateCosts(model: string): Promise<void> {
   try {
     const records = await allQuery(
@@ -86,27 +131,6 @@ async function recalculateCosts(model: string): Promise<void> {
 }
 
 export async function initializePricing(): Promise<void> {
-  try {
-    const existing = await getQuery('SELECT COUNT(*) as count FROM pricing');
-
-    if ((existing as any)?.count === 0) {
-      // Default Anthropic pricing (as of March 2024)
-      const defaultPricing = [
-        { model: 'Claude 3.5 Sonnet', input_price: 3, output_price: 15 },
-        { model: 'Claude 3.5 Haiku', input_price: 0.8, output_price: 4 },
-        { model: 'Claude 3 Opus', input_price: 15, output_price: 75 }
-      ];
-
-      for (const price of defaultPricing) {
-        await runQuery(
-          'INSERT INTO pricing (model, input_price, output_price, source) VALUES (?, ?, ?, ?)',
-          [price.model, price.input_price, price.output_price, 'anthropic']
-        );
-      }
-
-      console.log('Default pricing initialized');
-    }
-  } catch (error) {
-    console.error('Error initializing pricing:', error);
-  }
+  // Seeding is now handled by seedFromFallbackIfEmpty() in pricingService.
+  // This function is kept for API compatibility and is a no-op.
 }

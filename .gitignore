@@ -50,7 +50,3 @@ coverage/
 
 # Claude Code local overrides (personal, never commit)
 .claude/settings.local.json
-# Generated source files (use .ts instead)
-backend/src/**/*.js
-!backend/src/**/*.js.map
-!backend/src/__tests__/**/*.js

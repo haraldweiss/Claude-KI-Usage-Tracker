@@ -114,9 +114,3 @@ export async function confirmPricing(
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 }
-
-
-export async function initializePricing(): Promise<void> {
-  // Seeding is now handled by seedFromFallbackIfEmpty() in pricingService.
-  // This function is kept for API compatibility and is a no-op.
-}

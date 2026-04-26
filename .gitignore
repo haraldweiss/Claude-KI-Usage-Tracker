@@ -53,3 +53,4 @@ coverage/
 # Generated source files (use .ts instead)
 backend/src/**/*.js
 !backend/src/**/*.js.map
+!backend/src/__tests__/**/*.js

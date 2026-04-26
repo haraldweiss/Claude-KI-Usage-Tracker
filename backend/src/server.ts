@@ -61,7 +61,6 @@ async function start(): Promise<void> {
 
     // Schedule daily pricing check
     schedulePricingCheck(cron);
-    console.log('Pricing check scheduled for daily at 2 AM');
 
     // Schedule daily model analytics refresh at 2 AM
     cron.schedule('0 2 * * *', async () => {

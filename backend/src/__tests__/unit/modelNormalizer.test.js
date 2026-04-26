@@ -4,6 +4,45 @@ const { describe, it, expect } = require('@jest/globals');
 // and the test exercises the same logic to keep imports out of the ESM/Jest dance.
 
 const TIER_KEYWORDS = ['haiku', 'sonnet', 'opus'];
+const VALID_TIERS = ['haiku', 'sonnet', 'opus', 'other'];
+
+function coerceTier(raw, fallbackName) {
+  if (typeof raw === 'string' && VALID_TIERS.includes(raw)) {
+    return raw;
+  }
+  return inferTier(fallbackName);
+}
+
+function normalizeIncomingModel(raw, knownRows) {
+  const trimmed = (raw || '').trim();
+  // 1. Exact display-name match in DB
+  const byName = knownRows.find((r) => r.model === trimmed);
+  if (byName) {
+    return {
+      displayName: byName.model,
+      apiId: byName.api_id ?? null,
+      tier: coerceTier(byName.tier, byName.model)
+    };
+  }
+  // 2. API ID match in DB
+  const byId = knownRows.find((r) => r.api_id && r.api_id === trimmed);
+  if (byId) {
+    return {
+      displayName: byId.model,
+      apiId: byId.api_id ?? null,
+      tier: coerceTier(byId.tier, byId.model)
+    };
+  }
+  // 3. Looks like an API ID — derive display name
+  if (/^claude-/i.test(trimmed)) {
+    const derived = deriveDisplayName(trimmed);
+    if (derived) {
+      return { displayName: derived, apiId: trimmed, tier: inferTier(derived) };
+    }
+  }
+  // 4. Fallback — echo back as display name, no API ID
+  return { displayName: trimmed, apiId: null, tier: inferTier(trimmed) };
+}
 
 function inferTier(name) {
   if (!name || typeof name !== 'string') return 'other';
@@ -106,6 +145,64 @@ describe('modelNormalizer', () => {
     });
     it('returns null for tier=other', () => {
       expect(tierDefaultPrice('other', rows)).toBeNull();
+    });
+  });
+
+  describe('normalizeIncomingModel', () => {
+    const knownRows = [
+      {
+        model: 'Claude 3.5 Sonnet',
+        api_id: 'claude-3-5-sonnet-20240620',
+        tier: 'sonnet',
+        input_price: 3,
+        output_price: 15,
+        last_updated: '2026-01-01T00:00:00Z'
+      }
+    ];
+
+    it('matches by exact display name', () => {
+      const result = normalizeIncomingModel('Claude 3.5 Sonnet', knownRows);
+      expect(result.displayName).toBe('Claude 3.5 Sonnet');
+      expect(result.apiId).toBe('claude-3-5-sonnet-20240620');
+      expect(result.tier).toBe('sonnet');
+    });
+
+    it('matches by api_id', () => {
+      const result = normalizeIncomingModel('claude-3-5-sonnet-20240620', knownRows);
+      expect(result.displayName).toBe('Claude 3.5 Sonnet');
+      expect(result.apiId).toBe('claude-3-5-sonnet-20240620');
+      expect(result.tier).toBe('sonnet');
+    });
+
+    it('derives display name from unknown claude API id', () => {
+      const result = normalizeIncomingModel('claude-opus-4-7-20251101', knownRows);
+      expect(result.displayName).toBe('Claude Opus 4.7');
+      expect(result.apiId).toBe('claude-opus-4-7-20251101');
+      expect(result.tier).toBe('opus');
+    });
+
+    it('falls back to echoing the raw string when nothing matches', () => {
+      const result = normalizeIncomingModel('some-random-thing', knownRows);
+      expect(result.displayName).toBe('some-random-thing');
+      expect(result.apiId).toBeNull();
+      expect(result.tier).toBe('other');
+    });
+
+    it('falls back to inferTier when DB row has invalid tier value', () => {
+      const dirtyRows = [
+        {
+          model: 'Custom Sonnet Variant',
+          api_id: null,
+          tier: 'bogus-tier',
+          input_price: 1,
+          output_price: 2,
+          last_updated: '2026-01-01T00:00:00Z'
+        }
+      ];
+      const result = normalizeIncomingModel('Custom Sonnet Variant', dirtyRows);
+      // Even though tier='bogus-tier' is in the row, the function should validate
+      // and fall back to inferring from the display name
+      expect(result.tier).toBe('sonnet');
     });
   });
 });

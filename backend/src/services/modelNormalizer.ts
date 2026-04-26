@@ -12,6 +12,14 @@ export interface PricingRow {
 }
 
 const TIER_KEYWORDS: Tier[] = ['haiku', 'sonnet', 'opus'];
+const VALID_TIERS: readonly Tier[] = ['haiku', 'sonnet', 'opus', 'other'];
+
+function coerceTier(raw: unknown, fallbackName: string): Tier {
+  if (typeof raw === 'string' && (VALID_TIERS as readonly string[]).includes(raw)) {
+    return raw as Tier;
+  }
+  return inferTier(fallbackName);
+}
 
 export function inferTier(name: string | null | undefined): Tier {
   if (!name || typeof name !== 'string') return 'other';
@@ -74,7 +82,7 @@ export function normalizeIncomingModel(
     return {
       displayName: byName.model,
       apiId: byName.api_id ?? null,
-      tier: (byName.tier as Tier) || inferTier(byName.model)
+      tier: coerceTier(byName.tier, byName.model)
     };
   }
   // 2. API ID match in DB
@@ -83,7 +91,7 @@ export function normalizeIncomingModel(
     return {
       displayName: byId.model,
       apiId: byId.api_id ?? null,
-      tier: (byId.tier as Tier) || inferTier(byId.model)
+      tier: coerceTier(byId.tier, byId.model)
     };
   }
   // 3. Looks like an API ID — derive display name

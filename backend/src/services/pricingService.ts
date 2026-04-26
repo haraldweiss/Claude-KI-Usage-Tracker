@@ -99,26 +99,21 @@ export async function upsertPricing(args: {
   const status = args.status ?? 'active';
   const tier = args.tier ?? inferTier(model);
   const apiId = args.apiId ?? null;
-  const existing = (await getQuery(
-    'SELECT * FROM pricing WHERE model = ?',
-    [model]
-  )) as PricingRecord | undefined;
 
-  if (existing) {
-    await runQuery(
-      `UPDATE pricing
-         SET input_price = ?, output_price = ?, source = ?, status = ?, tier = ?,
-             api_id = COALESCE(?, api_id), last_updated = CURRENT_TIMESTAMP
-       WHERE model = ?`,
-      [inputPrice, outputPrice, source, status, tier, apiId, model]
-    );
-  } else {
-    await runQuery(
-      `INSERT INTO pricing (model, input_price, output_price, source, status, tier, api_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [model, inputPrice, outputPrice, source, status, tier, apiId]
-    );
-  }
+  await runQuery(
+    `INSERT INTO pricing (model, input_price, output_price, source, status, tier, api_id, last_updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(model) DO UPDATE SET
+       input_price = excluded.input_price,
+       output_price = excluded.output_price,
+       source = excluded.source,
+       status = excluded.status,
+       tier = excluded.tier,
+       api_id = COALESCE(excluded.api_id, pricing.api_id),
+       last_updated = CURRENT_TIMESTAMP`,
+    [model, inputPrice, outputPrice, source, status, tier, apiId]
+  );
+
   return {
     success: true,
     model,

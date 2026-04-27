@@ -68,21 +68,7 @@ export function initDatabase(): Promise<void> {
           response_metadata TEXT
         )
       `, (err: Error | null) => {
-        if (err) {
-          // Table might already exist from an older schema version; attempt a
-          // non-destructive migration to add any missing columns.
-          if (err.message.includes('already exists')) {
-            addMissingColumns('usage_records', [
-              { name: 'task_description', ddl: 'TEXT' },
-              { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
-              { name: 'response_metadata', ddl: 'TEXT' }
-            ]).catch((migrationErr: Error) => {
-              console.error('Failed to migrate usage_records table:', migrationErr);
-            });
-          } else {
-            reject(err);
-          }
-        }
+        if (err && !err.message.includes('already exists')) reject(err);
       });
 
       // Pricing table
@@ -96,25 +82,8 @@ export function initDatabase(): Promise<void> {
           source TEXT DEFAULT 'anthropic'
         )
       `, (err: Error | null) => {
-        if (err) reject(err);
+        if (err && !err.message.includes('already exists')) reject(err);
       });
-
-      // Add missing columns to pricing table
-      addMissingColumns('pricing', [
-        { name: 'api_id', ddl: 'TEXT' },
-        { name: 'status', ddl: "TEXT DEFAULT 'active'" },
-        { name: 'tier', ddl: 'TEXT' }
-      ]).catch((migrationErr: Error) => {
-        console.error('Failed to migrate pricing table:', migrationErr);
-      });
-
-      // Migrate source='anthropic' to source='auto'
-      database.run(
-        "UPDATE pricing SET source = 'auto' WHERE source = 'anthropic'",
-        (err: Error | null) => {
-          if (err) console.error('Failed to migrate source values:', err);
-        }
-      );
 
       // Model analysis table (cached statistics)
       database.run(`
@@ -129,7 +98,7 @@ export function initDatabase(): Promise<void> {
           last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `, (err: Error | null) => {
-        if (err) reject(err);
+        if (err && !err.message.includes('already exists')) reject(err);
       });
 
       // Create indexes
@@ -138,9 +107,32 @@ export function initDatabase(): Promise<void> {
       database.run('CREATE INDEX IF NOT EXISTS idx_source ON usage_records(source)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_success_status ON usage_records(success_status)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_task_desc ON usage_records(task_description)');
-      database.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', (err: Error | null) => {
-        if (err) reject(err);
-        else resolve();
+      database.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', async (err: Error | null) => {
+        if (err) return reject(err);
+        // After tables and indexes exist, run additive column migrations and
+        // the source-value rewrite. Awaited here so callers (seedFromFallback)
+        // can rely on the new columns being present when initDatabase resolves.
+        try {
+          await addMissingColumns('usage_records', [
+            { name: 'task_description', ddl: 'TEXT' },
+            { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
+            { name: 'response_metadata', ddl: 'TEXT' }
+          ]);
+          await addMissingColumns('pricing', [
+            { name: 'api_id', ddl: 'TEXT' },
+            { name: 'status', ddl: "TEXT DEFAULT 'active'" },
+            { name: 'tier', ddl: 'TEXT' }
+          ]);
+          await new Promise<void>((res, rej) => {
+            database.run(
+              "UPDATE pricing SET source = 'auto' WHERE source = 'anthropic'",
+              (uErr: Error | null) => (uErr ? rej(uErr) : res())
+            );
+          });
+          resolve();
+        } catch (migrationErr) {
+          reject(migrationErr as Error);
+        }
       });
     });
   });

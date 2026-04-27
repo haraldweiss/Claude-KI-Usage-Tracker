@@ -1,18 +1,28 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, '../../database.sqlite');
-
-const db = new sqlite3.Database(DB_PATH);
-
-// Initialize database tables
+let db;
+/**
+ * Get or initialize database connection
+ * @returns sqlite3.Database instance
+ */
+function getDb() {
+    if (!db) {
+        db = new sqlite3.Database(DB_PATH);
+    }
+    return db;
+}
+/**
+ * Initialize database tables
+ */
 export function initDatabase() {
-  return new Promise((resolve, reject) => {
-    db.serialize(() => {
-      // Usage records table
-      db.run(`
+    return new Promise((resolve, reject) => {
+        const database = getDb();
+        database.serialize(() => {
+            // Usage records table
+            database.run(`
         CREATE TABLE IF NOT EXISTS usage_records (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           model TEXT NOT NULL,
@@ -29,21 +39,11 @@ export function initDatabase() {
           response_metadata TEXT
         )
       `, (err) => {
-        if (err) {
-          // Table might already exist from an older schema version; attempt a
-          // non-destructive migration to add any missing columns.
-          if (err.message.includes('already exists')) {
-            addMissingColumns().catch((migrationErr) => {
-              console.error('Failed to migrate usage_records table:', migrationErr);
+                if (err && !err.message.includes('already exists'))
+                    reject(err);
             });
-          } else {
-            reject(err);
-          }
-        }
-      });
-
-      // Pricing table
-      db.run(`
+            // Pricing table
+            database.run(`
         CREATE TABLE IF NOT EXISTS pricing (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           model TEXT NOT NULL UNIQUE,
@@ -53,11 +53,11 @@ export function initDatabase() {
           source TEXT DEFAULT 'anthropic'
         )
       `, (err) => {
-        if (err) reject(err);
-      });
-
-      // Model analysis table (cached statistics)
-      db.run(`
+                if (err && !err.message.includes('already exists'))
+                    reject(err);
+            });
+            // Model analysis table (cached statistics)
+            database.run(`
         CREATE TABLE IF NOT EXISTS model_analysis (
           model TEXT PRIMARY KEY,
           total_requests INTEGER DEFAULT 0,
@@ -69,109 +69,160 @@ export function initDatabase() {
           last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `, (err) => {
-        if (err) reject(err);
-      });
-
-      // Create indexes
-      db.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON usage_records(timestamp)');
-      db.run('CREATE INDEX IF NOT EXISTS idx_model ON usage_records(model)');
-      db.run('CREATE INDEX IF NOT EXISTS idx_source ON usage_records(source)');
-      db.run('CREATE INDEX IF NOT EXISTS idx_usage_success_status ON usage_records(success_status)');
-      db.run('CREATE INDEX IF NOT EXISTS idx_usage_task_desc ON usage_records(task_description)');
-      db.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-
+                if (err && !err.message.includes('already exists'))
+                    reject(err);
+            });
+            // Create indexes
+            database.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON usage_records(timestamp)');
+            database.run('CREATE INDEX IF NOT EXISTS idx_model ON usage_records(model)');
+            database.run('CREATE INDEX IF NOT EXISTS idx_source ON usage_records(source)');
+            database.run('CREATE INDEX IF NOT EXISTS idx_usage_success_status ON usage_records(success_status)');
+            database.run('CREATE INDEX IF NOT EXISTS idx_usage_task_desc ON usage_records(task_description)');
+            database.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', async (err) => {
+                if (err)
+                    return reject(err);
+                // After tables and indexes exist, run additive column migrations and
+                // the source-value rewrite. Awaited here so callers (seedFromFallback)
+                // can rely on the new columns being present when initDatabase resolves.
+                try {
+                    await addMissingColumns('usage_records', [
+                        { name: 'task_description', ddl: 'TEXT' },
+                        { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
+                        { name: 'response_metadata', ddl: 'TEXT' }
+                    ]);
+                    await addMissingColumns('pricing', [
+                        { name: 'api_id', ddl: 'TEXT' },
+                        { name: 'status', ddl: "TEXT DEFAULT 'active'" },
+                        { name: 'tier', ddl: 'TEXT' }
+                    ]);
+                    await new Promise((res, rej) => {
+                        database.run("UPDATE pricing SET source = 'auto' WHERE source = 'anthropic'", (uErr) => (uErr ? rej(uErr) : res()));
+                    });
+                    resolve();
+                }
+                catch (migrationErr) {
+                    reject(migrationErr);
+                }
+            });
+        });
     });
-  });
 }
-
 /**
- * Non-destructive migration: adds any columns that were introduced after the
- * original schema to an existing `usage_records` table. Uses PRAGMA to detect
- * which columns already exist and only runs ALTER TABLE for missing ones.
- * Safe to call multiple times; already-present columns are skipped silently.
+ * Non-destructive migration: adds any missing columns to a specified table.
+ * Uses PRAGMA to detect which columns already exist and only runs ALTER TABLE
+ * for missing ones. Safe to call multiple times; already-present columns are skipped silently.
+ * @param tableName - Name of the table to migrate
+ * @param required - Array of required column definitions
  */
-function addMissingColumns() {
-  return new Promise((resolve, reject) => {
-    db.all('PRAGMA table_info(usage_records)', (err, rows) => {
-      if (err) return reject(err);
-
-      const existing = new Set((rows || []).map((r) => r.name));
-      const required = [
-        { name: 'task_description', ddl: 'TEXT' },
-        { name: 'success_status', ddl: 'TEXT DEFAULT \'unknown\'' },
-        { name: 'response_metadata', ddl: 'TEXT' }
-      ];
-      const missing = required.filter((c) => !existing.has(c.name));
-
-      if (missing.length === 0) {
-        return resolve();
-      }
-
-      let remaining = missing.length;
-      let failed = false;
-      for (const col of missing) {
-        db.run(
-          `ALTER TABLE usage_records ADD COLUMN ${col.name} ${col.ddl}`,
-          (alterErr) => {
-            if (failed) return;
-            if (alterErr) {
-              // Ignore "duplicate column" races, surface anything else.
-              if (!/duplicate column/i.test(alterErr.message)) {
-                failed = true;
-                return reject(alterErr);
-              }
+function addMissingColumns(tableName, required) {
+    return new Promise((resolve, reject) => {
+        const database = getDb();
+        database.all(`PRAGMA table_info(${tableName})`, (err, rows) => {
+            if (err)
+                return reject(err);
+            const existing = new Set((rows || []).map((r) => r.name));
+            const missing = required.filter((c) => !existing.has(c.name));
+            if (missing.length === 0) {
+                return resolve();
             }
-            remaining -= 1;
-            if (remaining === 0) resolve();
-          }
-        );
-      }
+            let remaining = missing.length;
+            let failed = false;
+            for (const col of missing) {
+                database.run(`ALTER TABLE ${tableName} ADD COLUMN ${col.name} ${col.ddl}`, (alterErr) => {
+                    if (failed)
+                        return;
+                    if (alterErr) {
+                        // Ignore "duplicate column" races, surface anything else.
+                        if (!/duplicate column/i.test(alterErr.message)) {
+                            failed = true;
+                            return reject(alterErr);
+                        }
+                    }
+                    remaining -= 1;
+                    if (remaining === 0)
+                        resolve();
+                });
+            }
+        });
     });
-  });
 }
-
-// Helper functions for database operations
+/**
+ * Execute a database query (INSERT, UPDATE, DELETE)
+ * @param sql - SQL query string
+ * @param params - Query parameters (default: empty array)
+ * @returns Promise resolving to result with lastID and changes
+ */
 export function runQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) reject(err);
-      else resolve({ lastID: this.lastID, changes: this.changes });
+    return new Promise((resolve, reject) => {
+        const database = getDb();
+        database.run(sql, params, function (err) {
+            if (err)
+                reject(err);
+            else
+                resolve({ lastID: this.lastID, changes: this.changes });
+        });
     });
-  });
 }
-
+/**
+ * Execute a SELECT query returning a single row
+ * @template T - The type of the row result
+ * @param sql - SQL query string
+ * @param params - Query parameters (default: empty array)
+ * @returns Promise resolving to single row or undefined
+ */
 export function getQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
+    return new Promise((resolve, reject) => {
+        const database = getDb();
+        database.get(sql, params, (err, row) => {
+            if (err)
+                reject(err);
+            else
+                resolve(row);
+        });
     });
-  });
 }
-
+/**
+ * Execute a SELECT query returning all matching rows
+ * @template T - The type of each row in the result
+ * @param sql - SQL query string
+ * @param params - Query parameters (default: empty array)
+ * @returns Promise resolving to array of rows (empty array if no results)
+ */
 export function allQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
+    return new Promise((resolve, reject) => {
+        const database = getDb();
+        database.all(sql, params, (err, rows) => {
+            if (err)
+                reject(err);
+            else
+                resolve(rows || []);
+        });
     });
-  });
 }
-
+/**
+ * Close the database connection
+ * @returns Promise that resolves when connection is closed
+ */
 export function closeDatabase() {
-  return new Promise((resolve, reject) => {
-    db.close((err) => {
-      if (err) reject(err);
-      else resolve();
+    return new Promise((resolve, reject) => {
+        const database = getDb();
+        database.close((err) => {
+            if (err)
+                reject(err);
+            else
+                resolve();
+        });
     });
-  });
 }
-
+/**
+ * Insert or update a model analysis record
+ * Uses upsert (INSERT ... ON CONFLICT) to atomically insert or update
+ * @param model - Model identifier (e.g., 'claude-3-sonnet-20240229')
+ * @param stats - Partial model analysis statistics
+ * @returns Promise resolving to result with lastID and changes
+ */
 export function insertOrUpdateModelAnalysis(model, stats) {
-  const sql = `
+    const sql = `
     INSERT INTO model_analysis (model, total_requests, success_rate, error_count, avg_input_tokens, avg_output_tokens, cost_per_request, last_updated)
     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(model) DO UPDATE SET
@@ -183,16 +234,15 @@ export function insertOrUpdateModelAnalysis(model, stats) {
       cost_per_request = excluded.cost_per_request,
       last_updated = CURRENT_TIMESTAMP
   `;
-
-  return runQuery(sql, [
-    model,
-    stats.total_requests || 0,
-    stats.success_rate || 0,
-    stats.error_count || 0,
-    stats.avg_input_tokens || 0,
-    stats.avg_output_tokens || 0,
-    stats.cost_per_request || 0
-  ]);
+    return runQuery(sql, [
+        model,
+        stats.total_requests || 0,
+        stats.success_rate || 0,
+        stats.error_count || 0,
+        stats.avg_input_tokens || 0,
+        stats.avg_output_tokens || 0,
+        stats.cost_per_request || 0
+    ]);
 }
-
-export default db;
+export { getDb as default };
+//# sourceMappingURL=sqlite.js.map

@@ -10,10 +10,12 @@ A comprehensive web application to monitor and analyze Claude AI token usage, co
 
 ### Core Functionality
 - **Real-time Usage Tracking**: Browser extension intercepts Claude.ai API calls and logs token usage automatically
-- **Cost Analysis**: Automatic cost calculation with configurable pricing per model
-- **Smart Model Recommendations**: AI-powered engine that recommends optimal Claude models based on task complexity
+- **Self-maintaining Pricing**: Bundled snapshot covers Claude 4.x (Opus 4.7, Sonnet 4.6, Haiku 4.5), 3.7 line, and legacy models on first run; daily LiteLLM sync keeps prices current as Anthropic ships new models
+- **Auto-detect New Models**: When the extension reports a model the system hasn't seen before, the backend auto-creates a pricing row using a sibling-tier price (or flags it as *Needs review* if the family is unrecognizable). Manual overrides via Settings are sacred — never auto-overwritten.
+- **Cost Analysis**: Automatic cost calculation, with retroactive recalculation when you confirm pending pricing
+- **Smart Model Recommendations**: DB-driven engine that automatically considers any newly-added model — no code changes needed when Anthropic releases new ones
 - **Optimization Insights**: Identifies opportunities to reduce costs and improve efficiency
-- **Beautiful Dashboard**: React-based UI with charts, tables, and real-time statistics
+- **Beautiful Dashboard**: React-based UI with charts, tables, source/status badges, and real-time statistics
 
 ### Smart Recommendation Engine
 - **Task Complexity Analysis**: Evaluates task descriptions to determine required model capability
@@ -170,9 +172,9 @@ Claude-KI-Usage-Tracker/
 - `GET /api/usage/history?limit=50&offset=0` - Get recent usage records
 
 ### Pricing Management
-- `GET /api/pricing` - Get all model pricing
-- `PUT /api/pricing/:model` - Update pricing for a model
-- `POST /api/pricing/check-update` - Check for pricing updates (Anthropic API)
+- `GET /api/pricing` - Get all model pricing (includes `source`, `status`, `tier`, `api_id`, `last_updated`)
+- `PUT /api/pricing/:model` - Update pricing for a model (sets `source='manual'`)
+- `POST /api/pricing/:model/confirm` - Confirm an auto-detected `pending_confirmation` row; body `{inputPrice?, outputPrice?}` (omitted fields keep existing values). Flips row to `source='manual'`, `status='active'`, and recalculates costs of recent usage_records.
 
 ### Model Recommendations
 - `POST /api/recommend` - Get model recommendation for a task description
@@ -203,7 +205,9 @@ npm run test:watch         # Watch mode
 npm run test:coverage      # Generate coverage report
 ```
 
-**Current Status**: 45/45 tests passing (21 backend + 24 frontend) ✅
+**Current Status**: 90/90 tests passing (57 backend — 52 unit + 5 HTTP integration via supertest — and 33 frontend) ✅
+
+The backend dev runtime uses `tsx` (no separate compile step in dev). For production, `npm run build && npm start` builds to `dist/` and serves the compiled output.
 
 ---
 
@@ -284,7 +288,7 @@ See `.env.example` files in each directory for all available options.
 
 - **TypeScript Coverage**: 100% (65+ .ts/.tsx files, 3,000+ lines)
 - **Type Definitions**: 70+ interfaces/types across API, models, and services
-- **Test Coverage**: 45/45 tests passing (21 backend Jest, 24 frontend Vitest)
+- **Test Coverage**: 90/90 tests passing (57 backend Jest, 33 frontend Vitest)
 - **Components**: 14 fully typed React components
 - **API Endpoints**: 10+ endpoints with full TypeScript signatures
 

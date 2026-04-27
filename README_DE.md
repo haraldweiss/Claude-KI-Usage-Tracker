@@ -10,10 +10,12 @@ Eine umfassende Webanwendung zur Überwachung und Analyse der Claude AI-Token-Nu
 
 ### Kernfunktionalität
 - **Echtzeit-Nutzungsverfolgung**: Browser-Erweiterung interceptiert Claude.ai API-Aufrufe und protokolliert Token-Nutzung automatisch
-- **Kostenanalyse**: Automatische Kostenberechnung mit konfigurierbarer Preisgestaltung pro Modell
-- **Intelligente Modellempfehlungen**: KI-Engine empfiehlt optimale Claude-Modelle basierend auf Task-Komplexität
+- **Selbstpflegende Preise**: Mitgelieferter Snapshot deckt Claude 4.x (Opus 4.7, Sonnet 4.6, Haiku 4.5), die 3.7-Reihe und ältere Modelle ab. Tägliche LiteLLM-Synchronisation hält Preise aktuell, sobald Anthropic neue Modelle veröffentlicht.
+- **Auto-Erkennung neuer Modelle**: Meldet die Erweiterung ein bisher unbekanntes Modell, legt das Backend automatisch eine Preiszeile mit dem Tarif eines Schwester-Modells (Haiku/Sonnet/Opus) an — oder markiert sie als *Needs review*, falls keine Familie erkennbar ist. Manuelle Preise in den Einstellungen werden nie automatisch überschrieben.
+- **Kostenanalyse**: Automatische Kostenberechnung; bei Bestätigung eines vorläufigen Preises werden zurückliegende Datensätze rückwirkend neu berechnet.
+- **Intelligente Modellempfehlungen**: DB-getriebene Engine — neue Modelle erscheinen ohne Code-Änderungen automatisch in den Empfehlungen.
 - **Optimierungseinblicke**: Identifiziert Möglichkeiten, Kosten zu senken und Effizienz zu verbessern
-- **Schönes Dashboard**: React-basierte UI mit Diagrammen, Tabellen und Echtzeit-Statistiken
+- **Schönes Dashboard**: React-basierte UI mit Diagrammen, Tabellen, Quelle/Status-Badges und Echtzeit-Statistiken
 
 ### Smart Recommendation Engine
 - **Task-Komplexitätsanalyse**: Bewertet Task-Beschreibungen zur Bestimmung der erforderlichen Modell-Kapabilität
@@ -170,9 +172,9 @@ Claude-KI-Usage-Tracker/
 - `GET /api/usage/history?limit=50&offset=0` - Letzte Nutzungsdatensätze
 
 ### Preisgestaltungsverwaltung
-- `GET /api/pricing` - Alle Modellpreise abrufen
-- `PUT /api/pricing/:model` - Preisgestaltung für Modell aktualisieren
-- `POST /api/pricing/check-update` - Auf Preisgestaltungs-Updates überprüfen (Anthropic-API)
+- `GET /api/pricing` - Alle Modellpreise abrufen (enthält `source`, `status`, `tier`, `api_id`, `last_updated`)
+- `PUT /api/pricing/:model` - Preisgestaltung für Modell aktualisieren (setzt `source='manual'`)
+- `POST /api/pricing/:model/confirm` - Auto-erkannten `pending_confirmation`-Eintrag bestätigen; Body `{inputPrice?, outputPrice?}` (weggelassene Felder behalten ihre bestehenden Werte). Setzt den Eintrag auf `source='manual'`, `status='active'` und berechnet die Kosten der jüngsten usage_records neu.
 
 ### Modellempfehlungen
 - `POST /api/recommend` - Modellempfehlung für Task-Beschreibung
@@ -203,7 +205,9 @@ npm run test:watch         # Watch-Modus
 npm run test:coverage      # Coverage-Bericht generieren
 ```
 
-**Aktueller Status**: 45/45 Tests erfolgreich (21 Backend + 24 Frontend) ✅
+**Aktueller Status**: 90/90 Tests erfolgreich (57 Backend — 52 Unit + 5 HTTP-Integration via supertest — und 33 Frontend) ✅
+
+Das Backend nutzt im Dev-Modus `tsx` (kein separater Build-Schritt nötig). Für Produktion: `npm run build && npm start` baut nach `dist/` und führt das kompilierte Output aus.
 
 ---
 
@@ -284,7 +288,7 @@ Siehe `.env.example`-Dateien in jedem Verzeichnis für alle verfügbaren Optione
 
 - **TypeScript-Abdeckung**: 100% (65+ .ts/.tsx Dateien, 3.000+ Zeilen)
 - **Typedefinitionen**: 70+ Interfaces/Typen über API, Models und Services
-- **Test-Abdeckung**: 45/45 Tests erfolgreich (21 Backend Jest, 24 Frontend Vitest)
+- **Test-Abdeckung**: 90/90 Tests erfolgreich (57 Backend Jest, 33 Frontend Vitest)
 - **Komponenten**: 14 vollständig typisierte React-Komponenten
 - **API-Endpoints**: 10+ Endpoints mit vollständigen TypeScript-Signaturen
 

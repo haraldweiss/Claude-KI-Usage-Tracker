@@ -63,7 +63,15 @@ export default function Settings(): React.ReactElement {
         {loading ? (
           <div className="text-center py-8 text-gray-500">Loading pricing...</div>
         ) : (
-          <PricingTable pricing={pricing} onUpdate={loadPricing} />
+          <>
+            {pricing.some((p) => p.status === 'pending_confirmation') && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-900">
+                <strong>New models detected.</strong> Review and confirm pricing for the rows marked
+                <em> Needs review</em> below.
+              </div>
+            )}
+            <PricingTable pricing={pricing} onUpdate={loadPricing} />
+          </>
         )}
       </div>
 

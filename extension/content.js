@@ -262,10 +262,15 @@
 
   // Format model ID to human-readable name
   function formatModelName(modelId) {
-    const normalizedId = String(modelId).toLowerCase();
+    if (!modelId) return 'Unknown';
+    const normalizedId = String(modelId).toLowerCase().trim();
 
-    // Map various model ID formats to readable names
-    const modelMap = {
+    // Known display-name overrides (keep in sync with backend tier inference)
+    const explicitMap = {
+      'claude-opus-4-7': 'Claude Opus 4.7',
+      'claude-sonnet-4-6': 'Claude Sonnet 4.6',
+      'claude-haiku-4-5': 'Claude Haiku 4.5',
+      'claude-3-7-sonnet': 'Claude 3.7 Sonnet',
       'claude-3-5-sonnet': 'Claude 3.5 Sonnet',
       'claude-3-5-haiku': 'Claude 3.5 Haiku',
       'claude-3-opus': 'Claude 3 Opus',
@@ -275,20 +280,30 @@
       'claude-2': 'Claude 2'
     };
 
-    // Check exact matches first
-    if (modelMap[normalizedId]) {
-      return modelMap[normalizedId];
-    }
+    // Strip date suffix for matching: claude-opus-4-7-20251101 → claude-opus-4-7
+    const stripped = normalizedId.replace(/-\d{8}$/, '');
+    if (explicitMap[stripped]) return explicitMap[stripped];
 
-    // Check partial matches
-    for (const [key, value] of Object.entries(modelMap)) {
-      if (normalizedId.includes(key)) {
-        return value;
+    // Generic claude-* fallback: derive a name like "Claude Opus 4.7"
+    const TIERS = ['haiku', 'sonnet', 'opus'];
+    const match = stripped.match(/^claude-([a-z0-9-]+)$/);
+    if (match) {
+      const parts = match[1].split('-');
+      const tier = TIERS.find((t) => parts.includes(t));
+      if (tier) {
+        const tierIdx = parts.indexOf(tier);
+        const versionParts = parts.slice(0, tierIdx).concat(parts.slice(tierIdx + 1));
+        const version = versionParts.join('.');
+        const cap = tier.charAt(0).toUpperCase() + tier.slice(1);
+        const versionFirst = tierIdx > 0 && /^\d/.test(parts[0]);
+        return (versionFirst ? `Claude ${version} ${cap}` : `Claude ${cap} ${version}`)
+          .replace(/\s+/g, ' ')
+          .trim();
       }
     }
 
-    // Fallback: format the ID nicely
-    return modelId?.split('/').pop() || 'Claude 3.5 Sonnet';
+    // Last resort: pass the raw ID — backend's normalizeIncomingModel will handle it.
+    return modelId;
   }
 
   console.log('✅ Claude Usage Tracker ready - monitoring API calls');

@@ -1,10 +1,17 @@
 import { Request, Response } from 'express';
 import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
 import type { UsageTrackRequest, UsageTrackResponse, UsageSummary, UsageRecord, ModelBreakdown } from '../types/index.js';
+import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow } from '../services/modelNormalizer.js';
+import { upsertPricing } from '../services/pricingService.js';
 
 interface PricingRow {
+  model: string;
   input_price: number;
   output_price: number;
+  source: string;
+  status: string;
+  tier: string | null;
+  api_id: string | null;
 }
 
 interface SummaryRow {
@@ -15,10 +22,13 @@ interface SummaryRow {
   total_cost: number;
 }
 
-export async function trackUsage(req: Request<unknown, unknown, UsageTrackRequest>, res: Response<UsageTrackResponse>): Promise<void> {
+export async function trackUsage(
+  req: Request<unknown, unknown, UsageTrackRequest>,
+  res: Response<UsageTrackResponse>
+): Promise<void> {
   try {
     const {
-      model,
+      model: rawModel,
       input_tokens,
       output_tokens,
       conversation_id,
@@ -28,22 +38,60 @@ export async function trackUsage(req: Request<unknown, unknown, UsageTrackReques
       response_metadata = null
     } = req.body;
 
-    if (!model || input_tokens === undefined || output_tokens === undefined) {
+    if (!rawModel || input_tokens === undefined || output_tokens === undefined) {
       res.status(400).json({ success: false, error: 'Missing required fields' } as any);
       return;
     }
 
-    const total_tokens = input_tokens + output_tokens;
+    // Normalize the incoming model id/name against existing pricing rows
+    const allRows = (await allQuery('SELECT * FROM pricing')) as KnownRow[];
+    const normalized = normalizeIncomingModel(rawModel, allRows);
+    const model = normalized.displayName;
 
-    // Get pricing for this model
-    const pricing = await getQuery('SELECT * FROM pricing WHERE model = ?', [model]) as PricingRow | undefined;
-    let cost = 0;
+    let pricing = (await getQuery(
+      'SELECT * FROM pricing WHERE model = ?',
+      [model]
+    )) as PricingRow | undefined;
 
-    if (pricing) {
-      cost = (input_tokens * pricing.input_price + output_tokens * pricing.output_price) / 1000000;
+    // Auto-create on first sighting
+    if (!pricing) {
+      const tierPrice = tierDefaultPrice(normalized.tier, allRows);
+      if (tierPrice) {
+        await upsertPricing({
+          model,
+          inputPrice: tierPrice.input,
+          outputPrice: tierPrice.output,
+          source: 'tier_default',
+          status: 'active',
+          tier: normalized.tier,
+          apiId: normalized.apiId
+        });
+        console.log(`Auto-created tier_default pricing for new model: ${model}`);
+      } else {
+        await upsertPricing({
+          model,
+          inputPrice: 0,
+          outputPrice: 0,
+          source: 'tier_default',
+          status: 'pending_confirmation',
+          tier: normalized.tier,
+          apiId: normalized.apiId
+        });
+        console.log(`Auto-created pending_confirmation pricing for unknown model: ${model}`);
+      }
+      pricing = (await getQuery(
+        'SELECT * FROM pricing WHERE model = ?',
+        [model]
+      )) as PricingRow | undefined;
     }
 
-    // Convert response_metadata to JSON string if it's an object
+    const total_tokens = input_tokens + output_tokens;
+    let cost = 0;
+    if (pricing) {
+      cost =
+        (input_tokens * pricing.input_price + output_tokens * pricing.output_price) / 1_000_000;
+    }
+
     const metadataJson = response_metadata
       ? typeof response_metadata === 'string'
         ? response_metadata
@@ -71,7 +119,7 @@ export async function trackUsage(req: Request<unknown, unknown, UsageTrackReques
 
     res.status(201).json({
       success: true,
-      id: (result.lastID as number),
+      id: result.lastID as number,
       cost: cost.toFixed(4)
     });
   } catch (error) {

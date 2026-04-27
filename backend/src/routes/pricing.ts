@@ -1,10 +1,12 @@
 import express, { Router } from 'express';
 import {
   getPricing,
-  updatePricing
+  updatePricing,
+  confirmPricing
 } from '../controllers/pricingController.js';
 import {
   updatePricingValidator,
+  confirmPricingValidator,
   handleValidationErrors
 } from '../middleware/validators.js';
 
@@ -15,5 +17,8 @@ router.get('/', getPricing);
 
 // Update pricing for a model
 router.put('/:model', updatePricingValidator, handleValidationErrors, updatePricing);
+
+// Confirm pricing (transition from pending_confirmation to active)
+router.post('/:model/confirm', confirmPricingValidator, handleValidationErrors, confirmPricing);
 
 export default router;

@@ -38,7 +38,10 @@ export interface PricingData {
   input_price: number;
   output_price: number;
   last_updated: string;
-  source: 'manual' | 'auto';
+  source?: 'manual' | 'auto' | 'tier_default';
+  status?: 'active' | 'pending_confirmation' | 'deprecated';
+  tier?: 'haiku' | 'sonnet' | 'opus' | 'other' | null;
+  api_id?: string | null;
 }
 
 export type Period = 'day' | 'week' | 'month';

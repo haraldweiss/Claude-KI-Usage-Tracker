@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { updatePricing } from '../services/api';
+import { updatePricing, confirmPricing } from '../services/api';
 import { PricingTableProps } from '../types/components';
 
 export default function PricingTable(props: PricingTableProps): React.ReactElement {
@@ -66,6 +66,9 @@ export default function PricingTable(props: PricingTableProps): React.ReactEleme
               Updated
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+              Status
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
               Actions
             </th>
           </tr>
@@ -103,6 +106,28 @@ export default function PricingTable(props: PricingTableProps): React.ReactEleme
               <td className="px-6 py-4 text-sm text-gray-600">
                 {new Date(item.last_updated).toLocaleDateString()}
               </td>
+              <td className="px-4 py-2">
+                <span
+                  className={
+                    'inline-block px-2 py-0.5 text-xs rounded-full ' +
+                    (item.status === 'pending_confirmation'
+                      ? 'bg-amber-100 text-amber-800'
+                      : item.status === 'deprecated'
+                        ? 'bg-gray-200 text-gray-600'
+                        : item.source === 'manual'
+                          ? 'bg-blue-100 text-blue-800'
+                          : item.source === 'auto'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-slate-100 text-slate-700')
+                  }
+                >
+                  {item.status === 'pending_confirmation'
+                    ? 'Needs review'
+                    : item.status === 'deprecated'
+                      ? 'Deprecated'
+                      : (item.source ?? 'unknown')}
+                </span>
+              </td>
               <td className="px-6 py-4 text-sm">
                 {editing[item.model] ? (
                   <>
@@ -121,12 +146,29 @@ export default function PricingTable(props: PricingTableProps): React.ReactEleme
                     </button>
                   </>
                 ) : (
-                  <button
-                    onClick={() => handleEdit(item.model)}
-                    className="text-blue-600 hover:text-blue-900 font-medium"
-                  >
-                    Edit
-                  </button>
+                  <>
+                    {item.status === 'pending_confirmation' && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await confirmPricing(item.model, item.input_price, item.output_price);
+                            if (onUpdate) onUpdate();
+                          } catch (err) {
+                            alert('Confirm failed: ' + (err instanceof Error ? err.message : 'unknown error'));
+                          }
+                        }}
+                        className="px-3 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600 mr-2"
+                      >
+                        Confirm
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleEdit(item.model)}
+                      className="text-blue-600 hover:text-blue-900 font-medium"
+                    >
+                      Edit
+                    </button>
+                  </>
                 )}
               </td>
             </tr>

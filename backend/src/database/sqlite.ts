@@ -68,17 +68,7 @@ export function initDatabase(): Promise<void> {
           response_metadata TEXT
         )
       `, (err: Error | null) => {
-        if (err) {
-          // Table might already exist from an older schema version; attempt a
-          // non-destructive migration to add any missing columns.
-          if (err.message.includes('already exists')) {
-            addMissingColumns().catch((migrationErr: Error) => {
-              console.error('Failed to migrate usage_records table:', migrationErr);
-            });
-          } else {
-            reject(err);
-          }
-        }
+        if (err && !err.message.includes('already exists')) reject(err);
       });
 
       // Pricing table
@@ -92,7 +82,7 @@ export function initDatabase(): Promise<void> {
           source TEXT DEFAULT 'anthropic'
         )
       `, (err: Error | null) => {
-        if (err) reject(err);
+        if (err && !err.message.includes('already exists')) reject(err);
       });
 
       // Model analysis table (cached statistics)
@@ -108,7 +98,7 @@ export function initDatabase(): Promise<void> {
           last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `, (err: Error | null) => {
-        if (err) reject(err);
+        if (err && !err.message.includes('already exists')) reject(err);
       });
 
       // Create indexes
@@ -117,32 +107,54 @@ export function initDatabase(): Promise<void> {
       database.run('CREATE INDEX IF NOT EXISTS idx_source ON usage_records(source)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_success_status ON usage_records(success_status)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_task_desc ON usage_records(task_description)');
-      database.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', (err: Error | null) => {
-        if (err) reject(err);
-        else resolve();
+      database.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', async (err: Error | null) => {
+        if (err) return reject(err);
+        // After tables and indexes exist, run additive column migrations and
+        // the source-value rewrite. Awaited here so callers (seedFromFallback)
+        // can rely on the new columns being present when initDatabase resolves.
+        try {
+          await addMissingColumns('usage_records', [
+            { name: 'task_description', ddl: 'TEXT' },
+            { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
+            { name: 'response_metadata', ddl: 'TEXT' }
+          ]);
+          await addMissingColumns('pricing', [
+            { name: 'api_id', ddl: 'TEXT' },
+            { name: 'status', ddl: "TEXT DEFAULT 'active'" },
+            { name: 'tier', ddl: 'TEXT' }
+          ]);
+          await new Promise<void>((res, rej) => {
+            database.run(
+              "UPDATE pricing SET source = 'auto' WHERE source = 'anthropic'",
+              (uErr: Error | null) => (uErr ? rej(uErr) : res())
+            );
+          });
+          resolve();
+        } catch (migrationErr) {
+          reject(migrationErr as Error);
+        }
       });
     });
   });
 }
 
 /**
- * Non-destructive migration: adds any columns that were introduced after the
- * original schema to an existing `usage_records` table. Uses PRAGMA to detect
- * which columns already exist and only runs ALTER TABLE for missing ones.
- * Safe to call multiple times; already-present columns are skipped silently.
+ * Non-destructive migration: adds any missing columns to a specified table.
+ * Uses PRAGMA to detect which columns already exist and only runs ALTER TABLE
+ * for missing ones. Safe to call multiple times; already-present columns are skipped silently.
+ * @param tableName - Name of the table to migrate
+ * @param required - Array of required column definitions
  */
-function addMissingColumns(): Promise<void> {
+function addMissingColumns(
+  tableName: string,
+  required: ColumnDefinition[]
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const database = getDb();
-    database.all('PRAGMA table_info(usage_records)', (err: Error | null, rows: TableInfo[] | undefined) => {
+    database.all(`PRAGMA table_info(${tableName})`, (err: Error | null, rows: TableInfo[] | undefined) => {
       if (err) return reject(err);
 
       const existing = new Set<string>((rows || []).map((r) => r.name as string));
-      const required: ColumnDefinition[] = [
-        { name: 'task_description', ddl: 'TEXT' },
-        { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
-        { name: 'response_metadata', ddl: 'TEXT' }
-      ];
       const missing = required.filter((c) => !existing.has(c.name));
 
       if (missing.length === 0) {
@@ -153,7 +165,7 @@ function addMissingColumns(): Promise<void> {
       let failed = false;
       for (const col of missing) {
         database.run(
-          `ALTER TABLE usage_records ADD COLUMN ${col.name} ${col.ddl}`,
+          `ALTER TABLE ${tableName} ADD COLUMN ${col.name} ${col.ddl}`,
           (alterErr: Error | null) => {
             if (failed) return;
             if (alterErr) {

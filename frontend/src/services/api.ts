@@ -81,6 +81,25 @@ export async function updatePricing(
 }
 
 /**
+ * Confirm pricing for a newly-detected model, optionally overriding prices
+ */
+export async function confirmPricing(
+  model: string,
+  inputPrice?: number,
+  outputPrice?: number
+): Promise<void> {
+  const body: Record<string, number> = {};
+  if (inputPrice !== undefined) body.inputPrice = inputPrice;
+  if (outputPrice !== undefined) body.outputPrice = outputPrice;
+  const res = await fetch(`${API_BASE}/pricing/${encodeURIComponent(model)}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`Confirm failed: HTTP ${res.status}`);
+}
+
+/**
  * Get model recommendation for a task
  */
 export async function recommendModel(

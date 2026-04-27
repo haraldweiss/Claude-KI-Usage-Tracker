@@ -1,18 +1,18 @@
 import { getQuery, allQuery, runQuery } from '../database/sqlite.js';
+import { fetchLiteLLMPricing, type UpstreamModel } from './litellmPricingSource.js';
+import { decideUpdateAction } from './pricingUpdatePolicy.js';
+import { inferTier } from './modelNormalizer.js';
 import type { PricingUpdateResult, RecalculateCostsResult } from '../types/index.js';
-
-// Anthropic's default pricing (can be updated manually in settings)
-const DEFAULT_PRICING: Record<string, { input: number; output: number }> = {
-  'Claude 3.5 Sonnet': { input: 3, output: 15 },
-  'Claude 3.5 Haiku': { input: 0.8, output: 4 },
-  'Claude 3 Opus': { input: 15, output: 75 }
-};
+import { pricingFallback } from '../data/pricing-fallback.js';
 
 interface PricingRecord {
   model: string;
   input_price: number;
   output_price: number;
-  source?: string;
+  source: string;
+  status: string;
+  tier: string | null;
+  api_id: string | null;
   last_updated?: string;
 }
 
@@ -27,6 +27,9 @@ interface FormattedPricing {
     inputPrice: number;
     outputPrice: number;
     source: string;
+    status: string;
+    tier: string | null;
+    apiId: string | null;
     lastUpdated: string | null;
   };
 }
@@ -37,188 +40,206 @@ interface UsageRecord {
   output_tokens: number;
 }
 
-/**
- * Validate pricing object for XSS/injection attacks
- * @param pricing - Pricing object with model, inputPrice, outputPrice
- * @returns True if pricing is valid
- * @throws Error if pricing contains invalid data
- */
 export function validatePricing(pricing: PricingInput): boolean {
   if (!pricing || typeof pricing !== 'object') {
     throw new Error('Pricing must be an object');
   }
-
   const { model, inputPrice, outputPrice } = pricing;
-
-  // Validate model name
   if (!model || typeof model !== 'string') {
     throw new Error('Model must be a non-empty string');
   }
-
-  // Check for XSS/injection attempts in model name
   const dangerousPatterns = ['<', '>', '"', '\'', '&', ';', '\\', '/*', '*/'];
-  if (dangerousPatterns.some(pattern => model.includes(pattern))) {
+  if (dangerousPatterns.some((p) => model.includes(p))) {
     throw new Error('Model name contains invalid characters');
   }
-
-  // Validate input price
   if (typeof inputPrice !== 'number' || inputPrice < 0) {
     throw new Error('Input price must be a non-negative number');
   }
-
-  // Validate output price
   if (typeof outputPrice !== 'number' || outputPrice < 0) {
     throw new Error('Output price must be a non-negative number');
   }
-
-  // Check for unreasonable values (sanity check)
   if (inputPrice > 1000 || outputPrice > 1000) {
     throw new Error('Price values seem unreasonably high (max 1000)');
   }
-
   return true;
 }
 
-/**
- * Format pricing response for API
- * @param pricingRecords - Raw pricing records from database
- * @returns Formatted pricing response
- */
 export function formatPricingResponse(pricingRecords: PricingRecord[]): FormattedPricing {
-  if (!Array.isArray(pricingRecords)) {
-    throw new Error('Pricing records must be an array');
-  }
-
+  if (!Array.isArray(pricingRecords)) throw new Error('Pricing records must be an array');
   const formatted: FormattedPricing = {};
-
   for (const record of pricingRecords) {
-    if (!record || typeof record !== 'object') {
-      continue;
-    }
-
-    const { model, input_price, output_price, source, last_updated } = record;
-
-    if (!model) {
-      continue;
-    }
-
-    formatted[model] = {
-      inputPrice: parseFloat(input_price.toString()) || 0,
-      outputPrice: parseFloat(output_price.toString()) || 0,
-      source: source || 'unknown',
-      lastUpdated: last_updated || null
+    if (!record || typeof record !== 'object' || !record.model) continue;
+    formatted[record.model] = {
+      inputPrice: parseFloat(String(record.input_price)) || 0,
+      outputPrice: parseFloat(String(record.output_price)) || 0,
+      source: record.source || 'unknown',
+      status: record.status || 'active',
+      tier: record.tier ?? null,
+      apiId: record.api_id ?? null,
+      lastUpdated: record.last_updated || null
     };
   }
-
   return formatted;
 }
 
 /**
- * Fetch latest pricing from Anthropic
- * This is a placeholder - actual implementation would fetch from:
- * - Anthropic's API (if available)
- * - Anthropic's pricing page (via scraping)
- * - A public pricing endpoint
+ * Insert or update a pricing row. Used by manual edits, the LiteLLM fetch,
+ * and the extension auto-detect path. Caller decides `source`/`status`.
  */
-export async function fetchLatestPricing(): Promise<Record<string, { input: number; output: number }> | null> {
-  try {
-    console.log('Fetching latest pricing from Anthropic...');
+export async function upsertPricing(args: {
+  model: string;
+  inputPrice: number;
+  outputPrice: number;
+  source: string;
+  status?: string;
+  tier?: string | null;
+  apiId?: string | null;
+}): Promise<PricingUpdateResult> {
+  const { model, inputPrice, outputPrice, source } = args;
+  const status = args.status ?? 'active';
+  const tier = args.tier ?? inferTier(model);
+  const apiId = args.apiId ?? null;
 
-    // For now, return the hardcoded pricing
-    // In production, this could fetch from:
-    // 1. Anthropic API endpoint (if they provide one)
-    // 2. Web scrape from https://www.anthropic.com/pricing
-    // 3. A JSON file from Anthropic's CDN
+  await runQuery(
+    `INSERT INTO pricing (model, input_price, output_price, source, status, tier, api_id, last_updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(model) DO UPDATE SET
+       input_price = excluded.input_price,
+       output_price = excluded.output_price,
+       source = excluded.source,
+       status = excluded.status,
+       tier = excluded.tier,
+       api_id = COALESCE(excluded.api_id, pricing.api_id),
+       last_updated = CURRENT_TIMESTAMP`,
+    [model, inputPrice, outputPrice, source, status, tier, apiId]
+  );
 
-    return DEFAULT_PRICING;
-  } catch (error) {
-    console.error('Error fetching latest pricing:', error);
-    return null;
-  }
+  return {
+    success: true,
+    model,
+    newPricing: { input_price: inputPrice, output_price: outputPrice }
+  };
 }
 
 /**
- * Update pricing in database
+ * Backwards-compatible signature for the existing PUT /api/pricing/:model endpoint.
+ * Marks the row as manually-set.
  */
 export async function updatePricingInDB(
   model: string,
   inputPrice: number,
   outputPrice: number
 ): Promise<PricingUpdateResult> {
-  try {
-    const existing = (await getQuery('SELECT * FROM pricing WHERE model = ?', [model])) as PricingRecord | undefined;
-
-    if (existing) {
-      await runQuery(
-        'UPDATE pricing SET input_price = ?, output_price = ?, source = ?, last_updated = CURRENT_TIMESTAMP WHERE model = ?',
-        [inputPrice, outputPrice, 'manual', model]
-      );
-    } else {
-      await runQuery(
-        'INSERT INTO pricing (model, input_price, output_price, source) VALUES (?, ?, ?, ?)',
-        [model, inputPrice, outputPrice, 'manual']
-      );
-    }
-
-    console.log(`Updated pricing for ${model}`);
-
-    return {
-      success: true,
-      model,
-      newPricing: {
-        input_price: inputPrice,
-        output_price: outputPrice
-      }
-    };
-  } catch (error) {
-    console.error('Error updating pricing:', error);
-    throw error;
-  }
+  return upsertPricing({
+    model,
+    inputPrice,
+    outputPrice,
+    source: 'manual',
+    status: 'active'
+  });
 }
 
 /**
- * Check and update pricing if changed
+ * Seed the pricing table from the bundled fallback data when the table is empty.
+ * Called on server startup. Uses a TypeScript module instead of filesystem reads,
+ * ensuring the data is compiled into dist/ and available in production.
  */
-export async function checkAndUpdatePricing(): Promise<boolean> {
+export async function seedFromFallbackIfEmpty(): Promise<void> {
+  const countRow = (await getQuery('SELECT COUNT(*) as count FROM pricing')) as
+    | { count: number }
+    | undefined;
+  if (countRow && countRow.count > 0) return;
   try {
-    const latestPricing = await fetchLatestPricing();
-    if (!latestPricing) {
-      console.log('Could not fetch latest pricing');
-      return false;
+    for (const m of pricingFallback.models) {
+      await upsertPricing({
+        model: m.displayName,
+        inputPrice: m.inputPrice,
+        outputPrice: m.outputPrice,
+        source: 'auto',
+        status: 'active',
+        tier: m.tier,
+        apiId: m.api_id
+      });
     }
+    console.log(`Seeded ${pricingFallback.models.length} pricing rows from fallback`);
+  } catch (err) {
+    console.error('Failed to seed pricing from fallback:', (err as Error).message);
+  }
+}
 
-    let updated = false;
-
-    for (const [model, prices] of Object.entries(latestPricing)) {
-      const current = (await getQuery('SELECT * FROM pricing WHERE model = ?', [model])) as PricingRecord | undefined;
-
-      // Only update if prices changed and source is 'anthropic' (not manually edited)
-      if (
-        current &&
-        (current.input_price !== prices.input || current.output_price !== prices.output) &&
-        current.source === 'anthropic'
-      ) {
-        console.log(
-          `Pricing changed for ${model}: ${current.input_price}/${current.output_price} -> ${prices.input}/${prices.output}`
-        );
-        await updatePricingInDB(model, prices.input, prices.output);
-        updated = true;
-
-        // Recalculate costs for recent records
-        await recalculateCosts(model);
-      }
-    }
-
-    return updated;
-  } catch (error) {
-    console.error('Error checking pricing:', error);
+export async function checkAndUpdatePricing(): Promise<boolean> {
+  const upstream = await fetchLiteLLMPricing();
+  if (!upstream) {
+    console.log('LiteLLM fetch returned null — skipping update cycle');
     return false;
   }
+
+  // Index upstream by display name (canonical key in our DB)
+  const upstreamByName = new Map<string, UpstreamModel>();
+  for (const m of upstream) upstreamByName.set(m.displayName, m);
+
+  const current = (await allQuery('SELECT * FROM pricing')) as PricingRecord[];
+  const currentByName = new Map(current.map((r) => [r.model, r]));
+
+  let changed = false;
+
+  // 1. Apply updates to existing rows
+  for (const row of current) {
+    try {
+      const up = upstreamByName.get(row.model) ?? null;
+      const action = decideUpdateAction(row, up ? { input: up.inputPrice, output: up.outputPrice } : null);
+      if (action === 'skip') continue;
+      if (action === 'mark_deprecated') {
+        await runQuery(
+          "UPDATE pricing SET status = 'deprecated', last_updated = CURRENT_TIMESTAMP WHERE model = ?",
+          [row.model]
+        );
+        console.log(`Marked deprecated: ${row.model}`);
+        changed = true;
+        continue;
+      }
+      if (up && (action === 'overwrite' || action === 'graduate')) {
+        await upsertPricing({
+          model: row.model,
+          inputPrice: up.inputPrice,
+          outputPrice: up.outputPrice,
+          source: 'auto',
+          status: 'active',
+          tier: up.tier,
+          apiId: up.api_id
+        });
+        console.log(`${action} ${row.model}: ${up.inputPrice}/${up.outputPrice}`);
+        await recalculateCosts(row.model);
+        changed = true;
+      }
+    } catch (err) {
+      console.error(`Failed to update pricing for ${row.model}:`, (err as Error).message);
+    }
+  }
+
+  // 2. Insert new upstream models that aren't in our DB yet
+  for (const m of upstream) {
+    try {
+      if (currentByName.has(m.displayName)) continue;
+      await upsertPricing({
+        model: m.displayName,
+        inputPrice: m.inputPrice,
+        outputPrice: m.outputPrice,
+        source: 'auto',
+        status: 'active',
+        tier: m.tier,
+        apiId: m.api_id
+      });
+      console.log(`Added new model from upstream: ${m.displayName}`);
+      changed = true;
+    } catch (err) {
+      console.error(`Failed to insert new model ${m.displayName}:`, (err as Error).message);
+    }
+  }
+
+  return changed;
 }
 
-/**
- * Recalculate costs for a model's recent records
- */
 export async function recalculateCosts(model: string): Promise<RecalculateCostsResult> {
   try {
     const records = (await allQuery(
@@ -226,18 +247,19 @@ export async function recalculateCosts(model: string): Promise<RecalculateCostsR
        WHERE model = ? AND datetime(timestamp) >= datetime('now', '-30 days')`,
       [model]
     )) as UsageRecord[];
-
-    const pricing = (await getQuery('SELECT * FROM pricing WHERE model = ?', [model])) as PricingRecord | undefined;
-
+    const pricing = (await getQuery(
+      'SELECT * FROM pricing WHERE model = ?',
+      [model]
+    )) as PricingRecord | undefined;
     if (pricing && records.length > 0) {
-      for (const record of records) {
+      for (const r of records) {
         const cost =
-          (record.input_tokens * pricing.input_price + record.output_tokens * pricing.output_price) / 1000000;
-        await runQuery('UPDATE usage_records SET cost = ? WHERE id = ?', [cost, record.id]);
+          (r.input_tokens * pricing.input_price + r.output_tokens * pricing.output_price) /
+          1_000_000;
+        await runQuery('UPDATE usage_records SET cost = ? WHERE id = ?', [cost, r.id]);
       }
       console.log(`Recalculated costs for ${records.length} records of ${model}`);
     }
-
     return {
       success: true,
       model,
@@ -250,9 +272,6 @@ export async function recalculateCosts(model: string): Promise<RecalculateCostsR
   }
 }
 
-/**
- * Get all current pricing
- */
 export async function getAllPricing(): Promise<PricingRecord[]> {
   try {
     return (await allQuery('SELECT * FROM pricing ORDER BY model ASC')) as PricingRecord[];
@@ -262,24 +281,20 @@ export async function getAllPricing(): Promise<PricingRecord[]> {
   }
 }
 
-/**
- * Schedule daily pricing check
- * This should be called on server startup
- */
 export function schedulePricingCheck(cronJob: any): void {
   try {
-    // Run pricing check daily at 2 AM
     cronJob.schedule('0 2 * * *', async () => {
       console.log('Running scheduled pricing check...');
       const updated = await checkAndUpdatePricing();
-      if (updated) {
-        console.log('Pricing was updated');
-      } else {
-        console.log('No pricing changes detected');
-      }
+      console.log(updated ? 'Pricing was updated' : 'No pricing changes detected');
     });
     console.log('Pricing check scheduled for daily at 2 AM');
   } catch (error) {
     console.error('Error scheduling pricing check:', error);
   }
+}
+
+// Exported for legacy callers; now delegates to the LiteLLM source.
+export async function fetchLatestPricing(): Promise<UpstreamModel[] | null> {
+  return fetchLiteLLMPricing();
 }

@@ -7,6 +7,39 @@
   const originalFetch = window.fetch;
   const API_BASE = 'http://localhost:3000/api';
 
+  // Dedupe recently-tracked usage events. Page reloads, retries, and streaming
+  // chunk re-emissions can deliver the same usage payload more than once. Keep
+  // a sliding window of fingerprints so we count each message exactly once.
+  const TRACKED_TTL_MS = 5 * 60 * 1000;
+  const recentlyTracked = new Map(); // fingerprint -> timestamp
+
+  function pruneRecentlyTracked() {
+    const cutoff = Date.now() - TRACKED_TTL_MS;
+    for (const [fp, ts] of recentlyTracked) {
+      if (ts < cutoff) recentlyTracked.delete(fp);
+    }
+  }
+
+  function alreadyTracked(fingerprint) {
+    pruneRecentlyTracked();
+    if (recentlyTracked.has(fingerprint)) return true;
+    recentlyTracked.set(fingerprint, Date.now());
+    return false;
+  }
+
+  // Resolve the HTTP method for a fetch() call. Handles both shapes:
+  //   fetch(url, { method: 'POST' })
+  //   fetch(new Request(url, { method: 'POST' }))
+  function resolveMethod(args) {
+    const init = args[1];
+    if (init && typeof init.method === 'string') return init.method.toUpperCase();
+    const resource = args[0];
+    if (resource && typeof resource === 'object' && typeof resource.method === 'string') {
+      return resource.method.toUpperCase();
+    }
+    return 'GET';
+  }
+
   // Override fetch to intercept Claude.ai API calls
   window.fetch = function(...args) {
     const [resource] = args;
@@ -15,8 +48,14 @@
     // Check if this is a Claude.ai API call
     const isClaudeAPI = resourceString.includes('claude.ai') && resourceString.includes('/api/');
 
-    if (isClaudeAPI) {
-      console.log('📡 Claude API call detected:', resourceString);
+    // Skip GETs entirely — they fetch existing data (conversation history,
+    // org info, etc.) and would cause double-counting on every page reload.
+    // Real message sends use POST/PUT.
+    const method = resolveMethod(args);
+    const isWrite = method !== 'GET' && method !== 'HEAD';
+
+    if (isClaudeAPI && isWrite) {
+      console.log(`📡 Claude API ${method}:`, resourceString);
 
       // Intercept and monitor the response
       return originalFetch.apply(this, args)
@@ -43,7 +82,7 @@
         });
     }
 
-    // For non-Claude APIs, use original fetch
+    // For non-Claude APIs and read-only requests, use original fetch
     return originalFetch.apply(this, args);
   };
 
@@ -217,6 +256,21 @@
       // Only track if we have meaningful token data
       if (inputTokens > 0 || outputTokens > 0) {
         model = model || 'Claude 3.5 Sonnet';
+
+        // Dedupe: same conversation + same token counts + same model arriving
+        // again within 5 minutes is almost certainly a re-fire (streaming
+        // chunk re-emit, page reload, retry). Use the response's own message
+        // id when available for an exact fingerprint, else fall back to a
+        // composite of conversation/model/tokens.
+        const messageId =
+          responseData?.id || responseData?.uuid || responseData?.message_id || null;
+        const fingerprint = messageId
+          ? `msg:${messageId}`
+          : `c:${conversationId || 'none'}|m:${model}|i:${inputTokens}|o:${outputTokens}`;
+        if (alreadyTracked(fingerprint)) {
+          console.log('⏭️  Skipping duplicate usage event:', fingerprint);
+          return;
+        }
 
         // Extract new fields for recommendations
         const taskDescription = getTaskDescription();

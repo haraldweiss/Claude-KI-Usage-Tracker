@@ -1,6 +1,6 @@
-const { describe, it, expect } = require('@jest/globals');
+import { describe, it, expect } from '@jest/globals';
+import { parseLiteLLM } from '../../services/litellmPricingSource.js';
 
-// Sample matching LiteLLM's model_prices_and_context_window.json shape.
 const SAMPLE = {
   'claude-opus-4-7-20251101': {
     litellm_provider: 'anthropic',
@@ -33,30 +33,10 @@ const SAMPLE = {
   'malformed-anthropic': {
     litellm_provider: 'anthropic',
     mode: 'chat'
-    // missing cost fields
   }
 };
 
-// Pure parser logic mirrored here for testing — same code lives in src/services/litellmPricingSource.ts
-function parseLiteLLM(raw) {
-  if (!raw || typeof raw !== 'object') return [];
-  const out = [];
-  for (const [apiId, entry] of Object.entries(raw)) {
-    if (!entry || typeof entry !== 'object') continue;
-    if (entry.litellm_provider !== 'anthropic') continue;
-    const inputCpt = Number(entry.input_cost_per_token);
-    const outputCpt = Number(entry.output_cost_per_token);
-    if (!Number.isFinite(inputCpt) || !Number.isFinite(outputCpt)) continue;
-    out.push({
-      api_id: apiId,
-      inputPrice: inputCpt * 1_000_000,
-      outputPrice: outputCpt * 1_000_000
-    });
-  }
-  return out;
-}
-
-describe('litellmPricingSource.parseLiteLLM', () => {
+describe('parseLiteLLM', () => {
   it('keeps only anthropic entries', () => {
     const result = parseLiteLLM(SAMPLE);
     const ids = result.map((r) => r.api_id).sort();
@@ -69,7 +49,7 @@ describe('litellmPricingSource.parseLiteLLM', () => {
 
   it('converts cost-per-token to per-million-token units', () => {
     const result = parseLiteLLM(SAMPLE);
-    const opus = result.find((r) => r.api_id === 'claude-opus-4-7-20251101');
+    const opus = result.find((r) => r.api_id === 'claude-opus-4-7-20251101')!;
     expect(opus.inputPrice).toBeCloseTo(15, 5);
     expect(opus.outputPrice).toBeCloseTo(75, 5);
   });
@@ -81,5 +61,11 @@ describe('litellmPricingSource.parseLiteLLM', () => {
 
   it('returns [] for null input', () => {
     expect(parseLiteLLM(null)).toEqual([]);
+  });
+
+  it('returns [] for non-object input', () => {
+    expect(parseLiteLLM(undefined)).toEqual([]);
+    expect(parseLiteLLM('not an object')).toEqual([]);
+    expect(parseLiteLLM(42)).toEqual([]);
   });
 });

@@ -79,10 +79,10 @@ export default function Settings(): React.ReactElement {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-2">About Pricing</h3>
         <ul className="text-blue-800 space-y-2 text-sm">
-          <li>• Prices are fetched from Anthropic's official pricing page</li>
-          <li>• You can manually override prices by clicking "Edit"</li>
-          <li>• Changes will be applied to all future calculations</li>
-          <li>• The system checks for pricing updates automatically</li>
+          <li>• Prices sync daily from the LiteLLM community pricing index (covers all current Anthropic models)</li>
+          <li>• When the extension reports a model that isn't priced yet, the system creates a tier-default placeholder; if it can't infer a tier, it shows <em>Needs review</em> — click "Confirm" to set the real price</li>
+          <li>• You can manually override any price by clicking "Edit"; manual overrides are never auto-overwritten</li>
+          <li>• Changes apply to all future calculations and trigger a recalculation of recent records</li>
         </ul>
       </div>
 

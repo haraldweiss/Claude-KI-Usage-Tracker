@@ -2,7 +2,7 @@
   "name": "claude-usage-tracker-backend",
   "version": "1.0.0",
   "description": "Backend API for Claude Usage Tracker",
-  "main": "src/server.js",
+  "main": "dist/server.js",
   "type": "module",
   "scripts": {
     "start": "node dist/server.js",

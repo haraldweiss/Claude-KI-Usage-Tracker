@@ -43,6 +43,15 @@ export async function trackUsage(
       return;
     }
 
+    // The "Sync from Claude" popup button POSTs the cumulative totals from
+    // Claude's official settings page. Each click would otherwise append a
+    // brand-new row with the same totals — inflating the displayed token
+    // count by the full cumulative amount on every sync. Treat this source
+    // as a singleton: drop any prior sync row before inserting the fresh one.
+    if (source === 'claude_official_sync') {
+      await runQuery("DELETE FROM usage_records WHERE source = 'claude_official_sync'");
+    }
+
     // Normalize the incoming model id/name against existing pricing rows
     const allRows = (await allQuery('SELECT * FROM pricing')) as KnownRow[];
     const normalized = normalizeIncomingModel(rawModel, allRows);

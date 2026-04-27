@@ -1,6 +1,9 @@
 import * as db from '../database/sqlite.js';
+// Last-resort fallback when even loadActiveModels() throws. Updated to a
+// currently-active model on each pricing-fallback snapshot revision.
+const HARDCODED_FALLBACK_MODEL = 'Claude Sonnet 4.6';
 async function loadActiveModels() {
-    const rows = (await db.allQuery("SELECT model, input_price, output_price, tier FROM pricing WHERE status = 'active' ORDER BY model ASC"));
+    const rows = (await db.allQuery("SELECT model, input_price, output_price, tier, last_updated FROM pricing WHERE status = 'active' ORDER BY last_updated DESC, model ASC"));
     return rows;
 }
 // Complexity keywords for task analysis
@@ -196,9 +199,11 @@ export async function recommendModel(taskDescription, constraints = {}) {
         }
         // Score each model
         const scores = [];
+        const safetyByModel = new Map();
         for (const model of modelsToEvaluate) {
             const costBenefit = await calculateCostBenefit(model, complexity, 0.3, activeModels);
             const safety = await calculateSafetyScore(model);
+            safetyByModel.set(model, safety);
             const row = activeModels.find(m => m.model === model);
             if (!row)
                 continue;
@@ -234,7 +239,7 @@ export async function recommendModel(taskDescription, constraints = {}) {
         if (scores.length === 0) {
             return {
                 error: 'No models available for evaluation',
-                fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? 'Claude 3.5 Sonnet'
+                fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? HARDCODED_FALLBACK_MODEL
             };
         }
         // Prepare recommendation response
@@ -242,7 +247,7 @@ export async function recommendModel(taskDescription, constraints = {}) {
         if (!recommended) {
             return {
                 error: 'Failed to select recommendation',
-                fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? 'Claude 3.5 Sonnet'
+                fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? HARDCODED_FALLBACK_MODEL
             };
         }
         const alternatives = scores.slice(1);
@@ -265,9 +270,9 @@ export async function recommendModel(taskDescription, constraints = {}) {
         }
         // Build historicalData using tier-representative models from active DB records
         const historicalData = {
-            successRateHaiku: haikuModel ? (await calculateSafetyScore(haikuModel)).successRate || 0 : 0,
-            successRateSonnet: sonnetModel ? (await calculateSafetyScore(sonnetModel)).successRate || 0 : 0,
-            successRateOpus: opusModel ? (await calculateSafetyScore(opusModel)).successRate || 0 : 0
+            successRateHaiku: haikuModel ? safetyByModel.get(haikuModel)?.successRate || 0 : 0,
+            successRateSonnet: sonnetModel ? safetyByModel.get(sonnetModel)?.successRate || 0 : 0,
+            successRateOpus: opusModel ? safetyByModel.get(opusModel)?.successRate || 0 : 0
         };
         // Build response
         return {
@@ -301,7 +306,7 @@ export async function recommendModel(taskDescription, constraints = {}) {
         console.error('Error in recommendModel:', error);
         return {
             error: error.message,
-            fallback: 'Claude 3.5 Sonnet'
+            fallback: HARDCODED_FALLBACK_MODEL
         };
     }
 }

@@ -1,16 +1,21 @@
 import * as db from '../database/sqlite.js';
 import type { TaskComplexity, SafetyScore, ModelAnalyticsRefreshResult } from '../types/index.js';
 
+// Last-resort fallback when even loadActiveModels() throws. Updated to a
+// currently-active model on each pricing-fallback snapshot revision.
+const HARDCODED_FALLBACK_MODEL = 'Claude Sonnet 4.6';
+
 interface ActiveModel {
   model: string;
   input_price: number;
   output_price: number;
   tier: string | null;
+  last_updated: string | null;
 }
 
 async function loadActiveModels(): Promise<ActiveModel[]> {
   const rows = (await db.allQuery(
-    "SELECT model, input_price, output_price, tier FROM pricing WHERE status = 'active' ORDER BY model ASC"
+    "SELECT model, input_price, output_price, tier, last_updated FROM pricing WHERE status = 'active' ORDER BY last_updated DESC, model ASC"
   )) as ActiveModel[];
   return rows;
 }
@@ -309,9 +314,12 @@ export async function recommendModel(
 
     // Score each model
     const scores: ModelScore[] = [];
+    const safetyByModel = new Map<string, Awaited<ReturnType<typeof calculateSafetyScore>>>();
+
     for (const model of modelsToEvaluate) {
       const costBenefit = await calculateCostBenefit(model, complexity, 0.3, activeModels);
       const safety = await calculateSafetyScore(model);
+      safetyByModel.set(model, safety);
       const row = activeModels.find(m => m.model === model);
 
       if (!row) continue;
@@ -352,7 +360,7 @@ export async function recommendModel(
     if (scores.length === 0) {
       return {
         error: 'No models available for evaluation',
-        fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? 'Claude 3.5 Sonnet'
+        fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? HARDCODED_FALLBACK_MODEL
       };
     }
 
@@ -361,7 +369,7 @@ export async function recommendModel(
     if (!recommended) {
       return {
         error: 'Failed to select recommendation',
-        fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? 'Claude 3.5 Sonnet'
+        fallback: sonnetModel ?? haikuModel ?? activeModels[0]?.model ?? HARDCODED_FALLBACK_MODEL
       };
     }
 
@@ -393,9 +401,9 @@ export async function recommendModel(
 
     // Build historicalData using tier-representative models from active DB records
     const historicalData: HistoricalData = {
-      successRateHaiku: haikuModel ? (await calculateSafetyScore(haikuModel)).successRate || 0 : 0,
-      successRateSonnet: sonnetModel ? (await calculateSafetyScore(sonnetModel)).successRate || 0 : 0,
-      successRateOpus: opusModel ? (await calculateSafetyScore(opusModel)).successRate || 0 : 0
+      successRateHaiku: haikuModel ? safetyByModel.get(haikuModel)?.successRate || 0 : 0,
+      successRateSonnet: sonnetModel ? safetyByModel.get(sonnetModel)?.successRate || 0 : 0,
+      successRateOpus: opusModel ? safetyByModel.get(opusModel)?.successRate || 0 : 0
     };
 
     // Build response
@@ -430,7 +438,7 @@ export async function recommendModel(
     console.error('Error in recommendModel:', error);
     return {
       error: (error as Error).message,
-      fallback: 'Claude 3.5 Sonnet'
+      fallback: HARDCODED_FALLBACK_MODEL
     };
   }
 }

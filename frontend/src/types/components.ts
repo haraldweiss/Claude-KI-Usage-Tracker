@@ -105,3 +105,11 @@ export interface BarChartProps {
   data: BarChartData[];
   title?: string;
 }
+
+// PeriodFilter types
+export type PeriodType = 'all' | '30d' | '7d';
+
+export interface PeriodFilterProps {
+  activePeriod: PeriodType;
+  onPeriodChange: (period: PeriodType) => void;
+}

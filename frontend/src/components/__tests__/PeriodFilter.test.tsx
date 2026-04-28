@@ -105,8 +105,65 @@ describe('PeriodFilter', () => {
 
     const alleButton = screen.getByRole('radio', { name: 'Alle' });
     expect(alleButton).toHaveAttribute('aria-checked', 'true');
+    expect(alleButton).toHaveAttribute('tabIndex', '0');
 
     const button30d = screen.getByRole('radio', { name: '30d' });
     expect(button30d).toHaveAttribute('aria-checked', 'false');
+    expect(button30d).toHaveAttribute('tabIndex', '-1');
+  });
+
+  it('supports keyboard navigation with ArrowRight', async () => {
+    const handlePeriodChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <PeriodFilter
+        activePeriod="all"
+        onPeriodChange={handlePeriodChange}
+      />
+    );
+
+    const alleButton = screen.getByRole('radio', { name: 'Alle' });
+    await user.click(alleButton);
+    await user.keyboard('{ArrowRight}');
+
+    expect(handlePeriodChange).toHaveBeenCalledWith('30d');
+  });
+
+  it('supports keyboard navigation with ArrowLeft', async () => {
+    const handlePeriodChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <PeriodFilter
+        activePeriod="30d"
+        onPeriodChange={handlePeriodChange}
+      />
+    );
+
+    const button30d = screen.getByRole('radio', { name: '30d' });
+    await user.click(button30d);
+    await user.keyboard('{ArrowLeft}');
+
+    expect(handlePeriodChange).toHaveBeenCalledWith('all');
+  });
+
+  it('wraps around with keyboard navigation', async () => {
+    const handlePeriodChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <PeriodFilter
+        activePeriod="all"
+        onPeriodChange={handlePeriodChange}
+      />
+    );
+
+    const alleButton = screen.getByRole('radio', { name: 'Alle' });
+    await user.click(alleButton);
+    await user.keyboard('{ArrowLeft}');
+
+    // Should wrap from Alle to 7d
+    expect(handlePeriodChange).toHaveBeenCalledWith('7d');
   });
 });

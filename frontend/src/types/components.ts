@@ -94,3 +94,14 @@ export interface ErrorProps {
   error?: Error | string | null;
   onDismiss?: () => void;
 }
+
+// BarChart types
+export interface BarChartData {
+  date: string;
+  tokens: number;
+}
+
+export interface BarChartProps {
+  data: BarChartData[];
+  title?: string;
+}

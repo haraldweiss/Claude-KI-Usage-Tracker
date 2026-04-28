@@ -87,83 +87,33 @@ function formatNumber(num) {
   return num.toString();
 }
 
-// Sync usage from Claude's official settings page
+// Sync usage from Claude's official settings page.
+// Delegates to the background's auto-sync, which finds an open settings/usage
+// tab or opens a hidden one, scrapes, posts, and closes.
 async function syncFromClaude() {
   const syncBtn = document.getElementById('sync-btn');
   const originalText = syncBtn.textContent;
 
-  try {
-    syncBtn.textContent = '⏳ Syncing...';
-    syncBtn.disabled = true;
+  syncBtn.textContent = '⏳ Syncing...';
+  syncBtn.disabled = true;
 
-    // Query the Claude.ai settings page
-    const tabs = await chrome.tabs.query({ url: 'https://claude.ai/*' });
+  chrome.runtime.sendMessage({ type: 'TRIGGER_AUTO_SYNC' }, (response) => {
+    syncBtn.textContent = originalText;
+    syncBtn.disabled = false;
 
-    if (tabs.length === 0) {
-      showError('❌ Please open claude.ai first and go to Settings > Usage');
-      syncBtn.textContent = originalText;
-      syncBtn.disabled = false;
+    if (chrome.runtime.lastError) {
+      showError('❌ Sync failed: ' + chrome.runtime.lastError.message);
       return;
     }
 
-    // Try to send message with retry logic
-    let success = false;
-    let lastError = null;
-
-    for (let i = 0; i < 3; i++) {
-      try {
-        const response = await chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'SCRAPE_USAGE'
-        });
-
-        if (response && response.success) {
-          // Send scraped data to backend
-          const usageData = response.data;
-          console.log('Sending to backend:', usageData);
-
-          try {
-            const backendResponse = await fetch('http://localhost:3000/api/usage/track', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: 'Claude (Official Sync)',
-                input_tokens: Math.round((usageData.monthly_spent || 0) * 1000),
-                output_tokens: usageData.weekly_used || 0,
-                conversation_id: `sync-${Date.now()}`,
-                source: 'claude_official_sync'
-              })
-            });
-
-            if (backendResponse.ok) {
-              success = true;
-              showError('✅ Synced successfully! Data saved to tracker.', true);
-              setTimeout(() => {
-                loadStats();
-              }, 1000);
-              break;
-            }
-          } catch (backendErr) {
-            console.error('Backend error:', backendErr);
-            lastError = backendErr;
-          }
-        }
-      } catch (err) {
-        lastError = err;
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+    const result = response?.result;
+    if (response?.success && result?.success) {
+      showError('✅ Synced from Claude.', true);
+      setTimeout(loadStats, 800);
+    } else if (result?.skipped) {
+      showError('⚠️ Page had no usage figures to scrape. Try again in a moment.');
+    } else {
+      showError('❌ Sync failed: ' + (result?.error || response?.error || 'unknown error'));
     }
-
-    if (!success) {
-      showError('❌ Make sure you\'re on https://claude.ai/settings/usage and reload the extension');
-    }
-
-    syncBtn.textContent = originalText;
-    syncBtn.disabled = false;
-  } catch (error) {
-    console.error('Sync error:', error);
-    showError('❌ Sync failed. Reload the extension and try again.');
-    document.getElementById('sync-btn').textContent = originalText;
-    document.getElementById('sync-btn').disabled = false;
-  }
+  });
 }

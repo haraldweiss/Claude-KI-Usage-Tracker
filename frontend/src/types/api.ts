@@ -28,9 +28,11 @@ export interface UsageHistoryRecord {
 
 export interface ModelBreakdown {
   model: string;
-  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens?: number;
   request_count: number;
-  total_cost: number;
+  cost: number;
 }
 
 export interface PricingData {

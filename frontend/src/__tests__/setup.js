@@ -8,6 +8,14 @@ window.location = { reload: vi.fn() };
 // Mock fetch if needed
 global.fetch = vi.fn();
 
+// Mock ResizeObserver for recharts
+class ResizeObserverMock {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+global.ResizeObserver = ResizeObserverMock;
+
 // Suppress React warnings during tests
 const originalError = console.error;
 beforeAll(() => {

@@ -26,7 +26,7 @@ export default function BarChart({ data, title = 'Token Usage Over Time' }: BarC
       role="img"
       aria-label={title}
     >
-      <h3 className="text-lg font-semibold mb-6 text-gray-900">{title}</h3>
+      <h2 className="text-lg font-semibold mb-6 text-gray-900">{title}</h2>
       <ResponsiveContainer width="100%" height={350}>
         <RechartsBarChart data={data} margin={{ top: 20, right: 30, left: 0, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />

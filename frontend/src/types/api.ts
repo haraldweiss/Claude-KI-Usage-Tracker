@@ -9,6 +9,36 @@ export interface UsageSummaryData {
   total_output_tokens: number;
   total_cost: number;
   request_count: number;
+  combined?: CombinedSpendBreakdown;
+}
+
+// Plan B: combined claude.ai + Anthropic Console API spend breakdown.
+// Returned by GET /api/usage/summary alongside the existing aggregates.
+export interface CombinedSpendBreakdown {
+  claude_ai: ClaudeAiSpend | null;
+  anthropic_api: {
+    cost_usd: number;
+    by_workspace: ApiWorkspaceSpend[];
+  };
+}
+
+export interface ClaudeAiSpend {
+  cost_eur: number;
+  weekly_used_pct: number;
+  last_synced: string;
+}
+
+export interface ApiWorkspaceSpend {
+  workspace: string;
+  cost_usd: number;
+}
+
+export interface ConsoleKeyRecord {
+  key_name: string | null;
+  workspace: string | null;
+  key_id_suffix: string | null;
+  cost_usd: number | null;
+  last_synced: string;
 }
 
 export interface UsageHistoryRecord {

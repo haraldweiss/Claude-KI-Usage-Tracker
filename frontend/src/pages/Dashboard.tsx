@@ -4,10 +4,11 @@ import DashboardTabs from '../components/DashboardTabs';
 import PeriodFilter from '../components/PeriodFilter';
 import OverviewTab from '../components/OverviewTab';
 import ModelsTab from '../components/ModelsTab';
+import CombinedCostTab from '../components/CombinedCostTab';
 import { ModelBreakdown } from '../types/api';
 import { BarChartData, PeriodType } from '../types/components';
 
-type TabType = 'overview' | 'models';
+type TabType = 'overview' | 'models' | 'combined';
 
 export default function Dashboard(): React.ReactElement {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -97,7 +98,7 @@ export default function Dashboard(): React.ReactElement {
       </div>
 
       {/* Content based on active tab */}
-      {loading ? (
+      {loading && activeTab !== 'combined' ? (
         <div className="text-center py-12 text-gray-500">Loading...</div>
       ) : (
         <>
@@ -107,6 +108,7 @@ export default function Dashboard(): React.ReactElement {
           {activeTab === 'models' && (
             <ModelsTab models={modelData} />
           )}
+          {activeTab === 'combined' && <CombinedCostTab />}
         </>
       )}
     </div>

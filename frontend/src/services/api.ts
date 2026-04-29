@@ -11,7 +11,8 @@ import {
   Period,
   ModelRecommendation,
   ModelAnalysis,
-  OptimizationOpportunity
+  OptimizationOpportunity,
+  ConsoleKeyRecord
 } from '../types/api';
 
 const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`;
@@ -49,6 +50,16 @@ export async function getHistory(
     records: UsageHistoryRecord[];
     total: number;
   }>;
+}
+
+/**
+ * Fetch the per-key snapshot of the most recent Anthropic Console scrape.
+ * Used by the Combined Cost tab to render the per-key drilldown table.
+ */
+export async function getConsoleKeys(): Promise<{ keys: ConsoleKeyRecord[] }> {
+  const response = await fetch(`${API_BASE}/usage/console/keys`);
+  if (!response.ok) throw new Error('Failed to fetch console keys');
+  return response.json() as Promise<{ keys: ConsoleKeyRecord[] }>;
 }
 
 /**

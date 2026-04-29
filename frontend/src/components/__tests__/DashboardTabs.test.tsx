@@ -167,6 +167,25 @@ describe('DashboardTabs', () => {
     await user.click(uebersichtTab);
     await user.keyboard('{End}');
 
-    expect(handleTabChange).toHaveBeenCalledWith('models');
+    // 'combined' is now the last tab in the strip
+    expect(handleTabChange).toHaveBeenCalledWith('combined');
+  });
+
+  it('renders the combined cost tab and selects it on click', async () => {
+    const handleTabChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <DashboardTabs
+        activeTab="overview"
+        onTabChange={handleTabChange}
+      />
+    );
+
+    const combinedTab = screen.getByRole('tab', { name: 'Gesamtkosten' });
+    expect(combinedTab).toBeInTheDocument();
+
+    await user.click(combinedTab);
+    expect(handleTabChange).toHaveBeenCalledWith('combined');
   });
 });

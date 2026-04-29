@@ -114,17 +114,67 @@ export default function CombinedCostTab(): React.ReactElement {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900">claude.ai</h3>
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">claude.ai</h3>
+            {claudeAi?.meta?.plan_name && (
+              <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded font-medium">
+                {claudeAi.meta.plan_name}
+              </span>
+            )}
+          </div>
           {claudeAi ? (
             <>
               <p className="mt-3 text-2xl font-bold text-orange-600">
                 {formatEur(claudeAi.cost_eur)}
+                {claudeAi.meta?.monthly_limit_eur != null && (
+                  <span className="text-sm font-normal text-gray-500">
+                    {' '}/ {formatEur(claudeAi.meta.monthly_limit_eur)}
+                  </span>
+                )}
               </p>
-              <p className="text-sm text-gray-600">
-                Wöchentlich genutzt: {claudeAi.weekly_used_pct}%
-              </p>
-              <p className="mt-3 text-xs text-gray-500">
+              {claudeAi.meta?.spent_pct != null && (
+                <p className="text-xs text-gray-500">
+                  {claudeAi.meta.spent_pct}% des Monatslimits verbraucht
+                </p>
+              )}
+
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                {claudeAi.meta?.weekly_all_models_pct != null ? (
+                  <div>
+                    <div className="text-gray-500">Woche – alle Modelle</div>
+                    <div className="font-medium">{claudeAi.meta.weekly_all_models_pct}%</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-gray-500">Wöchentlich genutzt</div>
+                    <div className="font-medium">{claudeAi.weekly_used_pct}%</div>
+                  </div>
+                )}
+                {claudeAi.meta?.weekly_sonnet_pct != null && (
+                  <div>
+                    <div className="text-gray-500">Woche – nur Sonnet</div>
+                    <div className="font-medium">{claudeAi.meta.weekly_sonnet_pct}%</div>
+                  </div>
+                )}
+                {claudeAi.meta?.balance_eur != null && (
+                  <div>
+                    <div className="text-gray-500">Aktuelles Guthaben</div>
+                    <div className="font-medium">{formatEur(claudeAi.meta.balance_eur)}</div>
+                  </div>
+                )}
+                {claudeAi.meta?.session_pct != null && (
+                  <div>
+                    <div className="text-gray-500">Aktuelle Sitzung</div>
+                    <div className="font-medium">{claudeAi.meta.session_pct}%</div>
+                  </div>
+                )}
+              </div>
+
+              <p className="mt-4 text-xs text-gray-500">
                 Letzter Sync: {formatRelativeTime(claudeAi.last_synced)}
+                {claudeAi.meta?.reset_date && (
+                  <> · Reset: {claudeAi.meta.reset_date}</>
+                )}
               </p>
             </>
           ) : (

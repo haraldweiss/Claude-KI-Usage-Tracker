@@ -178,23 +178,86 @@ async function autoSync() {
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const scraped = {
-          monthly_spent: 0,
-          weekly_used: 0,
-          session_used: 0,
-          timestamp: new Date().toISOString()
+        // We scrape against the page text rather than DOM nodes because
+        // claude.ai's usage page is a hashed-class-name React app — the
+        // labels are stable, the class names are not.
+        const text = document.body.innerText || '';
+
+        // Helper: read the first number after a label. Handles German and
+        // English with localized number formats ("31,35" or "31.35").
+        const numAfter = (regex) => {
+          const m = text.match(regex);
+          if (!m) return null;
+          const cleaned = m[1].replace(/\s/g, '').replace(',', '.');
+          const n = parseFloat(cleaned);
+          return isFinite(n) ? n : null;
         };
-        const allText = document.body.innerText;
-        const currencyMatch = allText.match(/[\d,\.]+\s*[€$]|[€$]\s*[\d,\.]+/);
-        if (currencyMatch) {
-          const amount = currencyMatch[0].replace(/[€$\s]/g, '').replace(',', '.');
-          scraped.monthly_spent = parseFloat(amount) || 0;
+
+        // Plan name: appears near top of page, just after "Plan-Nutzungslimits"
+        // (or "Plan usage limits" in English). The plan label is the next
+        // non-empty line and looks like "Max (5x)", "Pro", "Team", etc.
+        let plan_name = null;
+        const planLabelMatch = text.match(/Plan-Nutzungslimits\s*\n+\s*([^\n]+)/i)
+          || text.match(/Plan usage limits\s*\n+\s*([^\n]+)/i);
+        if (planLabelMatch) {
+          const candidate = planLabelMatch[1].trim();
+          if (candidate.length < 80) plan_name = candidate;
         }
-        const percentMatches = allText.match(/(\d+)\s*%/g);
-        if (percentMatches && percentMatches.length > 0) {
-          scraped.weekly_used = parseInt(percentMatches[0], 10) || 0;
-        }
-        return scraped;
+
+        // Session usage % — labeled "Aktuelle Sitzung" / "Current session".
+        // The percent appears on the same row but a different DOM line; we
+        // accept any % within ~200 chars after the label.
+        const sessionMatch =
+          text.match(/Aktuelle Sitzung[\s\S]{0,200}?(\d+)\s*%/i) ||
+          text.match(/Current session[\s\S]{0,200}?(\d+)\s*%/i);
+        const session_pct = sessionMatch ? parseInt(sessionMatch[1], 10) : null;
+
+        const allModelsMatch =
+          text.match(/Alle Modelle[\s\S]{0,200}?(\d+)\s*%/i) ||
+          text.match(/All models[\s\S]{0,200}?(\d+)\s*%/i);
+        const weekly_all_models_pct = allModelsMatch ? parseInt(allModelsMatch[1], 10) : null;
+
+        const sonnetMatch =
+          text.match(/Nur Sonnet[\s\S]{0,200}?(\d+)\s*%/i) ||
+          text.match(/Sonnet only[\s\S]{0,200}?(\d+)\s*%/i);
+        const weekly_sonnet_pct = sonnetMatch ? parseInt(sonnetMatch[1], 10) : null;
+
+        // Additional usage block — three numbers we want:
+        //   "31,35 € ausgegeben"  → spent_eur
+        //   "63% verbraucht"       → spent_pct (of monthly limit)
+        //   "50 €" Monatslimit     → monthly_limit_eur
+        //   "20,50 €" Aktuelles Guthaben → balance_eur
+        const spent_eur = numAfter(/([\d.,]+)\s*€\s*ausgegeben/i)
+          ?? numAfter(/([\d.,]+)\s*€\s*spent/i);
+        const spent_pct_match =
+          text.match(/(\d+)\s*%\s*verbraucht/i) ||
+          text.match(/(\d+)\s*%\s*used/i);
+        const spent_pct = spent_pct_match ? parseInt(spent_pct_match[1], 10) : null;
+
+        const monthly_limit_eur = numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Monatliches Ausgabenlimit/i)
+          ?? numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Monthly spend(ing)? limit/i);
+
+        const balance_eur = numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Aktuelles Guthaben/i)
+          ?? numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Current balance/i);
+
+        // Reset date for the additional usage cycle ("Zurücksetzung am May 1")
+        const resetMatch =
+          text.match(/Zurücksetzung am\s+([^\n]{1,40})/i) ||
+          text.match(/Resets on\s+([^\n]{1,40})/i);
+        const reset_date = resetMatch ? resetMatch[1].trim() : null;
+
+        return {
+          plan_name,
+          session_pct,
+          weekly_all_models_pct,
+          weekly_sonnet_pct,
+          spent_eur,
+          spent_pct,
+          monthly_limit_eur,
+          balance_eur,
+          reset_date,
+          scraped_at: new Date().toISOString()
+        };
       }
     });
 
@@ -202,7 +265,7 @@ async function autoSync() {
     if (!data) {
       throw new Error('Scrape returned no result');
     }
-    if (!data.monthly_spent && !data.weekly_used) {
+    if (data.spent_eur == null && data.weekly_all_models_pct == null) {
       console.log('Auto-sync: page returned no usage figures, skipping POST');
       return { skipped: true, reason: 'no_data' };
     }
@@ -212,10 +275,19 @@ async function autoSync() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'Claude (Official Sync)',
-        input_tokens: Math.round((data.monthly_spent || 0) * 1000),
-        output_tokens: data.weekly_used || 0,
+        // Encode the headline numbers in the existing columns so the rest
+        // of the dashboard keeps working without schema churn.
+        // - cost goes through the pricing pipeline, so we'd lose precision;
+        //   we send 0 here and rely on response_metadata for the truth.
+        // - input_tokens and output_tokens carry the legacy fields the
+        //   original scraper used (kept for backward compat: spent_eur*1000
+        //   and weekly% respectively).
+        input_tokens: Math.round((data.spent_eur || 0) * 1000),
+        output_tokens: data.weekly_all_models_pct ?? 0,
         conversation_id: `auto-sync-${Date.now()}`,
-        source: 'claude_official_sync'
+        source: 'claude_official_sync',
+        // Everything else lives here as JSON. Backend stores it verbatim.
+        response_metadata: data
       })
     });
 

@@ -186,10 +186,24 @@ interface CategoryBreakdownRow {
   effectiveness_avg: number | null;
 }
 
+interface ClaudeAiMeta {
+  plan_name?: string | null;
+  session_pct?: number | null;
+  weekly_all_models_pct?: number | null;
+  weekly_sonnet_pct?: number | null;
+  spent_eur?: number | null;
+  spent_pct?: number | null;
+  monthly_limit_eur?: number | null;
+  balance_eur?: number | null;
+  reset_date?: string | null;
+  scraped_at?: string;
+}
+
 interface ClaudeAiSyncRow {
   cost_eur: number;
   weekly_used_pct: number;
   last_synced: string;
+  meta: ClaudeAiMeta | null;
 }
 
 interface ApiWorkspaceRow {
@@ -246,19 +260,34 @@ export async function getSummary(
       input_tokens: number;
       output_tokens: number;
       timestamp: string;
+      response_metadata: string | null;
     }>(
-      `SELECT cost as cost_eur, input_tokens, output_tokens, timestamp
+      `SELECT cost as cost_eur, input_tokens, output_tokens, timestamp, response_metadata
        FROM usage_records
        WHERE source = 'claude_official_sync'
        ORDER BY timestamp DESC
        LIMIT 1`
     );
 
+    let parsedMeta: ClaudeAiMeta | null = null;
+    if (claudeAiRow?.response_metadata) {
+      try {
+        parsedMeta = JSON.parse(claudeAiRow.response_metadata) as ClaudeAiMeta;
+      } catch {
+        // Older rows may have stored metadata as a non-JSON string. Treat as missing.
+        parsedMeta = null;
+      }
+    }
+
     const claudeAi: ClaudeAiSyncRow | null = claudeAiRow
       ? {
-          cost_eur: claudeAiRow.input_tokens / 1000,
-          weekly_used_pct: claudeAiRow.output_tokens,
-          last_synced: claudeAiRow.timestamp
+          // Prefer the rich metadata when present, fall back to the legacy
+          // input_tokens/1000 encoding used before the scraper expansion.
+          cost_eur: parsedMeta?.spent_eur ?? claudeAiRow.input_tokens / 1000,
+          weekly_used_pct:
+            parsedMeta?.weekly_all_models_pct ?? claudeAiRow.output_tokens,
+          last_synced: claudeAiRow.timestamp,
+          meta: parsedMeta
         }
       : null;
 

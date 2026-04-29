@@ -26,6 +26,20 @@ export interface ClaudeAiSpend {
   cost_eur: number;
   weekly_used_pct: number;
   last_synced: string;
+  meta?: ClaudeAiUsageMeta | null;
+}
+
+export interface ClaudeAiUsageMeta {
+  plan_name?: string | null;
+  session_pct?: number | null;
+  weekly_all_models_pct?: number | null;
+  weekly_sonnet_pct?: number | null;
+  spent_eur?: number | null;
+  spent_pct?: number | null;
+  monthly_limit_eur?: number | null;
+  balance_eur?: number | null;
+  reset_date?: string | null;
+  scraped_at?: string;
 }
 
 export interface ApiWorkspaceSpend {

@@ -293,13 +293,17 @@ export async function getSummary(
 
     // For each (workspace, key_id_suffix), pick the latest snapshot in the
     // requested window — that's the cumulative cost as of last sync.
+    // Two sources contribute here:
+    //   - anthropic_console_sync: regular API keys from console/settings/keys
+    //   - claude_code_sync: Claude Code keys (different page, different
+    //     billing surface, but conceptually still "Anthropic API" spend)
     const apiByWorkspace = await allQuery<ApiWorkspaceRow>(
       `SELECT workspace, SUM(cost_usd) as cost_usd
        FROM (
          SELECT workspace, key_id_suffix, cost_usd,
                 ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
          FROM usage_records
-         WHERE source = 'anthropic_console_sync'
+         WHERE source IN ('anthropic_console_sync', 'claude_code_sync')
        )
        WHERE rn = 1
        GROUP BY workspace
@@ -406,25 +410,58 @@ interface ConsoleKeyRow {
   last_synced: string;
 }
 
+interface ConsoleKeyRowWithSource extends ConsoleKeyRow {
+  source: string;
+  lines_accepted: number | null;
+}
+
 export async function getConsoleKeys(_req: Request, res: Response): Promise<void> {
   try {
-    // Latest snapshot per (workspace, key_id_suffix) — i.e. the most recent
-    // cumulative cost we scraped from console.anthropic.com per key.
-    const keys = await allQuery<ConsoleKeyRow>(
-      `SELECT key_name, workspace, key_id_suffix, cost_usd, timestamp as last_synced
+    // Latest snapshot per (workspace, key_id_suffix) across both
+    // anthropic_console_sync (regular API keys) and claude_code_sync
+    // (Claude Code keys + team members). The dashboard merges them into one
+    // table with a 'source' column so the user can tell which surface a row
+    // came from.
+    const keys = await allQuery<ConsoleKeyRowWithSource>(
+      `SELECT key_name, workspace, key_id_suffix, cost_usd,
+              timestamp as last_synced, source, response_metadata
        FROM (
          SELECT key_name, workspace, key_id_suffix, cost_usd, timestamp,
+                source, response_metadata,
                 ROW_NUMBER() OVER (
                   PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC
                 ) as rn
          FROM usage_records
-         WHERE source = 'anthropic_console_sync'
+         WHERE source IN ('anthropic_console_sync', 'claude_code_sync')
        )
        WHERE rn = 1
        ORDER BY cost_usd DESC NULLS LAST`
     );
 
-    res.json({ keys });
+    // Pull lines_accepted out of the JSON metadata for claude_code_sync rows.
+    const enriched = keys.map((k) => {
+      let lines_accepted: number | null = null;
+      const meta = (k as unknown as { response_metadata?: string }).response_metadata;
+      if (meta) {
+        try {
+          const parsed = JSON.parse(meta) as { lines_accepted?: number };
+          if (typeof parsed.lines_accepted === 'number') lines_accepted = parsed.lines_accepted;
+        } catch {
+          // Non-JSON metadata, leave lines_accepted as null.
+        }
+      }
+      return {
+        key_name: k.key_name,
+        workspace: k.workspace,
+        key_id_suffix: k.key_id_suffix,
+        cost_usd: k.cost_usd,
+        last_synced: k.last_synced,
+        source: k.source,
+        lines_accepted
+      };
+    });
+
+    res.json({ keys: enriched });
   } catch (error) {
     console.error('Error getting console keys:', error);
     res.status(500).json({ error: 'Internal server error' });

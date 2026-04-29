@@ -12,7 +12,8 @@
   "host_permissions": [
     "https://claude.ai/*",
     "https://api.claude.ai/*",
-    "https://console.anthropic.com/*"
+    "https://console.anthropic.com/*",
+    "https://platform.claude.com/*"
   ],
   "background": {
     "service_worker": "background.js"

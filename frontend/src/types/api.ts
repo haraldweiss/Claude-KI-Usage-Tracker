@@ -53,6 +53,8 @@ export interface ConsoleKeyRecord {
   key_id_suffix: string | null;
   cost_usd: number | null;
   last_synced: string;
+  source: 'anthropic_console_sync' | 'claude_code_sync';
+  lines_accepted?: number | null;
 }
 
 export interface UsageHistoryRecord {

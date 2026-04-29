@@ -204,26 +204,32 @@ export default function CombinedCostTab(): React.ReactElement {
         <div className="px-6 py-4 border-b">
           <h3 className="text-lg font-semibold text-gray-900">API Keys (Detail)</h3>
           <p className="text-sm text-gray-500">
-            Letzter Snapshot pro Key aus console.anthropic.com.
+            Letzter Snapshot pro Key aus console.anthropic.com und platform.claude.com/claude-code.
           </p>
         </div>
         {keys.length === 0 ? (
           <div className="px-6 py-8 text-center text-gray-500">
-            Noch kein Console-Sync gelaufen. Logge dich in console.anthropic.com ein und warte bis
-            zu 24h, oder löse manuell aus.
+            Noch kein Sync gelaufen. Logge dich in console.anthropic.com bzw.
+            platform.claude.com ein und warte bis zu 24h, oder löse manuell aus.
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Key
+                  Key / Member
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  Quelle
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Workspace
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Kosten
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  Lines
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Letzter Sync
@@ -232,18 +238,32 @@ export default function CombinedCostTab(): React.ReactElement {
             </thead>
             <tbody className="divide-y">
               {keys.map((k) => (
-                <tr key={`${k.workspace}-${k.key_id_suffix}`} className="hover:bg-gray-50">
+                <tr key={`${k.source}-${k.workspace}-${k.key_id_suffix}`} className="hover:bg-gray-50">
                   <td className="px-6 py-3 font-medium text-gray-900">
                     {k.key_name || '(unbenannt)'}
-                    {k.key_id_suffix && (
+                    {k.key_id_suffix && k.source === 'anthropic_console_sync' && (
                       <span className="ml-2 text-xs text-gray-400 font-mono">
                         …{k.key_id_suffix}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-3 text-xs">
+                    {k.source === 'claude_code_sync' ? (
+                      <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700">
+                        Claude Code
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                        Console API
                       </span>
                     )}
                   </td>
                   <td className="px-6 py-3 text-gray-700">{k.workspace || '—'}</td>
                   <td className="px-6 py-3 text-right font-medium text-blue-600">
                     {formatUsd(k.cost_usd ?? 0)}
+                  </td>
+                  <td className="px-6 py-3 text-right text-gray-700">
+                    {k.lines_accepted != null ? k.lines_accepted.toLocaleString('de-DE') : '—'}
                   </td>
                   <td className="px-6 py-3 text-gray-500">
                     {formatRelativeTime(k.last_synced)}

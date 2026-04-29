@@ -10,6 +10,13 @@ const CONSOLE_SYNC_ALARM = 'auto-sync-console';
 const CONSOLE_SYNC_INTERVAL_MIN = 24 * 60;
 const CONSOLE_KEYS_URL = 'https://console.anthropic.com/settings/keys';
 
+// Claude Code has its own usage page that reports per-key spend and lines-of-
+// code metrics. The settings/keys page reports 0 USD for claude_code_*-keys
+// because their billing flows through this surface instead.
+const CLAUDE_CODE_SYNC_ALARM = 'auto-sync-claude-code';
+const CLAUDE_CODE_SYNC_INTERVAL_MIN = 24 * 60;
+const CLAUDE_CODE_USAGE_URL = 'https://platform.claude.com/claude-code';
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -38,6 +45,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'TRIGGER_CONSOLE_SYNC') {
     consoleSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'TRIGGER_CLAUDE_CODE_SYNC') {
+    claudeCodeSync()
       .then((result) => sendResponse({ success: true, result }))
       .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
@@ -439,6 +453,154 @@ async function consoleSync() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Plan B (3rd source): platform.claude.com/claude-code
+//
+// The settings/keys console page reports 0 USD for claude_code_*-keys because
+// their billing surfaces here instead. We post one usage record per row in
+// the team table (real per-key spend + lines-of-code accepted) plus a single
+// aggregate row carrying the page-level metrics (total lines accepted,
+// suggestion accept rate).
+// ---------------------------------------------------------------------------
+
+async function claudeCodeSync() {
+  let createdTabId = null;
+
+  try {
+    const existing = await chrome.tabs.query({ url: 'https://platform.claude.com/claude-code*' });
+    let tabId;
+
+    if (existing.length > 0) {
+      tabId = existing[0].id;
+    } else {
+      const tab = await chrome.tabs.create({ url: CLAUDE_CODE_USAGE_URL, active: false });
+      tabId = tab.id;
+      createdTabId = tab.id;
+      await waitForTabComplete(tab.id, 30000);
+      await sleep(3500);
+    }
+
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const text = document.body.innerText || '';
+
+        // Top-level metrics — labeled exactly like in the screenshot.
+        // English labels are the live ones; we don't expect German here.
+        const linesMatch = text.match(/Lines of code accepted\s*\n+\s*([\d.,]+)/i);
+        const total_lines_accepted = linesMatch
+          ? parseInt(linesMatch[1].replace(/[.,]/g, ''), 10) || null
+          : null;
+
+        const acceptMatch = text.match(/Suggestion accept rate\s*\n+\s*([\d.,]+)\s*%/i);
+        const accept_rate_pct = acceptMatch
+          ? parseFloat(acceptMatch[1].replace(',', '.'))
+          : null;
+
+        // Team table — has a "Spend this month" + "Lines this month" header.
+        // Walk every <table> on the page and pick the one whose <thead>
+        // includes both columns.
+        const tables = Array.from(document.querySelectorAll('table'));
+        const rows = [];
+        for (const table of tables) {
+          const headers = Array.from(table.querySelectorAll('thead th, thead td'))
+            .map((h) => h.textContent.trim().toLowerCase());
+          const memberIdx = headers.findIndex((h) => h === 'members' || h === 'member');
+          const spendIdx = headers.findIndex((h) => h.startsWith('spend'));
+          const linesIdx = headers.findIndex((h) => h.startsWith('lines'));
+          if (spendIdx === -1) continue;
+
+          for (const tr of table.querySelectorAll('tbody tr')) {
+            const cells = Array.from(tr.querySelectorAll('td'));
+            if (cells.length === 0) continue;
+
+            const memberCell = memberIdx >= 0 ? cells[memberIdx] : cells[0];
+            const memberRaw = (memberCell?.textContent || '').trim();
+            if (!memberRaw) continue;
+
+            // Split into "name" + tag like "[API KEY]" if present.
+            // Anthropic's UI renders the tag in a separate span on the same line.
+            const tagMatch = memberRaw.match(/\[([^\]]+)\]/);
+            const role = tagMatch ? tagMatch[1].toLowerCase().replace(/\s+/g, '_') : 'user';
+            const name = memberRaw.replace(/\[[^\]]+\]/g, '').trim();
+
+            // Spend like "30,45 USD" or "$30.45"
+            const spendRaw = (cells[spendIdx]?.textContent || '').trim();
+            const spendMatch = spendRaw.match(/[\d.,]+/);
+            const cost_usd = spendMatch
+              ? parseFloat(spendMatch[0].replace(',', '.'))
+              : 0;
+
+            const linesRaw = linesIdx >= 0 ? (cells[linesIdx]?.textContent || '').trim() : '0';
+            const lines = parseInt(linesRaw.replace(/[^\d]/g, ''), 10) || 0;
+
+            // Stable identifier: for keys, the last 4 chars of the name
+            // (Anthropic exposes only a short suffix, never the full key).
+            const key_id_suffix = name.length >= 4 ? name.slice(-4) : name;
+
+            rows.push({ name, role, cost_usd, lines, key_id_suffix });
+          }
+
+          if (rows.length > 0) break;
+        }
+
+        return { total_lines_accepted, accept_rate_pct, rows };
+      }
+    });
+
+    const data = injection?.result;
+    if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
+      console.log('Claude-code-sync: no rows scraped, skipping');
+      return { skipped: true, reason: 'no_rows' };
+    }
+
+    let posted = 0;
+    for (const row of data.rows) {
+      try {
+        await fetch(`${API_BASE}/usage/track`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: row.role === 'api_key'
+              ? `Claude Code (${row.name})`
+              : `Claude Code · ${row.name}`,
+            input_tokens: 0,
+            output_tokens: row.lines,
+            source: 'claude_code_sync',
+            workspace: 'Claude Code',
+            key_name: row.name,
+            key_id_suffix: row.key_id_suffix,
+            cost_usd: row.cost_usd,
+            response_metadata: {
+              role: row.role,
+              lines_accepted: row.lines,
+              total_lines_accepted: data.total_lines_accepted,
+              accept_rate_pct: data.accept_rate_pct
+            }
+          })
+        });
+        posted += 1;
+      } catch (err) {
+        console.error('Claude-code-sync row failed:', err);
+      }
+    }
+
+    await chrome.storage.local.set({ last_claude_code_sync: Date.now() });
+    console.log(`Claude-code-sync ok: ${posted}/${data.rows.length} rows posted`);
+    return { success: true, posted, total: data.rows.length, page_metrics: {
+      total_lines_accepted: data.total_lines_accepted,
+      accept_rate_pct: data.accept_rate_pct
+    }};
+  } catch (error) {
+    console.error('Claude-code-sync error:', error);
+    return { success: false, error: error.message };
+  } finally {
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
+  }
+}
+
 function waitForTabComplete(tabId, timeoutMs) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -477,6 +639,12 @@ function ensureAlarms() {
     delayInMinutes: 3,
     periodInMinutes: CONSOLE_SYNC_INTERVAL_MIN
   });
+  chrome.alarms.create(CLAUDE_CODE_SYNC_ALARM, {
+    // Stagger the second daily scrape by a few minutes so we don't open
+    // two background tabs in the same second on cold start.
+    delayInMinutes: 5,
+    periodInMinutes: CLAUDE_CODE_SYNC_INTERVAL_MIN
+  });
   chrome.alarms.create('retry-queue', { delayInMinutes: 1, periodInMinutes: 5 });
   chrome.alarms.create('refresh-badge', { delayInMinutes: 1, periodInMinutes: 3 });
 }
@@ -489,6 +657,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     autoSync();
   } else if (alarm.name === CONSOLE_SYNC_ALARM) {
     consoleSync();
+  } else if (alarm.name === CLAUDE_CODE_SYNC_ALARM) {
+    claudeCodeSync();
   } else if (alarm.name === 'retry-queue') {
     retryQueuedData();
   } else if (alarm.name === 'refresh-badge') {

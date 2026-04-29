@@ -94,3 +94,38 @@ export interface ErrorProps {
   error?: Error | string | null;
   onDismiss?: () => void;
 }
+
+// BarChart types
+export interface BarChartData {
+  date: string;
+  tokens: number;
+}
+
+export interface BarChartProps {
+  data: BarChartData[];
+  title?: string;
+}
+
+// PeriodFilter types
+export type PeriodType = 'all' | '30d' | '7d';
+
+export interface PeriodFilterProps {
+  activePeriod: PeriodType;
+  onPeriodChange: (period: PeriodType) => void;
+}
+
+// ModelBreakdownSection types
+export interface ModelBreakdownSectionProps {
+  models: ModelBreakdown[];
+}
+
+// OverviewTab types
+export interface OverviewTabProps {
+  chartData: BarChartData[];
+  models: ModelBreakdown[];
+}
+
+// ModelsTab types
+export interface ModelsTabProps {
+  models: ModelBreakdown[];
+}

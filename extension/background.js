@@ -4,6 +4,12 @@ const AUTO_SYNC_ALARM = 'auto-sync-claude';
 const AUTO_SYNC_INTERVAL_MIN = 10;
 const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
 
+// Plan B: Console scraping. Console totals update with significant lag and
+// don't change minute-to-minute, so 24h is plenty.
+const CONSOLE_SYNC_ALARM = 'auto-sync-console';
+const CONSOLE_SYNC_INTERVAL_MIN = 24 * 60;
+const CONSOLE_KEYS_URL = 'https://console.anthropic.com/settings/keys';
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -29,6 +35,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (message.type === 'TRIGGER_CONSOLE_SYNC') {
+    consoleSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -37,16 +50,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function trackUsage(data) {
   try {
+    const payload = {
+      model: data.model,
+      input_tokens: data.input_tokens,
+      output_tokens: data.output_tokens,
+      conversation_id: data.conversation_id,
+      source: data.source || 'claude_ai',
+      // Plan B: console scraping fields. Strip undefined keys so the
+      // backend validators don't reject them.
+      workspace: data.workspace,
+      key_name: data.key_name,
+      key_id_suffix: data.key_id_suffix,
+      cost_usd: data.cost_usd
+    };
+    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+
     const response = await fetch(`${API_BASE}/usage/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: data.model,
-        input_tokens: data.input_tokens,
-        output_tokens: data.output_tokens,
-        conversation_id: data.conversation_id,
-        source: data.source || 'claude_ai'
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) throw new Error('Failed to track usage');
@@ -215,6 +237,136 @@ async function autoSync() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Plan B: console.anthropic.com scraping
+//
+// We can't use the Anthropic Admin Usage/Cost API (no admin key available),
+// so we scrape the rendered keys table the same way we scrape claude.ai's
+// usage page. Per-key cumulative cost is exactly what the Console shows in
+// the "Cost" column of /settings/keys.
+// ---------------------------------------------------------------------------
+
+async function consoleSync() {
+  let createdTabId = null;
+
+  try {
+    const existing = await chrome.tabs.query({ url: 'https://console.anthropic.com/settings/keys*' });
+    let tabId;
+
+    if (existing.length > 0) {
+      tabId = existing[0].id;
+    } else {
+      const tab = await chrome.tabs.create({ url: CONSOLE_KEYS_URL, active: false });
+      tabId = tab.id;
+      createdTabId = tab.id;
+      await waitForTabComplete(tab.id, 30000);
+      // The table is rendered after a short async hop; give it time.
+      await sleep(3000);
+    }
+
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // Walk every table on the page and pick the one with a "Cost" column.
+        // Anthropic's UI uses a real <table> at the time of writing; if they
+        // ever switch to a virtualized list this needs updating.
+        const tables = Array.from(document.querySelectorAll('table'));
+        for (const table of tables) {
+          const headers = Array.from(table.querySelectorAll('thead th, thead td'))
+            .map((h) => h.textContent.trim().toLowerCase());
+          const costIdx = headers.findIndex((h) => h === 'cost');
+          if (costIdx === -1) continue;
+
+          const keyIdx = headers.findIndex((h) => h === 'key');
+          const workspaceIdx = headers.findIndex((h) => h === 'workspace');
+          const lastUsedIdx = headers.findIndex((h) => h === 'last used at' || h === 'last used');
+
+          const rows = Array.from(table.querySelectorAll('tbody tr'));
+          const out = [];
+
+          for (const row of rows) {
+            const cells = Array.from(row.querySelectorAll('td'));
+            if (cells.length === 0) continue;
+
+            const costRaw = (cells[costIdx]?.textContent || '').trim();
+            // Skip keys with no usage. Anthropic uses an em-dash placeholder.
+            if (!costRaw || costRaw === '—' || costRaw === '-' || costRaw === '0') continue;
+
+            // "0,52 USD" or "0.52 USD" or "$0.52" — normalize to a Number.
+            const numMatch = costRaw.match(/[\d.,]+/);
+            if (!numMatch) continue;
+            const cost_usd = parseFloat(numMatch[0].replace(',', '.'));
+            if (!isFinite(cost_usd) || cost_usd < 0) continue;
+
+            const keyCell = keyIdx >= 0 ? cells[keyIdx] : cells[0];
+            const keyText = (keyCell?.textContent || '').trim();
+            // The cell typically renders two lines: friendly name + masked id.
+            // We split on whitespace runs and take the last "sk-ant-..." chunk.
+            const parts = keyText.split(/\s+/).filter(Boolean);
+            const masked = parts.find((p) => p.startsWith('sk-ant-')) || '';
+            const key_id_suffix = masked.length >= 4 ? masked.slice(-4) : null;
+            const key_name = parts.find((p) => !p.startsWith('sk-ant-')) || keyText.split(/\s/)[0] || null;
+
+            const workspace = workspaceIdx >= 0
+              ? (cells[workspaceIdx]?.textContent || '').trim().split('\n')[0].trim() || null
+              : null;
+            const last_used = lastUsedIdx >= 0
+              ? (cells[lastUsedIdx]?.textContent || '').trim() || null
+              : null;
+
+            out.push({ key_name, key_id_suffix, workspace, cost_usd, last_used });
+          }
+
+          return { rows: out };
+        }
+        return { rows: [] };
+      }
+    });
+
+    const data = injection?.result;
+    if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
+      console.log('Console-sync: no usable rows scraped, skipping');
+      return { skipped: true, reason: 'no_rows' };
+    }
+
+    // Post one record per key. The backend appends each one — diffing
+    // happens at query time on the dashboard.
+    let posted = 0;
+    for (const row of data.rows) {
+      try {
+        await fetch(`${API_BASE}/usage/track`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: row.key_name ? `Anthropic API (${row.key_name})` : 'Anthropic API',
+            input_tokens: 0,
+            output_tokens: 0,
+            source: 'anthropic_console_sync',
+            workspace: row.workspace || undefined,
+            key_name: row.key_name || undefined,
+            key_id_suffix: row.key_id_suffix || undefined,
+            cost_usd: row.cost_usd
+          })
+        });
+        posted += 1;
+      } catch (err) {
+        console.error('Console-sync row failed:', err);
+      }
+    }
+
+    await chrome.storage.local.set({ last_console_sync: Date.now() });
+    console.log(`Console-sync ok: ${posted}/${data.rows.length} rows posted`);
+    return { success: true, posted, total: data.rows.length };
+  } catch (error) {
+    console.error('Console-sync error:', error);
+    return { success: false, error: error.message };
+  } finally {
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
+  }
+}
+
 function waitForTabComplete(tabId, timeoutMs) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -247,6 +399,12 @@ function ensureAlarms() {
     delayInMinutes: 1,
     periodInMinutes: AUTO_SYNC_INTERVAL_MIN
   });
+  chrome.alarms.create(CONSOLE_SYNC_ALARM, {
+    // Run once a few minutes after startup so we have at least one snapshot
+    // even on fresh installs, then settle into the daily cadence.
+    delayInMinutes: 3,
+    periodInMinutes: CONSOLE_SYNC_INTERVAL_MIN
+  });
   chrome.alarms.create('retry-queue', { delayInMinutes: 1, periodInMinutes: 5 });
   chrome.alarms.create('refresh-badge', { delayInMinutes: 1, periodInMinutes: 3 });
 }
@@ -257,6 +415,8 @@ chrome.runtime.onStartup.addListener(ensureAlarms);
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AUTO_SYNC_ALARM) {
     autoSync();
+  } else if (alarm.name === CONSOLE_SYNC_ALARM) {
+    consoleSync();
   } else if (alarm.name === 'retry-queue') {
     retryQueuedData();
   } else if (alarm.name === 'refresh-badge') {

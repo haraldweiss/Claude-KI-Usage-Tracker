@@ -19,6 +19,31 @@ async function getApiBase() {
   }
   return DEFAULT_API_BASE;
 }
+
+// Build an Authorization header from the stored Basic-Auth credentials, if
+// any. Returns {} when no credentials are configured (local dev).
+async function getAuthHeaders() {
+  try {
+    const stored = await chrome.storage.local.get(['auth_user', 'auth_pass']);
+    if (stored.auth_user && stored.auth_pass) {
+      const token = btoa(`${stored.auth_user}:${stored.auth_pass}`);
+      return { Authorization: `Basic ${token}` };
+    }
+  } catch {
+    // ignore — fall through to no auth
+  }
+  return {};
+}
+
+// Wrap fetch with our auth header injection. Every backend call goes through
+// this so adding/changing headers in one place is enough.
+async function authFetch(url, init = {}) {
+  const auth = await getAuthHeaders();
+  return fetch(url, {
+    ...init,
+    headers: { ...(init.headers || {}), ...auth }
+  });
+}
 const AUTO_SYNC_ALARM = 'auto-sync-claude';
 const AUTO_SYNC_INTERVAL_MIN = 10;
 const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
@@ -99,7 +124,7 @@ async function trackUsage(data) {
     Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
     const apiBase = await getApiBase();
-    const response = await fetch(`${apiBase}/usage/track`, {
+    const response = await authFetch(`${apiBase}/usage/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -120,7 +145,7 @@ async function trackUsage(data) {
 async function getTodayStats() {
   try {
     const apiBase = await getApiBase();
-    const response = await fetch(`${apiBase}/usage/summary?period=day`);
+    const response = await authFetch(`${apiBase}/usage/summary?period=day`);
     if (!response.ok) throw new Error('Failed to fetch stats');
     return await response.json();
   } catch (error) {
@@ -337,7 +362,7 @@ async function autoSync() {
     }
 
     const apiBase = await getApiBase();
-    const backendResponse = await fetch(`${apiBase}/usage/track`, {
+    const backendResponse = await authFetch(`${apiBase}/usage/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -476,7 +501,7 @@ async function consoleSync() {
     let posted = 0;
     for (const row of data.rows) {
       try {
-        await fetch(`${apiBase}/usage/track`, {
+        await authFetch(`${apiBase}/usage/track`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -639,7 +664,7 @@ async function claudeCodeSync() {
     let posted = 0;
     for (const row of data.rows) {
       try {
-        await fetch(`${apiBase}/usage/track`, {
+        await authFetch(`${apiBase}/usage/track`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -4,7 +4,8 @@ import {
   getSummary,
   getModelBreakdown,
   getHistory,
-  confirmEffectiveness
+  confirmEffectiveness,
+  getConsoleKeys
 } from '../controllers/usageController.js';
 import {
   trackUsageValidator,
@@ -27,6 +28,9 @@ router.get('/models', getModelBreakdown);
 
 // Get usage history with optional category & status filters
 router.get('/history', getHistoryWithFiltersValidator, handleValidationErrors, getHistory);
+
+// Per-key snapshot of the latest sync from console.anthropic.com
+router.get('/console/keys', getConsoleKeys);
 
 // Confirm or correct categorization for a record
 router.put(

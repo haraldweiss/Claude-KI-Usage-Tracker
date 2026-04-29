@@ -98,7 +98,34 @@ export const trackUsageValidator = [
     .isString()
     .withMessage('raw_response must be a string')
     .isLength({ max: 50000 })
-    .withMessage('raw_response must be less than 50000 characters')
+    .withMessage('raw_response must be less than 50000 characters'),
+
+  // Plan B: Console scraping fields
+  body('workspace')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('workspace must be less than 100 characters')
+    .escape(),
+
+  body('key_name')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('key_name must be less than 100 characters')
+    .escape(),
+
+  body('key_id_suffix')
+    .optional()
+    .trim()
+    .isLength({ max: 16 })
+    .withMessage('key_id_suffix must be less than 16 characters')
+    .escape(),
+
+  body('cost_usd')
+    .optional()
+    .isFloat({ min: 0, max: 1_000_000 })
+    .withMessage('cost_usd must be a non-negative number')
 ];
 
 /**

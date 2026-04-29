@@ -38,8 +38,17 @@ export async function trackUsage(
       success_status = 'unknown',
       response_metadata = null,
       raw_prompt,
-      raw_response
-    } = req.body;
+      raw_response,
+      workspace = null,
+      key_name = null,
+      key_id_suffix = null,
+      cost_usd = null
+    } = req.body as UsageTrackRequest & {
+      workspace?: string | null;
+      key_name?: string | null;
+      key_id_suffix?: string | null;
+      cost_usd?: number | null;
+    };
 
     if (!rawModel || input_tokens === undefined || output_tokens === undefined) {
       res.status(400).json({ success: false, error: 'Missing required fields' } as any);
@@ -54,6 +63,10 @@ export async function trackUsage(
     if (source === 'claude_official_sync') {
       await runQuery("DELETE FROM usage_records WHERE source = 'claude_official_sync'");
     }
+
+    // Console scraping appends a fresh row per key per sync. The dashboard
+    // takes the latest snapshot per (workspace, key_id_suffix) for current
+    // totals and diffs consecutive snapshots for trends. No dedupe here.
 
     // Normalize the incoming model id/name against existing pricing rows
     const allRows = (await allQuery('SELECT * FROM pricing')) as KnownRow[];
@@ -113,8 +126,9 @@ export async function trackUsage(
     const result = await runQuery(
       `INSERT INTO usage_records (
         model, input_tokens, output_tokens, total_tokens, cost, conversation_id, source,
-        task_description, success_status, response_metadata
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        task_description, success_status, response_metadata,
+        workspace, key_name, key_id_suffix, cost_usd
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         model,
         input_tokens,
@@ -125,7 +139,11 @@ export async function trackUsage(
         source,
         task_description,
         success_status,
-        metadataJson
+        metadataJson,
+        workspace,
+        key_name,
+        key_id_suffix,
+        cost_usd
       ]
     );
 
@@ -168,6 +186,17 @@ interface CategoryBreakdownRow {
   effectiveness_avg: number | null;
 }
 
+interface ClaudeAiSyncRow {
+  cost_eur: number;
+  weekly_used_pct: number;
+  last_synced: string;
+}
+
+interface ApiWorkspaceRow {
+  workspace: string;
+  cost_usd: number;
+}
+
 export async function getSummary(
   req: Request<unknown, unknown, unknown, { period?: string }>,
   res: Response
@@ -207,6 +236,49 @@ export async function getSummary(
        ORDER BY count DESC`
     );
 
+    // -------- Plan B: combined claude.ai + Console API breakdown ---------
+    // claude.ai sync rows are singletons (delete-then-insert), so the latest
+    // row IS the cumulative monthly figure. cost is stored in cost (EUR);
+    // input_tokens encodes monthly_spent*1000 and output_tokens encodes
+    // weekly_used%. We translate back here for the dashboard.
+    const claudeAiRow = await getQuery<{
+      cost_eur: number;
+      input_tokens: number;
+      output_tokens: number;
+      timestamp: string;
+    }>(
+      `SELECT cost as cost_eur, input_tokens, output_tokens, timestamp
+       FROM usage_records
+       WHERE source = 'claude_official_sync'
+       ORDER BY timestamp DESC
+       LIMIT 1`
+    );
+
+    const claudeAi: ClaudeAiSyncRow | null = claudeAiRow
+      ? {
+          cost_eur: claudeAiRow.input_tokens / 1000,
+          weekly_used_pct: claudeAiRow.output_tokens,
+          last_synced: claudeAiRow.timestamp
+        }
+      : null;
+
+    // For each (workspace, key_id_suffix), pick the latest snapshot in the
+    // requested window — that's the cumulative cost as of last sync.
+    const apiByWorkspace = await allQuery<ApiWorkspaceRow>(
+      `SELECT workspace, SUM(cost_usd) as cost_usd
+       FROM (
+         SELECT workspace, key_id_suffix, cost_usd,
+                ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
+         FROM usage_records
+         WHERE source = 'anthropic_console_sync'
+       )
+       WHERE rn = 1
+       GROUP BY workspace
+       ORDER BY cost_usd DESC`
+    );
+
+    const apiTotalUsd = apiByWorkspace.reduce((sum, r) => sum + (r.cost_usd || 0), 0);
+
     res.json({
       period: (period as 'day' | 'week' | 'month') || 'day',
       request_count: (summary?.request_count as number) || 0,
@@ -214,7 +286,14 @@ export async function getSummary(
       total_output_tokens: (summary?.total_output_tokens as number) || 0,
       total_tokens: (summary?.total_tokens as number) || 0,
       total_cost: (summary?.total_cost as number) || 0,
-      by_category: byCategory
+      by_category: byCategory,
+      combined: {
+        claude_ai: claudeAi,
+        anthropic_api: {
+          cost_usd: apiTotalUsd,
+          by_workspace: apiByWorkspace
+        }
+      }
     });
   } catch (error) {
     console.error('Error getting summary:', error);
@@ -287,6 +366,39 @@ export async function getModelBreakdown(
   } catch (error) {
     console.error('Error getting model breakdown:', error);
     res.status(500).json({ error: 'Internal server error' } as any);
+  }
+}
+
+interface ConsoleKeyRow {
+  key_name: string | null;
+  workspace: string | null;
+  key_id_suffix: string | null;
+  cost_usd: number | null;
+  last_synced: string;
+}
+
+export async function getConsoleKeys(_req: Request, res: Response): Promise<void> {
+  try {
+    // Latest snapshot per (workspace, key_id_suffix) — i.e. the most recent
+    // cumulative cost we scraped from console.anthropic.com per key.
+    const keys = await allQuery<ConsoleKeyRow>(
+      `SELECT key_name, workspace, key_id_suffix, cost_usd, timestamp as last_synced
+       FROM (
+         SELECT key_name, workspace, key_id_suffix, cost_usd, timestamp,
+                ROW_NUMBER() OVER (
+                  PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC
+                ) as rn
+         FROM usage_records
+         WHERE source = 'anthropic_console_sync'
+       )
+       WHERE rn = 1
+       ORDER BY cost_usd DESC NULLS LAST`
+    );
+
+    res.json({ keys });
+  } catch (error) {
+    console.error('Error getting console keys:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 }
 

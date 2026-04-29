@@ -117,11 +117,22 @@ export function initDatabase(): Promise<void> {
             { name: 'task_description', ddl: 'TEXT' },
             { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
             { name: 'response_metadata', ddl: 'TEXT' },
+            // The five columns below were added for the per-message Haiku
+            // categorization design. That design was abandoned (claude.ai's
+            // web UI no longer exposes per-message data); columns remain so
+            // we don't run a destructive migration on existing records.
             { name: 'category', ddl: "TEXT DEFAULT 'Pending'" },
             { name: 'effectiveness_score', ddl: 'REAL' },
             { name: 'effectiveness_confirmed', ddl: 'INTEGER DEFAULT 0' },
             { name: 'user_category_override', ddl: 'TEXT' },
-            { name: 'haiku_reasoning', ddl: 'TEXT' }
+            { name: 'haiku_reasoning', ddl: 'TEXT' },
+            // Plan B: combined claude.ai + Console API tracking. Console
+            // sync rows fill workspace/key_name/key_id_suffix/cost_usd;
+            // claude.ai sync rows leave them NULL.
+            { name: 'workspace', ddl: 'TEXT' },
+            { name: 'key_name', ddl: 'TEXT' },
+            { name: 'key_id_suffix', ddl: 'TEXT' },
+            { name: 'cost_usd', ddl: 'REAL' }
           ]);
           // Indexes for the new categorization columns
           await new Promise<void>((res, rej) => {
@@ -133,6 +144,12 @@ export function initDatabase(): Promise<void> {
           await new Promise<void>((res, rej) => {
             database.run(
               'CREATE INDEX IF NOT EXISTS idx_usage_effectiveness_confirmed ON usage_records(effectiveness_confirmed)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_usage_workspace ON usage_records(workspace)',
               (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
             );
           });

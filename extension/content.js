@@ -40,6 +40,72 @@
     return 'GET';
   }
 
+  // Best-effort extraction of the user's prompt text from a fetch() call's
+  // request body. Returns null if the body isn't a parseable JSON string.
+  // Used to feed Haiku categorization on the backend.
+  async function extractRequestPrompt(args) {
+    try {
+      const init = args[1];
+      const resource = args[0];
+      let body = init?.body;
+
+      // Request object case
+      if (!body && resource && typeof resource === 'object' && typeof resource.clone === 'function') {
+        try {
+          body = await resource.clone().text();
+        } catch {
+          return null;
+        }
+      }
+
+      if (typeof body !== 'string' || body.length === 0) return null;
+
+      const json = JSON.parse(body);
+
+      // Claude.ai sends a `prompt` field for new messages. Some endpoints use
+      // a messages[] array — pull the latest user message text in that case.
+      if (typeof json.prompt === 'string') return json.prompt;
+
+      if (Array.isArray(json.messages)) {
+        const lastUser = [...json.messages].reverse().find((m) => m.role === 'user');
+        if (lastUser) {
+          if (typeof lastUser.content === 'string') return lastUser.content;
+          if (Array.isArray(lastUser.content)) {
+            return lastUser.content
+              .filter((c) => c.type === 'text' && typeof c.text === 'string')
+              .map((c) => c.text)
+              .join('\n');
+          }
+        }
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Pull plain assistant text out of a Claude API response. Handles both the
+  // legacy { completion: "..." } shape and the newer content-array shape.
+  function extractResponseText(responseData) {
+    try {
+      if (typeof responseData?.completion === 'string') return responseData.completion;
+
+      if (Array.isArray(responseData?.content)) {
+        return responseData.content
+          .filter((c) => c.type === 'text' && typeof c.text === 'string')
+          .map((c) => c.text)
+          .join('\n');
+      }
+
+      if (typeof responseData?.message === 'string') return responseData.message;
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   // Override fetch to intercept Claude.ai API calls
   window.fetch = function(...args) {
     const [resource] = args;
@@ -57,6 +123,10 @@
     if (isClaudeAPI && isWrite) {
       console.log(`📡 Claude API ${method}:`, resourceString);
 
+      // Capture the prompt before issuing the call — once fetch consumes the
+      // body stream we can't read it again.
+      const promptPromise = extractRequestPrompt(args);
+
       // Intercept and monitor the response
       return originalFetch.apply(this, args)
         .then(async (response) => {
@@ -67,8 +137,11 @@
               const clonedResponse = response.clone();
               const responseData = await clonedResponse.json();
 
+              const rawPrompt = await promptPromise;
+              const rawResponse = extractResponseText(responseData);
+
               // Extract usage from various API endpoints
-              extractAndTrackUsage(responseData, resourceString);
+              extractAndTrackUsage(responseData, resourceString, rawPrompt, rawResponse);
             } catch (error) {
               console.log('Could not parse response:', error.message);
             }
@@ -221,7 +294,7 @@
   }
 
   // Extract usage data from Claude API responses
-  function extractAndTrackUsage(responseData, url) {
+  function extractAndTrackUsage(responseData, url, rawPrompt, rawResponse) {
     try {
       // Handle different API response formats
       let model = null;
@@ -255,7 +328,15 @@
 
       // Only track if we have meaningful token data
       if (inputTokens > 0 || outputTokens > 0) {
-        model = model || 'Claude 3.5 Sonnet';
+        // If the response didn't include a model id, try to read the
+        // currently-selected model from the page header. Falling back to a
+        // hard-coded "Claude 3.5 Sonnet" mis-attributes everything to a model
+        // the user may not even be using.
+        if (!model) {
+          const fromDom = readSelectedModelFromDom();
+          if (fromDom) model = fromDom;
+        }
+        model = model || 'Unknown';
 
         // Dedupe: same conversation + same token counts + same model arriving
         // again within 5 minutes is almost certainly a re-fire (streaming
@@ -287,7 +368,9 @@
           responseMetadata
         });
 
-        // Send to background script for storage
+        // Send to background script for storage. raw_prompt/raw_response
+        // power Haiku categorization on the backend; everything else is
+        // unchanged from the existing tracker.
         chrome.runtime.sendMessage({
           type: 'TRACK_USAGE',
           data: {
@@ -296,10 +379,11 @@
             output_tokens: outputTokens,
             conversation_id: conversationId,
             source: 'claude_ai_auto',
-            // NEW FIELDS FOR RECOMMENDATIONS
             task_description: taskDescription,
             success_status: successData.status,
-            response_metadata: responseMetadata
+            response_metadata: responseMetadata,
+            raw_prompt: rawPrompt || null,
+            raw_response: rawResponse || null
           }
         }, (response) => {
           if (chrome.runtime.lastError) {
@@ -311,6 +395,28 @@
       }
     } catch (error) {
       console.error('❌ Error extracting usage:', error);
+    }
+  }
+
+  // Last-resort model attribution: scrape the model selector chip in the
+  // chat header. Returns null if no recognizable model name is visible.
+  function readSelectedModelFromDom() {
+    try {
+      const selectors = [
+        '[data-testid="model-selector-dropdown"]',
+        'button[aria-haspopup="menu"][aria-label*="model" i]',
+        '[data-testid="model-selector"]'
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        const text = el?.textContent?.trim();
+        if (text && /claude/i.test(text) && text.length < 80) {
+          return text.replace(/\s+/g, ' ');
+        }
+      }
+      return null;
+    } catch {
+      return null;
     }
   }
 

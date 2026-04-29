@@ -323,6 +323,10 @@ export async function getModelBreakdown(
       dateFilter = "datetime(timestamp) >= datetime('now', '-7 days')";
     }
 
+    // Exclude rows from the three sync sources — they're aggregate snapshots
+    // (cumulative cost in cost_usd, not per-message token usage), so showing
+    // them in a "tokens per model" table just produces misleading 0,00 rows.
+    // The Combined Cost tab has the proper per-source visualization for them.
     const breakdown = await allQuery(
       `SELECT
         model,
@@ -333,6 +337,11 @@ export async function getModelBreakdown(
         SUM(cost) as total_cost
        FROM usage_records
        WHERE ${dateFilter}
+         AND COALESCE(source, '') NOT IN (
+           'claude_official_sync',
+           'anthropic_console_sync',
+           'claude_code_sync'
+         )
        GROUP BY model
        ORDER BY total_tokens DESC`
     );

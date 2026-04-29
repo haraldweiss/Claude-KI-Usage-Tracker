@@ -416,13 +416,15 @@ async function consoleSync() {
             if (!isFinite(cost_usd) || cost_usd < 0) continue;
 
             const keyCell = keyIdx >= 0 ? cells[keyIdx] : cells[0];
+            // The cell renders the friendly name and masked key on two
+            // visual lines, but textContent concatenates them without a
+            // separator. Split on the 'sk-ant-' prefix instead — everything
+            // before it is the name, everything from there is the masked key.
             const keyText = (keyCell?.textContent || '').trim();
-            // The cell typically renders two lines: friendly name + masked id.
-            // We split on whitespace runs and take the last "sk-ant-..." chunk.
-            const parts = keyText.split(/\s+/).filter(Boolean);
-            const masked = parts.find((p) => p.startsWith('sk-ant-')) || '';
+            const skIdx = keyText.indexOf('sk-ant-');
+            const key_name = skIdx > 0 ? keyText.substring(0, skIdx).trim() : keyText.trim() || null;
+            const masked = skIdx >= 0 ? keyText.substring(skIdx).trim() : '';
             const key_id_suffix = masked.length >= 4 ? masked.slice(-4) : null;
-            const key_name = parts.find((p) => !p.startsWith('sk-ant-')) || keyText.split(/\s/)[0] || null;
 
             const workspace = workspaceIdx >= 0
               ? (cells[workspaceIdx]?.textContent || '').trim().split('\n')[0].trim() || null

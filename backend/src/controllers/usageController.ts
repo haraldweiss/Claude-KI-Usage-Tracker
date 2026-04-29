@@ -297,13 +297,19 @@ export async function getSummary(
     //   - anthropic_console_sync: regular API keys from console/settings/keys
     //   - claude_code_sync: Claude Code keys (different page, different
     //     billing surface, but conceptually still "Anthropic API" spend)
+    //
+    // Filter: console/settings/keys reports 0 USD for the 'Claude Code'
+    // workspace because billing flows through the Claude Code page instead.
+    // We exclude those rows to avoid double-counting (and to avoid showing
+    // the same key twice with different key_id_suffix values).
     const apiByWorkspace = await allQuery<ApiWorkspaceRow>(
       `SELECT workspace, SUM(cost_usd) as cost_usd
        FROM (
          SELECT workspace, key_id_suffix, cost_usd,
                 ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
          FROM usage_records
-         WHERE source IN ('anthropic_console_sync', 'claude_code_sync')
+         WHERE (source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
+            OR source = 'claude_code_sync'
        )
        WHERE rn = 1
        GROUP BY workspace
@@ -432,7 +438,8 @@ export async function getConsoleKeys(_req: Request, res: Response): Promise<void
                   PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC
                 ) as rn
          FROM usage_records
-         WHERE source IN ('anthropic_console_sync', 'claude_code_sync')
+         WHERE (source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
+            OR source = 'claude_code_sync'
        )
        WHERE rn = 1
        ORDER BY cost_usd DESC NULLS LAST`

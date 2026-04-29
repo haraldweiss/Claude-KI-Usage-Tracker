@@ -1,9 +1,21 @@
 # Design Spec: Intelligent Data Categorization & Effectiveness Tracking
 
-**Date:** 2026-04-29  
-**Project:** Claude Usage Tracker  
-**Author:** Design Brainstorm Session  
-**Status:** Draft
+**Date:** 2026-04-29
+**Project:** Claude Usage Tracker
+**Status:** ❌ ABANDONED — superseded by [2026-04-29-console-api-tracking-design.md](./2026-04-29-console-api-tracking-design.md)
+
+> **Why this spec was abandoned:** the design depended on intercepting per-message
+> traffic on claude.ai (prompt + response text) so Claude Haiku could categorize
+> each interaction. While we were implementing this, the project on `main` removed
+> fetch interception entirely, because claude.ai's web UI no longer exposes per-
+> message token data in any interceptable response. Without that input we have no
+> prompts/responses to categorize, so the categorization service, the
+> `confirm-effectiveness` endpoint, the `category`/`effectiveness_*` DB columns,
+> and the `by_category` API field are all dead code in the merged result.
+>
+> The replacement (Plan B, link above) tracks **cost** across three Anthropic
+> properties — claude.ai subscription, console.anthropic.com API keys, and
+> platform.claude.com/claude-code — by scraping the rendered usage pages.
 
 ---
 

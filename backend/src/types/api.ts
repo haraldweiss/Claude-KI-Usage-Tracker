@@ -18,11 +18,7 @@ export interface UsageTrackRequest {
   task_description?: string;
   success_status?: SuccessStatus;
   response_metadata?: Record<string, unknown> | string | null;
-  raw_prompt?: string;
-  raw_response?: string;
 }
-
-export type CategoryName = 'Code' | 'Research' | 'Analysis' | 'Writing' | 'Support' | 'Other' | 'Pending';
 
 export interface UsageTrackResponse {
   success: boolean;
@@ -43,11 +39,6 @@ export interface UsageRecord {
   task_description?: string | null;
   success_status?: string | null;
   response_metadata?: string | null;
-  category?: CategoryName | null;
-  effectiveness_score?: number | null;
-  effectiveness_confirmed?: number | null;
-  user_category_override?: string | null;
-  haiku_reasoning?: string | null;
 }
 
 export interface UsageSummary {

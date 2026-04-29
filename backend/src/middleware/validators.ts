@@ -86,20 +86,6 @@ export const trackUsageValidator = [
       throw new Error('response_metadata must be an object or valid JSON string');
     }),
 
-  body('raw_prompt')
-    .optional()
-    .isString()
-    .withMessage('raw_prompt must be a string')
-    .isLength({ max: 50000 })
-    .withMessage('raw_prompt must be less than 50000 characters'),
-
-  body('raw_response')
-    .optional()
-    .isString()
-    .withMessage('raw_response must be a string')
-    .isLength({ max: 50000 })
-    .withMessage('raw_response must be less than 50000 characters'),
-
   // Plan B: Console scraping fields
   body('workspace')
     .optional()
@@ -126,44 +112,6 @@ export const trackUsageValidator = [
     .optional()
     .isFloat({ min: 0, max: 1_000_000 })
     .withMessage('cost_usd must be a non-negative number')
-];
-
-/**
- * PUT /api/usage/:id/confirm-effectiveness
- * Validates confirmation/correction of categorization
- */
-export const confirmEffectivenessValidator = [
-  param('id')
-    .isInt({ min: 1 })
-    .withMessage('id must be a positive integer')
-    .toInt(),
-
-  body('effectiveness_confirmed')
-    .optional()
-    .isBoolean()
-    .withMessage('effectiveness_confirmed must be a boolean')
-    .toBoolean(),
-
-  body('user_category_override')
-    .optional()
-    .isIn(['Code', 'Research', 'Analysis', 'Writing', 'Support', 'Other'])
-    .withMessage('user_category_override must be a valid category')
-];
-
-/**
- * GET /api/usage/history with category & status filters
- */
-export const getHistoryWithFiltersValidator = [
-  query('limit').optional().isInt({ min: 1, max: 1000 }).toInt(),
-  query('offset').optional().isInt({ min: 0 }).toInt(),
-  query('category')
-    .optional()
-    .isIn(['Code', 'Research', 'Analysis', 'Writing', 'Support', 'Other', 'Pending', 'all'])
-    .withMessage('category must be a valid category or "all"'),
-  query('confirmed')
-    .optional()
-    .isIn(['pending', 'confirmed', 'all'])
-    .withMessage('confirmed must be one of: pending, confirmed, all')
 ];
 
 /**

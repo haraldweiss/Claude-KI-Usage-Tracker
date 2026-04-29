@@ -3,7 +3,6 @@ import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
 import type { UsageTrackRequest, UsageTrackResponse, UsageRecord } from '../types/index.js';
 import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow } from '../services/modelNormalizer.js';
 import { upsertPricing } from '../services/pricingService.js';
-import { categorize } from '../services/categorizationService.js';
 
 interface PricingRow {
   model: string;
@@ -37,8 +36,6 @@ export async function trackUsage(
       task_description = null,
       success_status = 'unknown',
       response_metadata = null,
-      raw_prompt,
-      raw_response,
       workspace = null,
       key_name = null,
       key_id_suffix = null,
@@ -147,43 +144,15 @@ export async function trackUsage(
       ]
     );
 
-    const recordId = result.lastID as number;
-
-    // Fire-and-forget categorization. Errors leave the record in 'Pending'.
-    if (raw_prompt && raw_response) {
-      categorize(raw_prompt, raw_response)
-        .then(async (cat) => {
-          await runQuery(
-            `UPDATE usage_records
-             SET category = ?, effectiveness_score = ?, haiku_reasoning = ?
-             WHERE id = ?`,
-            [cat.category, cat.effectiveness_score, cat.reasoning, recordId]
-          );
-          console.log(
-            `[Categorization] record ${recordId}: ${cat.category} (score=${cat.effectiveness_score.toFixed(2)})`
-          );
-        })
-        .catch((catErr: Error) => {
-          console.error(`[Categorization] record ${recordId} failed:`, catErr.message);
-        });
-    }
-
     res.status(201).json({
       success: true,
-      id: recordId,
+      id: result.lastID as number,
       cost: cost.toFixed(4)
     });
   } catch (error) {
     console.error('Error tracking usage:', error);
     res.status(500).json({ success: false, error: 'Internal server error' } as any);
   }
-}
-
-interface CategoryBreakdownRow {
-  category: string;
-  count: number;
-  cost: number;
-  effectiveness_avg: number | null;
 }
 
 interface ClaudeAiMeta {
@@ -237,18 +206,6 @@ export async function getSummary(
        FROM usage_records
        WHERE ${dateFilter}`
     ) as SummaryRow | undefined;
-
-    const byCategory = await allQuery<CategoryBreakdownRow>(
-      `SELECT
-        category,
-        COUNT(*) as count,
-        SUM(cost) as cost,
-        AVG(effectiveness_score) as effectiveness_avg
-       FROM usage_records
-       WHERE ${dateFilter} AND category IS NOT NULL AND category != 'Pending'
-       GROUP BY category
-       ORDER BY count DESC`
-    );
 
     // -------- Plan B: combined claude.ai + Console API breakdown ---------
     // claude.ai sync rows are singletons (delete-then-insert), so the latest
@@ -325,7 +282,6 @@ export async function getSummary(
       total_output_tokens: (summary?.total_output_tokens as number) || 0,
       total_tokens: (summary?.total_tokens as number) || 0,
       total_cost: (summary?.total_cost as number) || 0,
-      by_category: byCategory,
       combined: {
         claude_ai: claudeAi,
         anthropic_api: {
@@ -475,71 +431,9 @@ export async function getConsoleKeys(_req: Request, res: Response): Promise<void
   }
 }
 
-interface ConfirmEffectivenessBody {
-  effectiveness_confirmed?: boolean;
-  user_category_override?: string;
-}
-
-export async function confirmEffectiveness(
-  req: Request<{ id: string }, unknown, ConfirmEffectivenessBody>,
-  res: Response
-): Promise<void> {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id) || id <= 0) {
-      res.status(400).json({ success: false, error: 'Invalid id' });
-      return;
-    }
-
-    const { effectiveness_confirmed, user_category_override } = req.body;
-
-    const updates: string[] = [];
-    const params: unknown[] = [];
-
-    if (effectiveness_confirmed !== undefined) {
-      updates.push('effectiveness_confirmed = ?');
-      params.push(effectiveness_confirmed ? 1 : 0);
-    }
-
-    if (user_category_override) {
-      updates.push('category = ?', 'user_category_override = ?');
-      params.push(user_category_override, user_category_override);
-    }
-
-    if (updates.length === 0) {
-      res.status(400).json({ success: false, error: 'No updates provided' });
-      return;
-    }
-
-    params.push(id);
-
-    const result = await runQuery(
-      `UPDATE usage_records SET ${updates.join(', ')} WHERE id = ?`,
-      params
-    );
-
-    if (result.changes === 0) {
-      res.status(404).json({ success: false, error: 'Record not found' });
-      return;
-    }
-
-    const updated = await getQuery<UsageRecord>(
-      'SELECT * FROM usage_records WHERE id = ?',
-      [id]
-    );
-
-    res.json({ success: true, record: updated });
-  } catch (error) {
-    console.error('Error confirming effectiveness:', error);
-    res.status(500).json({ success: false, error: 'Internal server error' });
-  }
-}
-
 interface HistoryQuery {
   limit?: string;
   offset?: string;
-  category?: string;
-  confirmed?: string;
 }
 
 export async function getHistory(
@@ -547,23 +441,7 @@ export async function getHistory(
   res: Response
 ): Promise<void> {
   try {
-    const { limit = '50', offset = '0', category, confirmed } = req.query;
-
-    const where: string[] = [];
-    const params: unknown[] = [];
-
-    if (category && category !== 'all') {
-      where.push('category = ?');
-      params.push(category);
-    }
-
-    if (confirmed === 'pending') {
-      where.push('effectiveness_confirmed = 0');
-    } else if (confirmed === 'confirmed') {
-      where.push('effectiveness_confirmed = 1');
-    }
-
-    const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const { limit = '50', offset = '0' } = req.query;
 
     const limitNum = parseInt(limit as string, 10);
     const offsetNum = parseInt(offset as string, 10);
@@ -571,13 +449,11 @@ export async function getHistory(
     const history = await allQuery(
       `SELECT
         id, model, input_tokens, output_tokens, total_tokens, cost,
-        timestamp, conversation_id, category, effectiveness_score,
-        effectiveness_confirmed, user_category_override, haiku_reasoning
+        timestamp, conversation_id
        FROM usage_records
-       ${whereClause}
        ORDER BY timestamp DESC
        LIMIT ? OFFSET ?`,
-      [...params, limitNum, offsetNum]
+      [limitNum, offsetNum]
     );
 
     res.json({

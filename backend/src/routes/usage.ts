@@ -4,14 +4,12 @@ import {
   getSummary,
   getModelBreakdown,
   getHistory,
-  confirmEffectiveness,
   getConsoleKeys
 } from '../controllers/usageController.js';
 import {
   trackUsageValidator,
   getSummaryValidator,
-  getHistoryWithFiltersValidator,
-  confirmEffectivenessValidator,
+  getHistoryValidator,
   handleValidationErrors
 } from '../middleware/validators.js';
 
@@ -26,18 +24,10 @@ router.get('/summary', getSummaryValidator, handleValidationErrors, getSummary);
 // Get breakdown by model
 router.get('/models', getModelBreakdown);
 
-// Get usage history with optional category & status filters
-router.get('/history', getHistoryWithFiltersValidator, handleValidationErrors, getHistory);
+// Get usage history
+router.get('/history', getHistoryValidator, handleValidationErrors, getHistory);
 
-// Per-key snapshot of the latest sync from console.anthropic.com
+// Per-key snapshot of the latest sync from console.anthropic.com and platform.claude.com
 router.get('/console/keys', getConsoleKeys);
-
-// Confirm or correct categorization for a record
-router.put(
-  '/:id/confirm-effectiveness',
-  confirmEffectivenessValidator,
-  handleValidationErrors,
-  confirmEffectiveness
-);
 
 export default router;

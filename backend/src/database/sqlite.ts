@@ -117,10 +117,11 @@ export function initDatabase(): Promise<void> {
             { name: 'task_description', ddl: 'TEXT' },
             { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
             { name: 'response_metadata', ddl: 'TEXT' },
-            // The five columns below were added for the per-message Haiku
-            // categorization design. That design was abandoned (claude.ai's
-            // web UI no longer exposes per-message data); columns remain so
-            // we don't run a destructive migration on existing records.
+            // DEAD COLUMNS — added for an abandoned per-message Haiku
+            // categorization design (claude.ai's web UI doesn't expose
+            // per-message data anymore). No code reads or writes these,
+            // they're left behind to avoid a destructive migration on
+            // user databases. Drop in a future major release.
             { name: 'category', ddl: "TEXT DEFAULT 'Pending'" },
             { name: 'effectiveness_score', ddl: 'REAL' },
             { name: 'effectiveness_confirmed', ddl: 'INTEGER DEFAULT 0' },

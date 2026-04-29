@@ -40,8 +40,36 @@ stop_port() {
     fi
 }
 
+stop_pattern() {
+    local name=$1
+    local pattern=$2
+    local pids
+    pids=$(pgrep -f "$pattern" 2>/dev/null)
+    if [ -z "$pids" ]; then
+        return
+    fi
+    echo -n -e "${YELLOW}•${NC} $name (stale): killing pid(s) $pids ... "
+    kill $pids 2>/dev/null
+    sleep 1
+    if [ -n "$(pgrep -f "$pattern" 2>/dev/null)" ]; then
+        kill -9 $(pgrep -f "$pattern" 2>/dev/null) 2>/dev/null
+        sleep 1
+    fi
+    if [ -z "$(pgrep -f "$pattern" 2>/dev/null)" ]; then
+        echo -e "${GREEN}stopped${NC}"
+    else
+        echo -e "${RED}FAILED${NC}"
+    fi
+}
+
 echo ""
 echo "Stopping Claude Usage Tracker services..."
 stop_port "Backend " "$BACKEND_PORT"
 stop_port "Frontend" "$FRONTEND_PORT"
+
+# Kill any leftover dev processes that aren't bound to the port (e.g. from
+# a previous worktree where multiple nodemons piled up — only one ever owns
+# the port, the rest sit idle but keep the file watch alive).
+stop_pattern "Backend " "nodemon.*src/server.ts"
+stop_pattern "Frontend" "node.*frontend/node_modules/.bin/vite"
 echo ""

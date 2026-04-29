@@ -13,6 +13,17 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_PORT=${BACKEND_PORT:-3000}
 FRONTEND_PORT=${FRONTEND_PORT:-5173}
 
+# When started from a git worktree (.claude/worktrees/...), reuse the main
+# repo's SQLite file so we don't fork the user's data into per-worktree
+# databases. Worktrees are for isolated code, not isolated data.
+if [[ "$PROJECT_DIR" == *"/.claude/worktrees/"* ]]; then
+    MAIN_REPO_DIR="${PROJECT_DIR%%/.claude/worktrees/*}"
+    SHARED_DB="$MAIN_REPO_DIR/backend/database.sqlite"
+    if [ -f "$SHARED_DB" ]; then
+        export DATABASE_PATH="${DATABASE_PATH:-$SHARED_DB}"
+    fi
+fi
+
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -22,6 +33,11 @@ echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║     Claude Usage Tracker - Starting Services              ║"
 echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo -e "${BLUE}Source:${NC}   $PROJECT_DIR"
+if [ -n "$DATABASE_PATH" ]; then
+    echo -e "${BLUE}Database:${NC} $DATABASE_PATH (shared with main repo)"
+fi
 echo ""
 
 # Sanity check: Node must be available
@@ -48,8 +64,30 @@ free_port() {
     fi
 }
 
+# Also kill any stale dev-server processes that aren't currently bound to the
+# port (e.g. zombies from previous worktree starts). Without this, multiple
+# nodemon instances can pile up across worktree switches.
+kill_stale_dev_processes() {
+    local pids
+    pids=$(pgrep -f "nodemon.*src/server.ts" 2>/dev/null)
+    if [ -n "$pids" ]; then
+        echo -e "${YELLOW}⚠${NC}  Killing stale nodemon backend pid(s) $pids"
+        kill $pids 2>/dev/null
+        sleep 1
+        kill -9 $(pgrep -f "nodemon.*src/server.ts" 2>/dev/null) 2>/dev/null
+    fi
+    pids=$(pgrep -f "node.*frontend/node_modules/.bin/vite" 2>/dev/null)
+    if [ -n "$pids" ]; then
+        echo -e "${YELLOW}⚠${NC}  Killing stale vite frontend pid(s) $pids"
+        kill $pids 2>/dev/null
+        sleep 1
+        kill -9 $(pgrep -f "node.*frontend/node_modules/.bin/vite" 2>/dev/null) 2>/dev/null
+    fi
+}
+
 free_port "$BACKEND_PORT"
 free_port "$FRONTEND_PORT"
+kill_stale_dev_processes
 
 # Start one service in a new terminal window (or background-with-log fallback)
 start_service() {
@@ -67,15 +105,23 @@ start_service() {
 
     echo -e "${BLUE}Starting $name...${NC}"
 
+    # Inject DATABASE_PATH so child shells running in a separate Terminal
+    # window inherit it. AppleScript's `do script` opens a brand-new shell
+    # that doesn't see exports from this script unless we prepend them.
+    local env_prefix=""
+    if [ -n "$DATABASE_PATH" ]; then
+        env_prefix="DATABASE_PATH='$DATABASE_PATH' "
+    fi
+
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS: open a new Terminal window so the user can read the live logs
-        osascript -e "tell app \"Terminal\" to do script \"cd '$PROJECT_DIR/$dir' && $cmd\"" >/dev/null
+        osascript -e "tell app \"Terminal\" to do script \"cd '$PROJECT_DIR/$dir' && ${env_prefix}$cmd\"" >/dev/null
     elif command -v x-terminal-emulator >/dev/null 2>&1; then
-        x-terminal-emulator -e "bash -c \"cd '$PROJECT_DIR/$dir' && $cmd; exec bash\"" &
+        x-terminal-emulator -e "bash -c \"cd '$PROJECT_DIR/$dir' && ${env_prefix}$cmd; exec bash\"" &
     else
         # Headless / no GUI terminal: run in background, log to /tmp
         echo "    (no GUI terminal — logging to $logfile)"
-        nohup bash -c "cd '$PROJECT_DIR/$dir' && $cmd" > "$logfile" 2>&1 &
+        nohup bash -c "cd '$PROJECT_DIR/$dir' && ${env_prefix}$cmd" > "$logfile" 2>&1 &
     fi
 }
 

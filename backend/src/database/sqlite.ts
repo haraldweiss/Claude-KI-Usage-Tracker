@@ -116,8 +116,26 @@ export function initDatabase(): Promise<void> {
           await addMissingColumns('usage_records', [
             { name: 'task_description', ddl: 'TEXT' },
             { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
-            { name: 'response_metadata', ddl: 'TEXT' }
+            { name: 'response_metadata', ddl: 'TEXT' },
+            { name: 'category', ddl: "TEXT DEFAULT 'Pending'" },
+            { name: 'effectiveness_score', ddl: 'REAL' },
+            { name: 'effectiveness_confirmed', ddl: 'INTEGER DEFAULT 0' },
+            { name: 'user_category_override', ddl: 'TEXT' },
+            { name: 'haiku_reasoning', ddl: 'TEXT' }
           ]);
+          // Indexes for the new categorization columns
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_usage_category ON usage_records(category)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_usage_effectiveness_confirmed ON usage_records(effectiveness_confirmed)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
           await addMissingColumns('pricing', [
             { name: 'api_id', ddl: 'TEXT' },
             { name: 'status', ddl: "TEXT DEFAULT 'active'" },

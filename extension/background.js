@@ -18,30 +18,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Track usage by sending to backend. Forwards every field the content script
-// captures, including the raw prompt/response that drive Haiku categorization.
+// Track usage by sending to backend
 async function trackUsage(data) {
   try {
-    const payload = {
-      model: data.model,
-      input_tokens: data.input_tokens,
-      output_tokens: data.output_tokens,
-      conversation_id: data.conversation_id,
-      source: data.source || 'claude_ai',
-      task_description: data.task_description,
-      success_status: data.success_status,
-      response_metadata: data.response_metadata,
-      raw_prompt: data.raw_prompt,
-      raw_response: data.raw_response
-    };
-
-    // Strip undefined keys so the backend validators don't reject them.
-    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
-
     const response = await fetch(`${API_BASE}/usage/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        model: data.model,
+        input_tokens: data.input_tokens,
+        output_tokens: data.output_tokens,
+        conversation_id: data.conversation_id,
+        source: 'claude_ai'
+      })
     });
 
     if (!response.ok) {

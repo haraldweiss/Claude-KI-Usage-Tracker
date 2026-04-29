@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { getPricing } from '../services/api';
+import { getPricing, getPlanPricing } from '../services/api';
 import PricingTable from '../components/PricingTable';
-import { PricingData } from '../types/api';
+import PlanPricingTable from '../components/PlanPricingTable';
+import { PricingData, PlanPricingRow } from '../types/api';
 
 export default function Settings(): React.ReactElement {
   const [pricing, setPricing] = useState<PricingData[]>([]);
+  const [plans, setPlans] = useState<PlanPricingRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,8 +17,9 @@ export default function Settings(): React.ReactElement {
   const loadPricing = async (): Promise<void> => {
     try {
       setLoading(true);
-      const data = await getPricing();
-      setPricing(data.pricing || []);
+      const [modelData, planData] = await Promise.all([getPricing(), getPlanPricing()]);
+      setPricing(modelData.pricing || []);
+      setPlans(planData.plans || []);
       setError(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
@@ -41,6 +44,23 @@ export default function Settings(): React.ReactElement {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Settings</h1>
         <p className="text-gray-600">Manage pricing and configure the tracker</p>
+      </div>
+
+      {/* Plan subscription pricing section */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">claude.ai Plan-Abos</h2>
+          <p className="text-gray-600 text-sm mt-1">
+            Monatlicher Plan-Preis in EUR. Wird zu der Zusatznutzung addiert, um die echten
+            monatlichen Gesamtkosten zu zeigen. Manuell editierte Werte überleben den täglichen
+            Auto-Refresh.
+          </p>
+        </div>
+        {loading ? (
+          <div className="text-center py-6 text-gray-500">Lade Plan-Preise…</div>
+        ) : (
+          <PlanPricingTable plans={plans} onUpdate={loadPricing} />
+        )}
       </div>
 
       {/* Pricing section */}

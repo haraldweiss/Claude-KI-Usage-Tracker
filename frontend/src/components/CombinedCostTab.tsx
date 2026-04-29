@@ -1,21 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { getSummary, getConsoleKeys } from '../services/api';
-import { CombinedSpendBreakdown, ConsoleKeyRecord } from '../types/api';
+import { getSummary, getConsoleKeys, getSpendingTotal, getPlanPricing } from '../services/api';
+import {
+  CombinedSpendBreakdown,
+  ConsoleKeyRecord,
+  PlanPricingRow,
+  SpendingTotal
+} from '../types/api';
 
-// Monthly subscription EUR per claude.ai plan. Update if Anthropic changes
-// pricing or if the plan list grows. The claude.ai usage page does NOT show
-// the flat subscription fee — only the additional pay-as-you-go portion —
-// so without this lookup the dashboard underreports total spend.
-const PLAN_SUBSCRIPTION_EUR: Record<string, number> = {
-  'Pro': 18,
-  'Max (5x)': 99,
-  'Max (20x)': 199,
-  'Team': 30
-};
-
-function subscriptionEur(planName: string | null | undefined): number {
+// Resolve a plan name to its monthly EUR price using the live plan_pricing
+// table from the backend (editable in Settings). Falls back to 0 if the plan
+// isn't in the table — better to underreport than to fabricate a number.
+function subscriptionEur(
+  plans: PlanPricingRow[],
+  planName: string | null | undefined
+): number {
   if (!planName) return 0;
-  return PLAN_SUBSCRIPTION_EUR[planName] ?? 0;
+  return plans.find((p) => p.plan_name === planName)?.monthly_eur ?? 0;
 }
 
 function formatEur(value: number): string {
@@ -50,6 +50,8 @@ function formatRelativeTime(iso: string): string {
 export default function CombinedCostTab(): React.ReactElement {
   const [combined, setCombined] = useState<CombinedSpendBreakdown | null>(null);
   const [keys, setKeys] = useState<ConsoleKeyRecord[]>([]);
+  const [plans, setPlans] = useState<PlanPricingRow[]>([]);
+  const [allTime, setAllTime] = useState<SpendingTotal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,13 +59,17 @@ export default function CombinedCostTab(): React.ReactElement {
     let cancelled = false;
     const load = async (): Promise<void> => {
       try {
-        const [summary, consoleKeys] = await Promise.all([
+        const [summary, consoleKeys, planRes, total] = await Promise.all([
           getSummary('month'),
-          getConsoleKeys()
+          getConsoleKeys(),
+          getPlanPricing(),
+          getSpendingTotal()
         ]);
         if (cancelled) return;
         setCombined(summary.combined ?? null);
         setKeys(consoleKeys.keys);
+        setPlans(planRes.plans);
+        setAllTime(total);
         setError(null);
       } catch (err) {
         if (!cancelled) {
@@ -98,7 +104,7 @@ export default function CombinedCostTab(): React.ReactElement {
   const apiTotal = combined?.anthropic_api?.cost_usd ?? 0;
   const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
   const additionalUsageEur = claudeAi?.cost_eur ?? 0;
-  const planSubscriptionEur = subscriptionEur(claudeAi?.meta?.plan_name);
+  const planSubscriptionEur = subscriptionEur(plans, claudeAi?.meta?.plan_name);
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
 
   const noData = !claudeAi && apiTotal === 0;
@@ -135,6 +141,61 @@ export default function CombinedCostTab(): React.ReactElement {
           </p>
         )}
       </div>
+
+      {allTime && allTime.since && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
+            Insgesamt seit Tracking-Start
+          </h2>
+          <div className="mt-2 flex items-baseline gap-3 flex-wrap">
+            <span className="text-2xl font-bold text-gray-900">
+              {formatEur(allTime.claude_ai.total_eur)}
+            </span>
+            <span className="text-gray-400">+</span>
+            <span className="text-2xl font-bold text-gray-900">
+              {formatUsd(allTime.anthropic_api.total_usd)}
+            </span>
+            <span className="text-sm text-gray-500">seit {allTime.since}</span>
+          </div>
+          <p className="mt-1 text-sm text-gray-600">
+            Plan-Abos {formatEur(allTime.claude_ai.subscription_eur)} + Zusatznutzung{' '}
+            {formatEur(allTime.claude_ai.additional_eur)} + Anthropic API{' '}
+            {formatUsd(allTime.anthropic_api.total_usd)}
+          </p>
+          {allTime.claude_ai.months.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-sm text-blue-600 hover:underline">
+                Monatliche Aufschlüsselung ({allTime.claude_ai.months.length}{' '}
+                {allTime.claude_ai.months.length === 1 ? 'Monat' : 'Monate'})
+              </summary>
+              <table className="w-full mt-3 text-sm">
+                <thead className="text-xs text-gray-500 uppercase">
+                  <tr>
+                    <th className="text-left py-1">Monat</th>
+                    <th className="text-left py-1">Plan</th>
+                    <th className="text-right py-1">Plan-Abo</th>
+                    <th className="text-right py-1">Zusatz</th>
+                    <th className="text-right py-1">Gesamt</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {allTime.claude_ai.months.map((m) => (
+                    <tr key={m.month}>
+                      <td className="py-2 font-mono text-xs">{m.month}</td>
+                      <td className="py-2">{m.plan_name ?? '—'}</td>
+                      <td className="py-2 text-right">{formatEur(m.subscription_eur)}</td>
+                      <td className="py-2 text-right">{formatEur(m.additional_eur)}</td>
+                      <td className="py-2 text-right font-medium">
+                        {formatEur(m.total_eur)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">

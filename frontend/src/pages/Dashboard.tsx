@@ -29,7 +29,7 @@ export default function Dashboard(): React.ReactElement {
       setLoading(true);
       const [breakdown, activityData] = await Promise.all([
         getModelBreakdown(),
-        getHistory(1000, 0)
+        getHistory(500, 0)
       ]);
 
       setModelData(breakdown.models);

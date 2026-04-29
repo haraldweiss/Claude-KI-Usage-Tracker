@@ -15,8 +15,8 @@ function formatTokens(tokens: number): string {
   return tokens.toString();
 }
 
-function formatCost(cost: number): string {
-  return `$${cost.toFixed(4)}`;
+function formatCost(cost: number | undefined | null): string {
+  return `$${(cost ?? 0).toFixed(4)}`;
 }
 
 export default function ModelsTab({ models }: ModelsTabProps): React.ReactElement {
@@ -48,7 +48,7 @@ export default function ModelsTab({ models }: ModelsTabProps): React.ReactElemen
                 <td className="px-6 py-4 text-sm text-gray-600">{formatTokens(model.input_tokens)}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">{formatTokens(model.output_tokens)}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">{model.request_count}</td>
-                <td className="px-6 py-4 text-sm text-gray-900 font-medium">{formatCost(model.cost)}</td>
+                <td className="px-6 py-4 text-sm text-gray-900 font-medium">{formatCost(model.total_cost)}</td>
               </tr>
             ))}
           </tbody>

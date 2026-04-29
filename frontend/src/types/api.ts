@@ -62,7 +62,7 @@ export interface ModelBreakdown {
   output_tokens: number;
   total_tokens?: number;
   request_count: number;
-  cost: number;
+  total_cost: number;
 }
 
 export interface PricingData {

@@ -281,6 +281,10 @@ export async function getSummary(
 
     const apiTotalUsd = apiByWorkspace.reduce((sum, r) => sum + (r.cost_usd || 0), 0);
 
+    // EUR equivalent of the API spend, for the combined hero number.
+    const { convertUsdToEur } = await import('../services/exchangeRateService.js');
+    const fx = await convertUsdToEur(apiTotalUsd);
+
     res.json({
       period: (period as 'day' | 'week' | 'month') || 'day',
       request_count: (summary?.request_count as number) || 0,
@@ -292,7 +296,12 @@ export async function getSummary(
         claude_ai: claudeAi,
         anthropic_api: {
           cost_usd: apiTotalUsd,
+          cost_eur_equivalent: fx.eur,
           by_workspace: apiByWorkspace
+        },
+        exchange_rate: {
+          usd_to_eur: fx.rate,
+          rate_date: fx.rate_date
         }
       }
     });
@@ -481,6 +490,13 @@ export async function getSpendingTotal(_req: Request, res: Response): Promise<vo
     );
 
     const since = months.length > 0 ? months[months.length - 1]?.month ?? null : null;
+    const apiTotalUsd = apiTotalRow?.total_usd ?? 0;
+
+    // Convert API USD to EUR using the latest stored exchange rate so the
+    // dashboard can display a single combined total. The rate metadata is
+    // included alongside so the UI can render a transparency line.
+    const { convertUsdToEur } = await import('../services/exchangeRateService.js');
+    const fx = await convertUsdToEur(apiTotalUsd);
 
     res.json({
       since,
@@ -491,7 +507,13 @@ export async function getSpendingTotal(_req: Request, res: Response): Promise<vo
         months
       },
       anthropic_api: {
-        total_usd: apiTotalRow?.total_usd ?? 0
+        total_usd: apiTotalUsd,
+        total_eur_equivalent: fx.eur
+      },
+      grand_total_eur: claudeAiTotalEur + fx.eur,
+      exchange_rate: {
+        usd_to_eur: fx.rate,
+        rate_date: fx.rate_date
       }
     });
   } catch (error) {

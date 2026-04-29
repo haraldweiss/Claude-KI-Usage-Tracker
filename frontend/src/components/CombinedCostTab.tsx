@@ -103,10 +103,13 @@ export default function CombinedCostTab(): React.ReactElement {
 
   const claudeAi = combined?.claude_ai ?? null;
   const apiTotal = combined?.anthropic_api?.cost_usd ?? 0;
+  const apiTotalEurEquiv = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
   const additionalUsageEur = claudeAi?.cost_eur ?? 0;
   const planSubscriptionEur = subscriptionEur(plans, claudeAi?.meta?.plan_name);
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv;
+  const exchangeRate = combined?.exchange_rate;
 
   const noData = !claudeAi && apiTotal === 0;
 
@@ -116,26 +119,24 @@ export default function CombinedCostTab(): React.ReactElement {
         <h2 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
           Gesamtkosten diesen Monat
         </h2>
-        <div className="mt-2 flex items-baseline gap-3 flex-wrap">
+        <div className="mt-2">
           <span className="text-3xl font-bold text-gray-900">
-            {formatEur(claudeAiTotalEur)}
-          </span>
-          <span className="text-gray-400">+</span>
-          <span className="text-3xl font-bold text-gray-900">
-            {formatUsd(apiTotal)}
+            {formatEur(grandTotalEur)}
           </span>
         </div>
         {planSubscriptionEur > 0 && (
           <p className="mt-2 text-sm text-gray-600">
             claude.ai {formatEur(claudeAiTotalEur)} (Plan-Abo {formatEur(planSubscriptionEur)} +
             Zusatznutzung {formatEur(additionalUsageEur)}) <span className="mx-1">·</span>
-            Anthropic API {formatUsd(apiTotal)}
+            Anthropic API {formatUsd(apiTotal)} ≈ {formatEur(apiTotalEurEquiv)}
           </p>
         )}
-        <p className="mt-1 text-xs text-gray-500">
-          claude.ai Subscription + Anthropic API. Beträge in unterschiedlichen Währungen, keine
-          Umrechnung.
-        </p>
+        {exchangeRate?.usd_to_eur && (
+          <p className="mt-1 text-xs text-gray-400">
+            Umrechnung: 1 USD = {exchangeRate.usd_to_eur.toFixed(4)} EUR
+            {exchangeRate.rate_date && ` (Kurs vom ${exchangeRate.rate_date})`}
+          </p>
+        )}
         {noData && (
           <p className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
             Noch keine Sync-Daten. Die Extension synchronisiert claude.ai alle 10 Min und die
@@ -151,11 +152,7 @@ export default function CombinedCostTab(): React.ReactElement {
           </h2>
           <div className="mt-2 flex items-baseline gap-3 flex-wrap">
             <span className="text-2xl font-bold text-gray-900">
-              {formatEur(allTime.claude_ai.total_eur)}
-            </span>
-            <span className="text-gray-400">+</span>
-            <span className="text-2xl font-bold text-gray-900">
-              {formatUsd(allTime.anthropic_api.total_usd)}
+              {formatEur(allTime.grand_total_eur ?? allTime.claude_ai.total_eur)}
             </span>
             <span className="text-sm text-gray-500">seit {allTime.since}</span>
           </div>
@@ -164,7 +161,17 @@ export default function CombinedCostTab(): React.ReactElement {
             {formatEur(allTime.claude_ai.subscription_eur)} + Zusatznutzung{' '}
             {formatEur(allTime.claude_ai.additional_eur)}) <span className="mx-1">·</span>
             Anthropic API {formatUsd(allTime.anthropic_api.total_usd)}
+            {allTime.anthropic_api.total_eur_equivalent != null && (
+              <> ≈ {formatEur(allTime.anthropic_api.total_eur_equivalent)}</>
+            )}
           </p>
+          {allTime.exchange_rate?.usd_to_eur && (
+            <p className="mt-1 text-xs text-gray-400">
+              Umrechnung: 1 USD = {allTime.exchange_rate.usd_to_eur.toFixed(4)} EUR
+              {allTime.exchange_rate.rate_date &&
+                ` (Kurs vom ${allTime.exchange_rate.rate_date})`}
+            </p>
+          )}
           {allTime.claude_ai.months.length > 0 && (
             <details className="mt-3">
               <summary className="cursor-pointer text-sm text-blue-600 hover:underline">

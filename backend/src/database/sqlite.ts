@@ -116,6 +116,22 @@ export function initDatabase(): Promise<void> {
         if (err && !err.message.includes('already exists')) reject(err);
       });
 
+      // Daily exchange-rate snapshots from the public Frankfurter API
+      // (https://www.frankfurter.app, ECB-backed, free, no auth). We persist
+      // each day's rate so the dashboard can show consistent EUR equivalents
+      // even if the Frankfurter API is briefly unreachable.
+      database.run(`
+        CREATE TABLE IF NOT EXISTS exchange_rates (
+          currency_pair TEXT NOT NULL,
+          rate REAL NOT NULL,
+          rate_date TEXT NOT NULL,
+          fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (currency_pair, rate_date)
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
       // Create indexes
       database.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON usage_records(timestamp)');
       database.run('CREATE INDEX IF NOT EXISTS idx_model ON usage_records(model)');

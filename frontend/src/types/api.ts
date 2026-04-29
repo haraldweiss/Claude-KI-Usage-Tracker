@@ -18,7 +18,12 @@ export interface CombinedSpendBreakdown {
   claude_ai: ClaudeAiSpend | null;
   anthropic_api: {
     cost_usd: number;
+    cost_eur_equivalent?: number;
     by_workspace: ApiWorkspaceSpend[];
+  };
+  exchange_rate?: {
+    usd_to_eur: number;
+    rate_date: string | null;
   };
 }
 
@@ -80,6 +85,12 @@ export interface SpendingTotal {
   };
   anthropic_api: {
     total_usd: number;
+    total_eur_equivalent?: number;
+  };
+  grand_total_eur?: number;
+  exchange_rate?: {
+    usd_to_eur: number;
+    rate_date: string | null;
   };
 }
 

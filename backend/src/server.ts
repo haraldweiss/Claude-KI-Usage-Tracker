@@ -10,6 +10,10 @@ import {
   seedPlanPricingIfEmpty,
   schedulePlanPricingRefresh
 } from './services/planPricingService.js';
+import {
+  refreshExchangeRate,
+  scheduleExchangeRateRefresh
+} from './services/exchangeRateService.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -40,6 +44,15 @@ async function start(): Promise<void> {
 
     // Schedule daily refresh of plan subscription pricing (best-effort)
     schedulePlanPricingRefresh(cron);
+
+    // Daily USD/EUR exchange-rate refresh (Frankfurter / ECB). Also kick
+    // off one fetch right at startup so a fresh install has a rate ready
+    // before the first dashboard load — don't await it, the cron will
+    // backfill if startup fails.
+    scheduleExchangeRateRefresh(cron);
+    refreshExchangeRate().catch((err) =>
+      console.error('Startup exchange-rate refresh failed:', (err as Error).message)
+    );
 
     // Schedule daily model analytics refresh at 2 AM
     cron.schedule('0 2 * * *', async () => {

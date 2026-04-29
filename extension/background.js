@@ -1,5 +1,24 @@
-const API_BASE = 'http://localhost:3000/api';
+// Default API base for a fresh install. Users running the backend on a VPS
+// override this from the popup via chrome.storage.local.api_base. Every
+// fetch resolves the URL fresh so a settings change takes effect on the
+// next call without reloading the extension.
+const DEFAULT_API_BASE = 'http://localhost:3000/api';
+const API_BASE_STORAGE_KEY = 'api_base';
 const QUEUE_STORAGE_KEY = 'usage_queue';
+
+async function getApiBase() {
+  try {
+    const stored = await chrome.storage.local.get(API_BASE_STORAGE_KEY);
+    const url = stored?.[API_BASE_STORAGE_KEY];
+    if (typeof url === 'string' && url.length > 0) {
+      // Strip trailing slash for predictable path joins ('/api' is appended elsewhere).
+      return url.replace(/\/+$/, '');
+    }
+  } catch {
+    // chrome.storage can throw during early service-worker startup; fall through.
+  }
+  return DEFAULT_API_BASE;
+}
 const AUTO_SYNC_ALARM = 'auto-sync-claude';
 const AUTO_SYNC_INTERVAL_MIN = 10;
 const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
@@ -79,7 +98,8 @@ async function trackUsage(data) {
     };
     Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
-    const response = await fetch(`${API_BASE}/usage/track`, {
+    const apiBase = await getApiBase();
+    const response = await fetch(`${apiBase}/usage/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -99,7 +119,8 @@ async function trackUsage(data) {
 
 async function getTodayStats() {
   try {
-    const response = await fetch(`${API_BASE}/usage/summary?period=day`);
+    const apiBase = await getApiBase();
+    const response = await fetch(`${apiBase}/usage/summary?period=day`);
     if (!response.ok) throw new Error('Failed to fetch stats');
     return await response.json();
   } catch (error) {
@@ -315,7 +336,8 @@ async function autoSync() {
       return { skipped: true, reason: 'no_data' };
     }
 
-    const backendResponse = await fetch(`${API_BASE}/usage/track`, {
+    const apiBase = await getApiBase();
+    const backendResponse = await fetch(`${apiBase}/usage/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -450,10 +472,11 @@ async function consoleSync() {
 
     // Post one record per key. The backend appends each one — diffing
     // happens at query time on the dashboard.
+    const apiBase = await getApiBase();
     let posted = 0;
     for (const row of data.rows) {
       try {
-        await fetch(`${API_BASE}/usage/track`, {
+        await fetch(`${apiBase}/usage/track`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -612,10 +635,11 @@ async function claudeCodeSync() {
       return { skipped: true, reason: 'no_rows' };
     }
 
+    const apiBase = await getApiBase();
     let posted = 0;
     for (const row of data.rows) {
       try {
-        await fetch(`${API_BASE}/usage/track`, {
+        await fetch(`${apiBase}/usage/track`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

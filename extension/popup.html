@@ -137,6 +137,57 @@
       text-decoration: none;
       border-bottom: 1px dotted white;
     }
+
+    .settings {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+      font-size: 11px;
+    }
+
+    .settings summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #444;
+      list-style: none;
+    }
+
+    .settings summary::after {
+      content: ' ▾';
+    }
+
+    .settings[open] summary::after {
+      content: ' ▴';
+    }
+
+    .settings label {
+      display: block;
+      margin-top: 8px;
+      color: #555;
+      font-weight: 500;
+    }
+
+    .settings input {
+      width: 100%;
+      padding: 6px 8px;
+      margin-top: 3px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+    }
+
+    .settings .row {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .settings button {
+      padding: 6px 10px;
+      font-size: 11px;
+    }
   </style>
 </head>
 <body>
@@ -184,8 +235,21 @@
       </div>
     </div>
 
-    <div class="footer">
-      Backend running on localhost:3000
+    <details class="settings" id="settings-section">
+      <summary>⚙️ Verbindung</summary>
+      <label for="api-base-input">Backend-API URL</label>
+      <input id="api-base-input" type="url" placeholder="http://localhost:3000/api" />
+      <label for="dashboard-url-input">Dashboard URL</label>
+      <input id="dashboard-url-input" type="url" placeholder="http://localhost:5173" />
+      <div class="row">
+        <button class="btn-primary" id="settings-save">Speichern</button>
+        <button class="btn-secondary" id="settings-reset">Zurücksetzen</button>
+      </div>
+      <div id="settings-status" style="margin-top:6px; font-size:11px;"></div>
+    </details>
+
+    <div class="footer" id="footer-status">
+      Backend: <span id="footer-api-base">localhost:3000</span>
     </div>
   </div>
 

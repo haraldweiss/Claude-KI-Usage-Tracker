@@ -177,7 +177,12 @@ export enum SourceType {
   ClaudeAi = 'claude_ai',
   AnthropicApi = 'anthropic_api',
   Extension = 'extension',
-  Manual = 'manual'
+  Manual = 'manual',
+  // Browser-extension auto-syncs that scrape rendered Anthropic pages.
+  ClaudeAiAuto = 'claude_ai_auto',
+  ClaudeOfficialSync = 'claude_official_sync',
+  AnthropicConsoleSync = 'anthropic_console_sync',
+  ClaudeCodeSync = 'claude_code_sync'
 }
 
 /**

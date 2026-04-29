@@ -82,7 +82,11 @@ export default function Dashboard(): React.ReactElement {
       <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
         <p className="font-semibold">Error loading data:</p>
         <p>{error}</p>
-        <p className="text-sm mt-2">Make sure the backend server is running on port 3000</p>
+        <p className="text-sm mt-2">
+          Backend nicht erreichbar. Lokal: <code>cd backend &amp;&amp; npm run dev</code> auf
+          Port 3000 starten. Auf VPS: <code>systemctl status claudetracker-backend</code>{' '}
+          prüfen.
+        </p>
       </div>
     );
   }

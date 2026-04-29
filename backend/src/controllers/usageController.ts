@@ -3,6 +3,7 @@ import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
 import type { UsageTrackRequest, UsageTrackResponse, UsageSummary, UsageRecord, ModelBreakdown } from '../types/index.js';
 import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow } from '../services/modelNormalizer.js';
 import { upsertPricing } from '../services/pricingService.js';
+import { categorize } from '../services/categorizationService.js';
 
 interface PricingRow {
   model: string;
@@ -35,7 +36,9 @@ export async function trackUsage(
       source = 'claude_ai',
       task_description = null,
       success_status = 'unknown',
-      response_metadata = null
+      response_metadata = null,
+      raw_prompt,
+      raw_response
     } = req.body;
 
     if (!rawModel || input_tokens === undefined || output_tokens === undefined) {
@@ -126,9 +129,30 @@ export async function trackUsage(
       ]
     );
 
+    const recordId = result.lastID as number;
+
+    // Fire-and-forget categorization. Errors leave the record in 'Pending'.
+    if (raw_prompt && raw_response) {
+      categorize(raw_prompt, raw_response)
+        .then(async (cat) => {
+          await runQuery(
+            `UPDATE usage_records
+             SET category = ?, effectiveness_score = ?, haiku_reasoning = ?
+             WHERE id = ?`,
+            [cat.category, cat.effectiveness_score, cat.reasoning, recordId]
+          );
+          console.log(
+            `[Categorization] record ${recordId}: ${cat.category} (score=${cat.effectiveness_score.toFixed(2)})`
+          );
+        })
+        .catch((catErr: Error) => {
+          console.error(`[Categorization] record ${recordId} failed:`, catErr.message);
+        });
+    }
+
     res.status(201).json({
       success: true,
-      id: result.lastID as number,
+      id: recordId,
       cost: cost.toFixed(4)
     });
   } catch (error) {

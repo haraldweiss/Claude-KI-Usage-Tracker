@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
-import type { UsageTrackRequest, UsageTrackResponse, UsageSummary, UsageRecord, ModelBreakdown } from '../types/index.js';
+import type { UsageTrackRequest, UsageTrackResponse, UsageRecord } from '../types/index.js';
 import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow } from '../services/modelNormalizer.js';
 import { upsertPricing } from '../services/pricingService.js';
 import { categorize } from '../services/categorizationService.js';
@@ -161,7 +161,17 @@ export async function trackUsage(
   }
 }
 
-export async function getSummary(req: Request<unknown, unknown, unknown, { period?: string }>, res: Response<UsageSummary>): Promise<void> {
+interface CategoryBreakdownRow {
+  category: string;
+  count: number;
+  cost: number;
+  effectiveness_avg: number | null;
+}
+
+export async function getSummary(
+  req: Request<unknown, unknown, unknown, { period?: string }>,
+  res: Response
+): Promise<void> {
   try {
     const { period = 'day' } = req.query;
 
@@ -185,13 +195,26 @@ export async function getSummary(req: Request<unknown, unknown, unknown, { perio
        WHERE ${dateFilter}`
     ) as SummaryRow | undefined;
 
+    const byCategory = await allQuery<CategoryBreakdownRow>(
+      `SELECT
+        category,
+        COUNT(*) as count,
+        SUM(cost) as cost,
+        AVG(effectiveness_score) as effectiveness_avg
+       FROM usage_records
+       WHERE ${dateFilter} AND category IS NOT NULL AND category != 'Pending'
+       GROUP BY category
+       ORDER BY count DESC`
+    );
+
     res.json({
       period: (period as 'day' | 'week' | 'month') || 'day',
       request_count: (summary?.request_count as number) || 0,
       total_input_tokens: (summary?.total_input_tokens as number) || 0,
       total_output_tokens: (summary?.total_output_tokens as number) || 0,
       total_tokens: (summary?.total_tokens as number) || 0,
-      total_cost: (summary?.total_cost as number) || 0
+      total_cost: (summary?.total_cost as number) || 0,
+      by_category: byCategory
     });
   } catch (error) {
     console.error('Error getting summary:', error);
@@ -199,8 +222,27 @@ export async function getSummary(req: Request<unknown, unknown, unknown, { perio
   }
 }
 
-export async function getModelBreakdown(_req: Request, res: Response<ModelBreakdown>): Promise<void> {
+interface ModelByCategoryRow {
+  model: string;
+  category: string;
+  count: number;
+  cost: number;
+}
+
+export async function getModelBreakdown(
+  req: Request<unknown, unknown, unknown, { period?: string }>,
+  res: Response
+): Promise<void> {
   try {
+    const { period = 'month' } = req.query;
+
+    let dateFilter = "datetime(timestamp) >= datetime('now', '-30 days')";
+    if (period === 'day') {
+      dateFilter = "date(timestamp) = date('now')";
+    } else if (period === 'week') {
+      dateFilter = "datetime(timestamp) >= datetime('now', '-7 days')";
+    }
+
     const breakdown = await allQuery(
       `SELECT
         model,
@@ -210,13 +252,37 @@ export async function getModelBreakdown(_req: Request, res: Response<ModelBreakd
         SUM(total_tokens) as total_tokens,
         SUM(cost) as total_cost
        FROM usage_records
-       WHERE datetime(timestamp) >= datetime('now', '-30 days')
+       WHERE ${dateFilter}
        GROUP BY model
        ORDER BY total_tokens DESC`
     );
 
+    // Per-model category breakdown — used by the "Model × Category" matrix.
+    const modelCategoryRows = await allQuery<ModelByCategoryRow>(
+      `SELECT
+        model,
+        category,
+        COUNT(*) as count,
+        SUM(cost) as cost
+       FROM usage_records
+       WHERE ${dateFilter} AND category IS NOT NULL AND category != 'Pending'
+       GROUP BY model, category
+       ORDER BY model, count DESC`
+    );
+
+    const byModelCategory: Record<string, Array<{ category: string; count: number; cost: number }>> = {};
+    for (const row of modelCategoryRows) {
+      if (!byModelCategory[row.model]) byModelCategory[row.model] = [];
+      byModelCategory[row.model]!.push({
+        category: row.category,
+        count: row.count,
+        cost: row.cost
+      });
+    }
+
     res.json({
-      models: (breakdown as any[]) || []
+      models: (breakdown as any[]) || [],
+      by_model_category: byModelCategory
     });
   } catch (error) {
     console.error('Error getting model breakdown:', error);
@@ -224,24 +290,115 @@ export async function getModelBreakdown(_req: Request, res: Response<ModelBreakd
   }
 }
 
-export async function getHistory(req: Request<unknown, unknown, unknown, { limit?: string; offset?: string }>, res: Response): Promise<void> {
+interface ConfirmEffectivenessBody {
+  effectiveness_confirmed?: boolean;
+  user_category_override?: string;
+}
+
+export async function confirmEffectiveness(
+  req: Request<{ id: string }, unknown, ConfirmEffectivenessBody>,
+  res: Response
+): Promise<void> {
   try {
-    const { limit = '50', offset = '0' } = req.query;
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id) || id <= 0) {
+      res.status(400).json({ success: false, error: 'Invalid id' });
+      return;
+    }
+
+    const { effectiveness_confirmed, user_category_override } = req.body;
+
+    const updates: string[] = [];
+    const params: unknown[] = [];
+
+    if (effectiveness_confirmed !== undefined) {
+      updates.push('effectiveness_confirmed = ?');
+      params.push(effectiveness_confirmed ? 1 : 0);
+    }
+
+    if (user_category_override) {
+      updates.push('category = ?', 'user_category_override = ?');
+      params.push(user_category_override, user_category_override);
+    }
+
+    if (updates.length === 0) {
+      res.status(400).json({ success: false, error: 'No updates provided' });
+      return;
+    }
+
+    params.push(id);
+
+    const result = await runQuery(
+      `UPDATE usage_records SET ${updates.join(', ')} WHERE id = ?`,
+      params
+    );
+
+    if (result.changes === 0) {
+      res.status(404).json({ success: false, error: 'Record not found' });
+      return;
+    }
+
+    const updated = await getQuery<UsageRecord>(
+      'SELECT * FROM usage_records WHERE id = ?',
+      [id]
+    );
+
+    res.json({ success: true, record: updated });
+  } catch (error) {
+    console.error('Error confirming effectiveness:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+}
+
+interface HistoryQuery {
+  limit?: string;
+  offset?: string;
+  category?: string;
+  confirmed?: string;
+}
+
+export async function getHistory(
+  req: Request<unknown, unknown, unknown, HistoryQuery>,
+  res: Response
+): Promise<void> {
+  try {
+    const { limit = '50', offset = '0', category, confirmed } = req.query;
+
+    const where: string[] = [];
+    const params: unknown[] = [];
+
+    if (category && category !== 'all') {
+      where.push('category = ?');
+      params.push(category);
+    }
+
+    if (confirmed === 'pending') {
+      where.push('effectiveness_confirmed = 0');
+    } else if (confirmed === 'confirmed') {
+      where.push('effectiveness_confirmed = 1');
+    }
+
+    const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+    const limitNum = parseInt(limit as string, 10);
+    const offsetNum = parseInt(offset as string, 10);
 
     const history = await allQuery(
       `SELECT
         id, model, input_tokens, output_tokens, total_tokens, cost,
-        timestamp, conversation_id
+        timestamp, conversation_id, category, effectiveness_score,
+        effectiveness_confirmed, user_category_override, haiku_reasoning
        FROM usage_records
+       ${whereClause}
        ORDER BY timestamp DESC
        LIMIT ? OFFSET ?`,
-      [parseInt(limit as string, 10), parseInt(offset as string, 10)]
+      [...params, limitNum, offsetNum]
     );
 
     res.json({
       records: (history as UsageRecord[]) || [],
-      limit: parseInt(limit as string, 10),
-      offset: parseInt(offset as string, 10)
+      limit: limitNum,
+      offset: offsetNum
     });
   } catch (error) {
     console.error('Error getting history:', error);

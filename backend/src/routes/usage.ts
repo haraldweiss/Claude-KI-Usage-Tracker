@@ -3,12 +3,14 @@ import {
   trackUsage,
   getSummary,
   getModelBreakdown,
-  getHistory
+  getHistory,
+  confirmEffectiveness
 } from '../controllers/usageController.js';
 import {
   trackUsageValidator,
   getSummaryValidator,
-  getHistoryValidator,
+  getHistoryWithFiltersValidator,
+  confirmEffectivenessValidator,
   handleValidationErrors
 } from '../middleware/validators.js';
 
@@ -23,7 +25,15 @@ router.get('/summary', getSummaryValidator, handleValidationErrors, getSummary);
 // Get breakdown by model
 router.get('/models', getModelBreakdown);
 
-// Get usage history
-router.get('/history', getHistoryValidator, handleValidationErrors, getHistory);
+// Get usage history with optional category & status filters
+router.get('/history', getHistoryWithFiltersValidator, handleValidationErrors, getHistory);
+
+// Confirm or correct categorization for a record
+router.put(
+  '/:id/confirm-effectiveness',
+  confirmEffectivenessValidator,
+  handleValidationErrors,
+  confirmEffectiveness
+);
 
 export default router;

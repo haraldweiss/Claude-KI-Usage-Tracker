@@ -127,8 +127,9 @@ export default function CombinedCostTab(): React.ReactElement {
         </div>
         {planSubscriptionEur > 0 && (
           <p className="mt-2 text-sm text-gray-600">
-            Plan-Abo {formatEur(planSubscriptionEur)} + Zusatznutzung {formatEur(additionalUsageEur)}{' '}
-            + Anthropic API {formatUsd(apiTotal)}
+            claude.ai {formatEur(claudeAiTotalEur)} (Plan-Abo {formatEur(planSubscriptionEur)} +
+            Zusatznutzung {formatEur(additionalUsageEur)}) <span className="mx-1">·</span>
+            Anthropic API {formatUsd(apiTotal)}
           </p>
         )}
         <p className="mt-1 text-xs text-gray-500">
@@ -159,9 +160,10 @@ export default function CombinedCostTab(): React.ReactElement {
             <span className="text-sm text-gray-500">seit {allTime.since}</span>
           </div>
           <p className="mt-1 text-sm text-gray-600">
-            Plan-Abos {formatEur(allTime.claude_ai.subscription_eur)} + Zusatznutzung{' '}
-            {formatEur(allTime.claude_ai.additional_eur)} + Anthropic API{' '}
-            {formatUsd(allTime.anthropic_api.total_usd)}
+            claude.ai {formatEur(allTime.claude_ai.total_eur)} (Plan-Abos{' '}
+            {formatEur(allTime.claude_ai.subscription_eur)} + Zusatznutzung{' '}
+            {formatEur(allTime.claude_ai.additional_eur)}) <span className="mx-1">·</span>
+            Anthropic API {formatUsd(allTime.anthropic_api.total_usd)}
           </p>
           {allTime.claude_ai.months.length > 0 && (
             <details className="mt-3">

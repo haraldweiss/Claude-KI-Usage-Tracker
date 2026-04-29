@@ -256,10 +256,12 @@ async function autoSync() {
         const lines = text.split('\n').map((s) => s.trim());
         const valueAboveLabel = (labels) => {
           for (let i = 1; i < lines.length; i++) {
+            const lower = lines[i].toLowerCase();
             for (const label of labels) {
-              if (lines[i].toLowerCase() === label.toLowerCase()) {
-                // Walk upwards to skip blank lines and find the nearest line
-                // containing a € value.
+              const labelLower = label.toLowerCase();
+              // Match exact or as a prefix — Anthropic appends suffixes like
+              // " · Automatisches Neuladen aus" to some labels.
+              if (lower === labelLower || lower.startsWith(labelLower)) {
                 for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
                   const m = lines[j].match(/([\d.,]+)\s*€/);
                   if (m) {
@@ -506,10 +508,32 @@ async function claudeCodeSync() {
       tabId = tab.id;
       createdTabId = tab.id;
       await waitForTabComplete(tab.id, 30000);
-      await sleep(3500);
     }
 
-    const [injection] = await chrome.scripting.executeScript({
+    // Poll for the table to finish skeleton-loading. Anthropic shows
+    // 'Loading...' placeholder rows for a few seconds while the data fetches.
+    // We retry up to 8 times (~16s) before giving up.
+    let attempt = 0;
+    let injection;
+    while (attempt < 8) {
+      await sleep(2000);
+      [injection] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const text = document.body.innerText || '';
+          // Quick gate: if any visible cell still says 'Loading...', the
+          // skeleton is up — bail out and let the caller retry.
+          if (/^\s*Loading\.\.\.\s*$/m.test(text)) {
+            return { still_loading: true };
+          }
+          return { still_loading: false };
+        }
+      });
+      if (!injection?.result?.still_loading) break;
+      attempt += 1;
+    }
+
+    [injection] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
         const text = document.body.innerText || '';
@@ -546,6 +570,9 @@ async function claudeCodeSync() {
             const memberCell = memberIdx >= 0 ? cells[memberIdx] : cells[0];
             const memberRaw = (memberCell?.textContent || '').trim();
             if (!memberRaw) continue;
+            // Skip skeleton-loader rows. They render as plain "Loading..."
+            // and would otherwise persist forever as bogus DB entries.
+            if (/^Loading\.{3}$/i.test(memberRaw)) continue;
 
             // Split into "name" + tag like "[API KEY]" if present.
             // Anthropic's UI renders the tag in a separate span on the same line.

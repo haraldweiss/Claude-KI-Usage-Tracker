@@ -51,6 +51,10 @@ coverage/
 # Claude Code local overrides (personal, never commit)
 .claude/settings.local.json
 
+# Worktrees created by the harness for isolated feature work — they
+# contain a full checkout of the repo and must never be committed.
+.claude/worktrees/
+
 # Compiled TS output that lives next to .ts source (now using tsx for dev,
 # dist/ for prod). Keep .js test files (jest still runs them).
 backend/src/**/*.js

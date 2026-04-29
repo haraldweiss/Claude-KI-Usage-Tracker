@@ -2,6 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { getSummary, getConsoleKeys } from '../services/api';
 import { CombinedSpendBreakdown, ConsoleKeyRecord } from '../types/api';
 
+// Monthly subscription EUR per claude.ai plan. Update if Anthropic changes
+// pricing or if the plan list grows. The claude.ai usage page does NOT show
+// the flat subscription fee — only the additional pay-as-you-go portion —
+// so without this lookup the dashboard underreports total spend.
+const PLAN_SUBSCRIPTION_EUR: Record<string, number> = {
+  'Pro': 18,
+  'Max (5x)': 99,
+  'Max (20x)': 199,
+  'Team': 30
+};
+
+function subscriptionEur(planName: string | null | undefined): number {
+  if (!planName) return 0;
+  return PLAN_SUBSCRIPTION_EUR[planName] ?? 0;
+}
+
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',
@@ -81,7 +97,9 @@ export default function CombinedCostTab(): React.ReactElement {
   const claudeAi = combined?.claude_ai ?? null;
   const apiTotal = combined?.anthropic_api?.cost_usd ?? 0;
   const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
-  const claudeAiCost = claudeAi?.cost_eur ?? 0;
+  const additionalUsageEur = claudeAi?.cost_eur ?? 0;
+  const planSubscriptionEur = subscriptionEur(claudeAi?.meta?.plan_name);
+  const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
 
   const noData = !claudeAi && apiTotal === 0;
 
@@ -93,14 +111,20 @@ export default function CombinedCostTab(): React.ReactElement {
         </h2>
         <div className="mt-2 flex items-baseline gap-3 flex-wrap">
           <span className="text-3xl font-bold text-gray-900">
-            {formatEur(claudeAiCost)}
+            {formatEur(claudeAiTotalEur)}
           </span>
           <span className="text-gray-400">+</span>
           <span className="text-3xl font-bold text-gray-900">
             {formatUsd(apiTotal)}
           </span>
         </div>
-        <p className="mt-2 text-sm text-gray-500">
+        {planSubscriptionEur > 0 && (
+          <p className="mt-2 text-sm text-gray-600">
+            Plan-Abo {formatEur(planSubscriptionEur)} + Zusatznutzung {formatEur(additionalUsageEur)}{' '}
+            + Anthropic API {formatUsd(apiTotal)}
+          </p>
+        )}
+        <p className="mt-1 text-xs text-gray-500">
           claude.ai Subscription + Anthropic API. Beträge in unterschiedlichen Währungen, keine
           Umrechnung.
         </p>
@@ -125,18 +149,28 @@ export default function CombinedCostTab(): React.ReactElement {
           {claudeAi ? (
             <>
               <p className="mt-3 text-2xl font-bold text-orange-600">
-                {formatEur(claudeAi.cost_eur)}
-                {claudeAi.meta?.monthly_limit_eur != null && (
-                  <span className="text-sm font-normal text-gray-500">
-                    {' '}/ {formatEur(claudeAi.meta.monthly_limit_eur)}
-                  </span>
-                )}
+                {formatEur(claudeAiTotalEur)}
               </p>
-              {claudeAi.meta?.spent_pct != null && (
+              {planSubscriptionEur > 0 && (
                 <p className="text-xs text-gray-500">
-                  {claudeAi.meta.spent_pct}% des Monatslimits verbraucht
+                  Plan {formatEur(planSubscriptionEur)} + Zusatz {formatEur(additionalUsageEur)}
                 </p>
               )}
+              <div className="mt-3 text-sm text-gray-700">
+                <span>
+                  Zusatznutzung: {formatEur(additionalUsageEur)}
+                  {claudeAi.meta?.monthly_limit_eur != null && (
+                    <span className="text-gray-500">
+                      {' '}/ {formatEur(claudeAi.meta.monthly_limit_eur)}
+                    </span>
+                  )}
+                  {claudeAi.meta?.spent_pct != null && (
+                    <span className="text-gray-500">
+                      {' '}({claudeAi.meta.spent_pct}%)
+                    </span>
+                  )}
+                </span>
+              </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 {claudeAi.meta?.weekly_all_models_pct != null ? (

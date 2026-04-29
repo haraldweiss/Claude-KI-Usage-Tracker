@@ -248,11 +248,40 @@ async function autoSync() {
           text.match(/(\d+)\s*%\s*used/i);
         const spent_pct = spent_pct_match ? parseInt(spent_pct_match[1], 10) : null;
 
-        const monthly_limit_eur = numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Monatliches Ausgabenlimit/i)
-          ?? numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Monthly spend(ing)? limit/i);
+        // Labels for "Monatliches Ausgabenlimit" and "Aktuelles Guthaben"
+        // appear AFTER their values on the page. A naive regex grabs the
+        // first "<n> €" anywhere on the page, which is the spent figure.
+        // Walk lines instead and read the value from the line just above
+        // each label.
+        const lines = text.split('\n').map((s) => s.trim());
+        const valueAboveLabel = (labels) => {
+          for (let i = 1; i < lines.length; i++) {
+            for (const label of labels) {
+              if (lines[i].toLowerCase() === label.toLowerCase()) {
+                // Walk upwards to skip blank lines and find the nearest line
+                // containing a € value.
+                for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
+                  const m = lines[j].match(/([\d.,]+)\s*€/);
+                  if (m) {
+                    const n = parseFloat(m[1].replace(/\s/g, '').replace(',', '.'));
+                    return isFinite(n) ? n : null;
+                  }
+                }
+              }
+            }
+          }
+          return null;
+        };
 
-        const balance_eur = numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Aktuelles Guthaben/i)
-          ?? numAfter(/([\d.,]+)\s*€[\s\S]{0,80}?Current balance/i);
+        const monthly_limit_eur = valueAboveLabel([
+          'Monatliches Ausgabenlimit',
+          'Monthly spending limit',
+          'Monthly spend limit'
+        ]);
+        const balance_eur = valueAboveLabel([
+          'Aktuelles Guthaben',
+          'Current balance'
+        ]);
 
         // Reset date for the additional usage cycle ("Zurücksetzung am May 1")
         const resetMatch =

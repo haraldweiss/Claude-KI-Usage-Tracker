@@ -12,7 +12,9 @@ import {
   ModelRecommendation,
   ModelAnalysis,
   OptimizationOpportunity,
-  ConsoleKeyRecord
+  ConsoleKeyRecord,
+  PlanPricingRow,
+  SpendingTotal
 } from '../types/api';
 
 const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`;
@@ -60,6 +62,38 @@ export async function getConsoleKeys(): Promise<{ keys: ConsoleKeyRecord[] }> {
   const response = await fetch(`${API_BASE}/usage/console/keys`);
   if (!response.ok) throw new Error('Failed to fetch console keys');
   return response.json() as Promise<{ keys: ConsoleKeyRecord[] }>;
+}
+
+/**
+ * All-time spending across both claude.ai (subscription + additional) and
+ * the Anthropic API. Returns one entry per month with claude.ai data.
+ */
+export async function getSpendingTotal(): Promise<SpendingTotal> {
+  const response = await fetch(`${API_BASE}/usage/spending-total`);
+  if (!response.ok) throw new Error('Failed to fetch spending total');
+  return response.json() as Promise<SpendingTotal>;
+}
+
+/**
+ * List the current plan-subscription pricing rows (Pro / Max / Team / …).
+ */
+export async function getPlanPricing(): Promise<{ plans: PlanPricingRow[] }> {
+  const response = await fetch(`${API_BASE}/pricing/plans`);
+  if (!response.ok) throw new Error('Failed to fetch plan pricing');
+  return response.json() as Promise<{ plans: PlanPricingRow[] }>;
+}
+
+/**
+ * Update one plan's monthly EUR price. Marks the row as 'manual' so the
+ * daily refresh job won't override the user's edit.
+ */
+export async function updatePlanPricing(planName: string, monthlyEur: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/pricing/plans/${encodeURIComponent(planName)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ monthly_eur: monthlyEur })
+  });
+  if (!response.ok) throw new Error('Failed to update plan pricing');
 }
 
 /**

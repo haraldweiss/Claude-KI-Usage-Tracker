@@ -52,13 +52,19 @@ export async function trackUsage(
       return;
     }
 
-    // The "Sync from Claude" popup button POSTs the cumulative totals from
-    // Claude's official settings page. Each click would otherwise append a
-    // brand-new row with the same totals — inflating the displayed token
-    // count by the full cumulative amount on every sync. Treat this source
-    // as a singleton: drop any prior sync row before inserting the fresh one.
+    // The claude.ai usage page POSTs cumulative monthly totals. We used to
+    // delete every prior row to avoid inflating the displayed token count,
+    // but that destroyed historical data — making all-time spending
+    // impossible to compute. Now we keep one snapshot per UTC day instead:
+    // the latest sync of *today* replaces the previous one of today, but
+    // older days survive. This caps the row count at ~30/month while
+    // preserving enough history for monthly diffs and all-time totals.
     if (source === 'claude_official_sync') {
-      await runQuery("DELETE FROM usage_records WHERE source = 'claude_official_sync'");
+      await runQuery(
+        `DELETE FROM usage_records
+         WHERE source = 'claude_official_sync'
+           AND date(timestamp) = date('now')`
+      );
     }
 
     // Console scraping appends a fresh row per key per sync. The dashboard
@@ -375,6 +381,114 @@ interface ConsoleKeyRow {
 interface ConsoleKeyRowWithSource extends ConsoleKeyRow {
   source: string;
   lines_accepted: number | null;
+}
+
+interface MonthSpendRow {
+  month: string;
+  plan_name: string | null;
+  additional_eur: number;
+  subscription_eur: number;
+  total_eur: number;
+}
+
+/**
+ * Return all-time spending: every month with at least one claude.ai sync
+ * gets one row (using the latest snapshot of that month). Plan subscription
+ * cost is looked up from plan_pricing per the snapshot's plan_name.
+ */
+export async function getSpendingTotal(_req: Request, res: Response): Promise<void> {
+  try {
+    // Latest claude.ai snapshot per UTC month — the cumulative figure as of
+    // the last sync that month, which is also the final value because the
+    // page resets on the 1st.
+    const monthRows = await allQuery<{
+      month: string;
+      cost_eur: number;
+      input_tokens: number;
+      response_metadata: string | null;
+      timestamp: string;
+    }>(
+      `SELECT month, cost_eur, input_tokens, response_metadata, timestamp
+       FROM (
+         SELECT strftime('%Y-%m', timestamp) as month,
+                cost as cost_eur,
+                input_tokens,
+                response_metadata,
+                timestamp,
+                ROW_NUMBER() OVER (
+                  PARTITION BY strftime('%Y-%m', timestamp)
+                  ORDER BY timestamp DESC
+                ) as rn
+         FROM usage_records
+         WHERE source = 'claude_official_sync'
+       )
+       WHERE rn = 1
+       ORDER BY month DESC`
+    );
+
+    // Lookup plan_pricing once and reuse across months.
+    const { getPlanPrice } = await import('../services/planPricingService.js');
+
+    const months: MonthSpendRow[] = [];
+    for (const row of monthRows) {
+      let plan_name: string | null = null;
+      let additional_eur = 0;
+      try {
+        const meta = row.response_metadata ? JSON.parse(row.response_metadata) : null;
+        plan_name = meta?.plan_name ?? null;
+        additional_eur = typeof meta?.spent_eur === 'number' ? meta.spent_eur : (row.cost_eur ?? row.input_tokens / 1000);
+      } catch {
+        additional_eur = row.cost_eur ?? row.input_tokens / 1000;
+      }
+      const subscription_eur = plan_name ? (await getPlanPrice(plan_name)) ?? 0 : 0;
+      months.push({
+        month: row.month,
+        plan_name,
+        additional_eur,
+        subscription_eur,
+        total_eur: subscription_eur + additional_eur
+      });
+    }
+
+    const claudeAiTotalEur = months.reduce((sum, m) => sum + m.total_eur, 0);
+    const claudeAiSubscriptionEur = months.reduce((sum, m) => sum + m.subscription_eur, 0);
+    const claudeAiAdditionalEur = months.reduce((sum, m) => sum + m.additional_eur, 0);
+
+    // For Anthropic API costs, the console reports cumulative cost since key
+    // creation, so the latest snapshot per (workspace, key_id_suffix) IS the
+    // all-time figure for that key. Sum across keys to get the all-time total.
+    const apiTotalRow = await getQuery<{ total_usd: number }>(
+      `SELECT SUM(cost_usd) as total_usd
+       FROM (
+         SELECT cost_usd,
+                ROW_NUMBER() OVER (
+                  PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC
+                ) as rn
+         FROM usage_records
+         WHERE (source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
+            OR source = 'claude_code_sync'
+       )
+       WHERE rn = 1`
+    );
+
+    const since = months.length > 0 ? months[months.length - 1]?.month ?? null : null;
+
+    res.json({
+      since,
+      claude_ai: {
+        total_eur: claudeAiTotalEur,
+        subscription_eur: claudeAiSubscriptionEur,
+        additional_eur: claudeAiAdditionalEur,
+        months
+      },
+      anthropic_api: {
+        total_usd: apiTotalRow?.total_usd ?? 0
+      }
+    });
+  } catch (error) {
+    console.error('Error getting spending total:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 }
 
 export async function getConsoleKeys(_req: Request, res: Response): Promise<void> {

@@ -101,6 +101,21 @@ export function initDatabase(): Promise<void> {
         if (err && !err.message.includes('already exists')) reject(err);
       });
 
+      // claude.ai plan subscription pricing — flat monthly fees per plan
+      // (not exposed by Anthropic in any public API; seed with current values
+      // and let the user edit via Settings, plus a best-effort daily refresh
+      // that scrapes the public pricing page).
+      database.run(`
+        CREATE TABLE IF NOT EXISTS plan_pricing (
+          plan_name TEXT PRIMARY KEY,
+          monthly_eur REAL NOT NULL,
+          source TEXT DEFAULT 'manual',
+          last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
       // Create indexes
       database.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON usage_records(timestamp)');
       database.run('CREATE INDEX IF NOT EXISTS idx_model ON usage_records(model)');

@@ -4,7 +4,8 @@ import {
   getSummary,
   getModelBreakdown,
   getHistory,
-  getConsoleKeys
+  getConsoleKeys,
+  getSpendingTotal
 } from '../controllers/usageController.js';
 import {
   trackUsageValidator,
@@ -29,5 +30,9 @@ router.get('/history', getHistoryValidator, handleValidationErrors, getHistory);
 
 // Per-key snapshot of the latest sync from console.anthropic.com and platform.claude.com
 router.get('/console/keys', getConsoleKeys);
+
+// All-time spending: every month with at least one claude.ai sync, plus
+// the cumulative API cost as of the most recent console sync.
+router.get('/spending-total', getSpendingTotal);
 
 export default router;

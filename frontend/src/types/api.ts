@@ -57,6 +57,32 @@ export interface ConsoleKeyRecord {
   lines_accepted?: number | null;
 }
 
+export interface PlanPricingRow {
+  plan_name: string;
+  monthly_eur: number;
+  source: 'manual' | 'auto' | 'tier_default';
+  last_updated: string;
+}
+
+export interface SpendingTotal {
+  since: string | null;
+  claude_ai: {
+    total_eur: number;
+    subscription_eur: number;
+    additional_eur: number;
+    months: Array<{
+      month: string;
+      plan_name: string | null;
+      additional_eur: number;
+      subscription_eur: number;
+      total_eur: number;
+    }>;
+  };
+  anthropic_api: {
+    total_usd: number;
+  };
+}
+
 export interface UsageHistoryRecord {
   id: number;
   model: string;

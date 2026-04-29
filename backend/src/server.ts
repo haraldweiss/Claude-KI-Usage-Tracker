@@ -6,6 +6,10 @@ import {
   checkAndUpdatePricing
 } from './services/pricingService.js';
 import { refreshModelAnalytics } from './services/modelRecommendationService.js';
+import {
+  seedPlanPricingIfEmpty,
+  schedulePlanPricingRefresh
+} from './services/planPricingService.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -20,6 +24,9 @@ async function start(): Promise<void> {
     await seedFromFallbackIfEmpty();
     console.log('Pricing seeded if empty');
 
+    await seedPlanPricingIfEmpty();
+    console.log('Plan pricing seeded if empty');
+
     // Kick off a one-time fetch at startup, but don't block the server on it.
     // If LiteLLM is unreachable, log and continue — the daily cron will retry.
     checkAndUpdatePricing()
@@ -28,8 +35,11 @@ async function start(): Promise<void> {
       )
       .catch((err) => console.error('Startup pricing fetch error:', (err as Error).message));
 
-    // Schedule daily pricing check
+    // Schedule daily pricing check (model prices via LiteLLM)
     schedulePricingCheck(cron);
+
+    // Schedule daily refresh of plan subscription pricing (best-effort)
+    schedulePlanPricingRefresh(cron);
 
     // Schedule daily model analytics refresh at 2 AM
     cron.schedule('0 2 * * *', async () => {

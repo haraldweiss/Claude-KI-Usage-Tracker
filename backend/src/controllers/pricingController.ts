@@ -1,6 +1,11 @@
 import { Request, Response } from 'express';
 import { runQuery, allQuery, getQuery } from '../database/sqlite.js';
 import { upsertPricing, recalculateCosts } from '../services/pricingService.js';
+import {
+  getAllPlans,
+  updatePlanPrice,
+  refreshPlanPricingFromUpstream
+} from '../services/planPricingService.js';
 import type { PricingRecord, UpdatePricingRequest } from '../types/index.js';
 
 interface PricingRow {
@@ -61,6 +66,53 @@ export async function updatePricing(
     });
   } catch (error) {
     console.error('Error updating pricing:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Plan subscription pricing (Pro, Max 5x, etc.) — flat monthly fees per plan.
+// Separate from per-model token pricing; used by the dashboard to add the
+// fixed claude.ai subscription cost to the variable pay-as-you-go spend.
+// ---------------------------------------------------------------------------
+
+export async function getPlans(_req: Request, res: Response): Promise<void> {
+  try {
+    const plans = await getAllPlans();
+    res.json({ plans });
+  } catch (error) {
+    console.error('Error getting plan pricing:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+export async function updatePlan(
+  req: Request<{ name: string }, unknown, { monthly_eur: number }>,
+  res: Response
+): Promise<void> {
+  try {
+    const planName = decodeURIComponent(req.params.name);
+    const { monthly_eur } = req.body;
+
+    if (typeof monthly_eur !== 'number' || !isFinite(monthly_eur) || monthly_eur < 0) {
+      res.status(400).json({ error: 'monthly_eur must be a non-negative number' });
+      return;
+    }
+
+    await updatePlanPrice(planName, monthly_eur, 'manual');
+    res.json({ success: true, plan_name: planName, monthly_eur, source: 'manual' });
+  } catch (error) {
+    console.error('Error updating plan pricing:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+export async function triggerPlanRefresh(_req: Request, res: Response): Promise<void> {
+  try {
+    const result = await refreshPlanPricingFromUpstream();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Error refreshing plan pricing:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 }

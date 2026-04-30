@@ -3,6 +3,7 @@ import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
 export interface PlanPricingRow {
   plan_name: string;
   monthly_eur: number;
+  min_seats: number;
   source: 'manual' | 'auto' | 'tier_default';
   last_updated: string;
 }
@@ -11,10 +12,10 @@ export interface PlanPricingRow {
 // when Anthropic changes pricing — though the daily refresh tries to keep
 // them in sync automatically (best-effort scrape).
 const SEED_PLANS: Array<Omit<PlanPricingRow, 'last_updated'>> = [
-  { plan_name: 'Pro', monthly_eur: 18, source: 'tier_default' },
-  { plan_name: 'Max (5x)', monthly_eur: 99, source: 'tier_default' },
-  { plan_name: 'Max (20x)', monthly_eur: 199, source: 'tier_default' },
-  { plan_name: 'Team', monthly_eur: 30, source: 'tier_default' }
+  { plan_name: 'Pro', monthly_eur: 18, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'Max (5x)', monthly_eur: 99, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'Max (20x)', monthly_eur: 199, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'Team', monthly_eur: 125, min_seats: 5, source: 'tier_default' }
 ];
 
 /**
@@ -29,8 +30,8 @@ export async function seedPlanPricingIfEmpty(): Promise<void> {
     );
     if (!existing) {
       await runQuery(
-        'INSERT INTO plan_pricing (plan_name, monthly_eur, source) VALUES (?, ?, ?)',
-        [seed.plan_name, seed.monthly_eur, seed.source]
+        'INSERT INTO plan_pricing (plan_name, monthly_eur, min_seats, source) VALUES (?, ?, ?, ?)',
+        [seed.plan_name, seed.monthly_eur, seed.min_seats, seed.source]
       );
     }
   }
@@ -38,7 +39,7 @@ export async function seedPlanPricingIfEmpty(): Promise<void> {
 
 export async function getAllPlans(): Promise<PlanPricingRow[]> {
   return allQuery<PlanPricingRow>(
-    'SELECT plan_name, monthly_eur, source, last_updated FROM plan_pricing ORDER BY monthly_eur ASC'
+    'SELECT plan_name, monthly_eur, min_seats, source, last_updated FROM plan_pricing ORDER BY monthly_eur ASC'
   );
 }
 

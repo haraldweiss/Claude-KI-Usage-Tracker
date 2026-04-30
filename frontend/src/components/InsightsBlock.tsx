@@ -79,10 +79,11 @@ function buildInsights(
   // -------- Plan right-sizing --------
   if (typeof meta?.weekly_all_models_pct === 'number' && meta.plan_name) {
     const pct = meta.weekly_all_models_pct;
-    const cheaperPlan = plans
+    const singleUserPlans = plans.filter((p) => !p.min_seats || p.min_seats <= 1);
+    const cheaperPlan = singleUserPlans
       .filter((p) => p.monthly_eur < planEur && p.monthly_eur > 0)
       .sort((a, b) => b.monthly_eur - a.monthly_eur)[0];
-    const expensiverPlan = plans
+    const expensiverPlan = singleUserPlans
       .filter((p) => p.monthly_eur > planEur)
       .sort((a, b) => a.monthly_eur - b.monthly_eur)[0];
 

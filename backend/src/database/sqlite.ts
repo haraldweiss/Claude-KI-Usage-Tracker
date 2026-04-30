@@ -109,6 +109,7 @@ export function initDatabase(): Promise<void> {
         CREATE TABLE IF NOT EXISTS plan_pricing (
           plan_name TEXT PRIMARY KEY,
           monthly_eur REAL NOT NULL,
+          min_seats INTEGER DEFAULT 1,
           source TEXT DEFAULT 'manual',
           last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -189,6 +190,9 @@ export function initDatabase(): Promise<void> {
             { name: 'api_id', ddl: 'TEXT' },
             { name: 'status', ddl: "TEXT DEFAULT 'active'" },
             { name: 'tier', ddl: 'TEXT' }
+          ]);
+          await addMissingColumns('plan_pricing', [
+            { name: 'min_seats', ddl: 'INTEGER DEFAULT 1' }
           ]);
           await new Promise<void>((res, rej) => {
             database.run(

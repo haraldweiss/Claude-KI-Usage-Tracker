@@ -65,6 +65,7 @@ export interface ConsoleKeyRecord {
 export interface PlanPricingRow {
   plan_name: string;
   monthly_eur: number;
+  min_seats?: number;
   source: 'manual' | 'auto' | 'tier_default';
   last_updated: string;
 }

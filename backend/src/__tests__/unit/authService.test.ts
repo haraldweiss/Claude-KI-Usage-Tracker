@@ -1,5 +1,5 @@
 import { initDatabase, runQuery } from '../../database/sqlite.js';
-import { createMagicLinkToken, consumeMagicLinkToken } from '../../services/authService.js';
+import { createMagicLinkToken, consumeMagicLinkToken, createSession, getSessionUser, deleteSession } from '../../services/authService.js';
 
 beforeAll(async () => {
   process.env.DATABASE_PATH = ':memory:';
@@ -51,5 +51,39 @@ describe('magic-link tokens', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect((rejected[0] as PromiseRejectedResult).reason.message).toBe('already consumed');
+  });
+});
+
+describe('sessions', () => {
+  it('creates a session for a user and returns the session id', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (100, 'sess1@x.com')`);
+    const sid = await createSession(100, 'Mozilla/5.0', '127.0.0.1');
+    expect(sid).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('resolves a session id back to a user', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (101, 'sess2@x.com')`);
+    const sid = await createSession(101, null, null);
+    const user = await getSessionUser(sid);
+    expect(user?.email).toBe('sess2@x.com');
+  });
+
+  it('returns null for an unknown session id', async () => {
+    const user = await getSessionUser('deadbeef');
+    expect(user).toBeNull();
+  });
+
+  it('returns null for an expired session', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (102, 'sess3@x.com')`);
+    const sid = await createSession(102, null, null);
+    await runQuery(`UPDATE sessions SET expires_at = datetime('now', '-1 day') WHERE id = ?`, [sid]);
+    expect(await getSessionUser(sid)).toBeNull();
+  });
+
+  it('deletes a session', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (103, 'sess4@x.com')`);
+    const sid = await createSession(103, null, null);
+    await deleteSession(sid);
+    expect(await getSessionUser(sid)).toBeNull();
   });
 });

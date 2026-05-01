@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { runQuery, getQuery } from '../database/sqlite.js';
-import type { MagicLinkTokenRow } from '../types/index.js';
+import type { MagicLinkTokenRow, User } from '../types/index.js';
 
 const MAGIC_LINK_TTL_MIN = 15;
 
@@ -53,4 +53,47 @@ export async function consumeMagicLinkToken(token: string): Promise<{ email: str
   if (row.consumed_at) throw new Error('already consumed');
   // Expired (the only remaining failure mode given the WHERE clause)
   throw new Error('expired');
+}
+
+// ── Session lifecycle ────────────────────────────────────────────────────────
+
+const SESSION_TTL_DAYS = 30;
+
+export async function createSession(
+  userId: number,
+  userAgent: string | null,
+  ipAddress: string | null
+): Promise<string> {
+  const sid = crypto.randomBytes(32).toString('hex');
+  await runQuery(
+    `INSERT INTO sessions (id, user_id, expires_at, user_agent, ip_address)
+     VALUES (?, ?, datetime('now', '+${SESSION_TTL_DAYS} days'), ?, ?)`,
+    [sid, userId, userAgent, ipAddress]
+  );
+  await runQuery(`UPDATE users SET last_login_at = datetime('now') WHERE id = ?`, [userId]);
+  return sid;
+}
+
+export async function getSessionUser(sessionId: string): Promise<User | null> {
+  // Expiry check is performed at SQL level (consistent with B3's atomic-consume pattern)
+  // to avoid JS Date timezone-parsing pitfalls with SQLite's UTC string format.
+  const row = await getQuery<User>(
+    `SELECT u.* FROM sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.id = ?
+       AND datetime(s.expires_at) > datetime('now')`,
+    [sessionId]
+  );
+  return row ?? null;
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  await runQuery('DELETE FROM sessions WHERE id = ?', [sessionId]);
+}
+
+export async function touchSession(sessionId: string): Promise<void> {
+  await runQuery(
+    `UPDATE sessions SET expires_at = datetime('now', '+${SESSION_TTL_DAYS} days') WHERE id = ?`,
+    [sessionId]
+  );
 }

@@ -241,10 +241,15 @@
       <input id="api-base-input" type="url" placeholder="http://localhost:3000/api" />
       <label for="dashboard-url-input">Dashboard URL</label>
       <input id="dashboard-url-input" type="url" placeholder="http://localhost:5173" />
-      <label for="auth-user-input">Basic-Auth User (optional)</label>
-      <input id="auth-user-input" type="text" autocomplete="off" placeholder="leer = keine Auth" />
-      <label for="auth-pass-input">Basic-Auth Passwort</label>
-      <input id="auth-pass-input" type="password" autocomplete="off" />
+      <label for="api-token-input">API-Token</label>
+      <input id="api-token-input" type="password" autocomplete="off"
+        placeholder="ck_live_..." />
+      <p style="font-size:10px;color:#777;margin-top:4px">
+        Generiere im Dashboard unter Settings → API-Token.
+      </p>
+      <button class="btn-secondary" id="open-token-page" type="button">
+        Token-Seite öffnen
+      </button>
       <div class="row">
         <button class="btn-primary" id="settings-save">Speichern</button>
         <button class="btn-secondary" id="settings-reset">Zurücksetzen</button>

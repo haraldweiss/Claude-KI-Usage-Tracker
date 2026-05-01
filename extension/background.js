@@ -20,18 +20,13 @@ async function getApiBase() {
   return DEFAULT_API_BASE;
 }
 
-// Build an Authorization header from the stored Basic-Auth credentials, if
-// any. Returns {} when no credentials are configured (local dev).
 async function getAuthHeaders() {
   try {
-    const stored = await chrome.storage.local.get(['auth_user', 'auth_pass']);
-    if (stored.auth_user && stored.auth_pass) {
-      const token = btoa(`${stored.auth_user}:${stored.auth_pass}`);
-      return { Authorization: `Basic ${token}` };
+    const stored = await chrome.storage.local.get('api_token');
+    if (stored.api_token) {
+      return { Authorization: `Bearer ${stored.api_token}` };
     }
-  } catch {
-    // ignore — fall through to no auth
-  }
+  } catch { /* ignore */ }
   return {};
 }
 

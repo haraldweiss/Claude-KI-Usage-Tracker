@@ -5,7 +5,10 @@ import { runQuery, getQuery } from '../database/sqlite.js';
 import { SESSION_COOKIE_NAME } from '../middleware/auth.js';
 import type { User } from '../types/index.js';
 
-const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.de/claudetracker/auth/verify';
+// Must be the BACKEND verify endpoint (under /api/) so the email link hits the
+// intermediate "Click to log in" HTML page rendered by showVerifyPage, not the
+// SPA route which would just bounce to /login without consuming the token.
+const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.de/claudetracker/api/auth/verify';
 
 // NIT N4: cookie path comes from env so dev (localhost) can use '/' while
 // production uses '/claudetracker/'. Set COOKIE_PATH=/ in .env for local dev.

@@ -1,18 +1,30 @@
 import type { Request, Response } from 'express';
-import { createMagicLinkToken, consumeMagicLinkToken, createSession, deleteSession, getSessionUser } from '../services/authService.js';
+import { createMagicLinkToken, consumeMagicLinkToken, createSession, deleteSession, getSessionUser, touchSession } from '../services/authService.js';
 import { sendMagicLinkMail } from '../services/mailService.js';
 import { runQuery, getQuery } from '../database/sqlite.js';
 import { SESSION_COOKIE_NAME } from '../middleware/auth.js';
 import type { User } from '../types/index.js';
 
 const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.de/claudetracker/auth/verify';
+
+// NIT N4: cookie path comes from env so dev (localhost) can use '/' while
+// production uses '/claudetracker/'. Set COOKIE_PATH=/ in .env for local dev.
+const COOKIE_PATH = process.env.COOKIE_PATH || '/claudetracker/';
 const COOKIE_OPTS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
-  path: '/claudetracker/',
+  path: COOKIE_PATH,
   maxAge: 30 * 24 * 60 * 60 * 1000
 };
+
+// NIT N1: HTML escaping helper — defense-in-depth for any user-reflected strings.
+const HTML_ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => HTML_ESC[c] ?? c);
+}
+// NIT N1: Only accept 64-char hex tokens (sha256 output). Anything else → 400.
+const TOKEN_RE = /^[a-f0-9]{64}$/;
 
 const requestRateLimit = new Map<string, number[]>();
 const RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -58,6 +70,13 @@ export async function requestMagicLink(req: Request, res: Response): Promise<voi
  */
 export async function showVerifyPage(req: Request, res: Response): Promise<void> {
   const token = String(req.query.token || '');
+  // NIT N1: reject tokens that don't match our format before rendering any HTML.
+  if (!TOKEN_RE.test(token)) {
+    res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(
+      '<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;margin-top:80px"><h1>Ungültiger Link</h1><p><a href="/claudetracker/login">Neuen Login-Link anfordern</a></p></body></html>'
+    );
+    return;
+  }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><title>Login</title>
@@ -67,7 +86,7 @@ button:hover{background:#2563EB}</style></head><body>
 <h1>Login bestätigen</h1>
 <p>Klicke auf den Button um dich anzumelden.</p>
 <form method="POST" action="/claudetracker/api/auth/verify">
-  <input type="hidden" name="token" value="${token.replace(/"/g, '&quot;')}">
+  <input type="hidden" name="token" value="${escapeHtml(token)}">
   <button type="submit">Einloggen</button>
 </form>
 </body></html>`);
@@ -81,11 +100,17 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     if (!user) {
       // Open signup: implicit user creation on first verified login
       const display = email.split('@')[0];
-      const result = await runQuery(
-        `INSERT INTO users (email, display_name) VALUES (?, ?)`,
-        [email, display]
-      );
-      user = await getQuery<User>('SELECT * FROM users WHERE id = ?', [result.lastID]);
+      try {
+        const result = await runQuery(
+          `INSERT INTO users (email, display_name) VALUES (?, ?)`,
+          [email, display]
+        );
+        user = await getQuery<User>('SELECT * FROM users WHERE id = ?', [result.lastID]);
+      } catch (insertErr) {
+        // Race: another request just inserted the same email. Re-fetch and proceed.
+        user = await getQuery<User>('SELECT * FROM users WHERE email = ?', [email]);
+        if (!user) throw insertErr;  // truly unexpected — re-raise
+      }
     }
     if (!user) throw new Error('user creation failed');
     const sid = await createSession(user.id, req.headers['user-agent'] || null, req.ip || null);
@@ -94,7 +119,7 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
   } catch (err) {
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(
       `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center">
-      <h1>Login fehlgeschlagen</h1><p>${(err as Error).message}. <a href="/claudetracker/login">Neuen Link anfordern</a></p>
+      <h1>Login fehlgeschlagen</h1><p>${escapeHtml((err as Error).message)}. <a href="/claudetracker/login">Neuen Link anfordern</a></p>
       </body></html>`
     );
   }
@@ -103,7 +128,7 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
 export async function logout(req: Request, res: Response): Promise<void> {
   const sid = req.cookies?.[SESSION_COOKIE_NAME];
   if (sid) await deleteSession(sid);
-  res.clearCookie(SESSION_COOKIE_NAME, { path: '/claudetracker/' });
+  res.clearCookie(SESSION_COOKIE_NAME, { path: COOKIE_PATH });
   res.status(204).send();
 }
 
@@ -112,6 +137,7 @@ export async function whoami(req: Request, res: Response): Promise<void> {
   if (!sid) { res.status(401).json({ error: 'no session' }); return; }
   const user = await getSessionUser(sid);
   if (!user) { res.status(401).json({ error: 'invalid session' }); return; }
+  await touchSession(sid);   // roll expiry on /me too, matching requireUser middleware
   res.json({ id: user.id, email: user.email, display_name: user.display_name,
              plan_name: user.plan_name, monthly_limit_eur: user.monthly_limit_eur,
              is_admin: user.is_admin === 1 });

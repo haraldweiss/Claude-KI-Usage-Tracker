@@ -55,6 +55,10 @@ function buildCorsOptions(): cors.CorsOptions {
 export function createApp(): Express {
   const app: Express = express();
 
+  // Behind Apache reverse-proxy on the VPS; 1 hop. Without this, req.ip is
+  // always the loopback and per-IP rate limits become per-server limits.
+  app.set('trust proxy', 'loopback');
+
   app.use(cors(buildCorsOptions()));
   app.use(cookieParser());
   app.use(bodyParser.json());

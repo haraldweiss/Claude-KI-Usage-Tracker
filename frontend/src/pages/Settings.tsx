@@ -65,7 +65,6 @@ export default function Settings(): React.ReactElement {
         {loading ? (
           <div className="text-center py-6 text-gray-500">Lade Plan-Preise…</div>
         ) : (
-          // @ts-expect-error readOnly prop will be wired up in Task D8
           <PlanPricingTable plans={plans} onUpdate={loadPricing} readOnly={!isAdmin} />
         )}
       </div>
@@ -97,7 +96,6 @@ export default function Settings(): React.ReactElement {
                 <em> Needs review</em> below.
               </div>
             )}
-            {/* @ts-expect-error readOnly prop will be wired up in Task D8 */}
             <PricingTable pricing={pricing} onUpdate={loadPricing} readOnly={!isAdmin} />
           </>
         )}

@@ -5,6 +5,7 @@ import { updatePlanPricing } from '../services/api';
 interface Props {
   plans: PlanPricingRow[];
   onUpdate: () => void;
+  readOnly?: boolean;
 }
 
 function formatEur(value: number): string {
@@ -34,7 +35,7 @@ function sourceBadge(source: PlanPricingRow['source']): React.ReactElement {
   );
 }
 
-export default function PlanPricingTable({ plans, onUpdate }: Props): React.ReactElement {
+export default function PlanPricingTable({ plans, onUpdate, readOnly = false }: Props): React.ReactElement {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
@@ -99,7 +100,7 @@ export default function PlanPricingTable({ plans, onUpdate }: Props): React.Reac
             <td className="px-4 py-3 font-medium text-gray-900">{plan.plan_name}</td>
             <td className="px-4 py-3">{sourceBadge(plan.source)}</td>
             <td className="px-4 py-3 text-right">
-              {editing === plan.plan_name ? (
+              {editing === plan.plan_name && !readOnly ? (
                 <input
                   type="text"
                   value={draft}
@@ -115,7 +116,7 @@ export default function PlanPricingTable({ plans, onUpdate }: Props): React.Reac
               {new Date(plan.last_updated).toLocaleDateString('de-DE')}
             </td>
             <td className="px-4 py-3 text-right">
-              {editing === plan.plan_name ? (
+              {editing === plan.plan_name && !readOnly ? (
                 <div className="flex justify-end gap-2">
                   <button
                     onClick={() => save(plan.plan_name)}
@@ -132,12 +133,14 @@ export default function PlanPricingTable({ plans, onUpdate }: Props): React.Reac
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={() => startEdit(plan)}
-                  className="text-blue-600 hover:underline text-sm"
-                >
-                  Bearbeiten
-                </button>
+                !readOnly && (
+                  <button
+                    onClick={() => startEdit(plan)}
+                    className="text-blue-600 hover:underline text-sm"
+                  >
+                    Bearbeiten
+                  </button>
+                )
               )}
             </td>
           </tr>

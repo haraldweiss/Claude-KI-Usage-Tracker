@@ -402,6 +402,11 @@ interface ConsoleKeyRowWithSource extends ConsoleKeyRow {
 }
 
 interface MonthSpendRow {
+  // Cycle-end ISO date (YYYY-MM-DD) — the date the user's billing/limit
+  // cycle resets. Field is named `month` for backwards compatibility with
+  // the frontend, but the value is now a per-cycle identifier rather than
+  // a calendar month, so a single billing period that straddles a calendar
+  // month boundary is counted exactly once.
   month: string;
   plan_name: string | null;
   additional_eur: number;
@@ -409,62 +414,107 @@ interface MonthSpendRow {
   total_eur: number;
 }
 
+const SHORT_MONTHS: Record<string, number> = {
+  Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+};
+
 /**
- * Return all-time spending: every month with at least one claude.ai sync
- * gets one row (using the latest snapshot of that month). Plan subscription
- * cost is looked up from plan_pricing per the snapshot's plan_name.
+ * Convert claude.ai's short reset_date string (e.g. "Jun 1") into a full
+ * ISO date by inferring the year from the record's timestamp. If the reset
+ * month is earlier than the record month (or same month but earlier day),
+ * the reset belongs to next year.
+ */
+function parseResetDate(resetStr: string | null | undefined, recordTs: string): string | null {
+  if (!resetStr) return null;
+  const m = resetStr.trim().match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/);
+  if (!m || !m[1] || !m[2]) return null;
+  const monthIdx = SHORT_MONTHS[m[1].slice(0, 3)];
+  if (monthIdx === undefined) return null;
+  const day = parseInt(m[2], 10);
+
+  const ts = new Date(recordTs.includes('T') ? recordTs : recordTs.replace(' ', 'T') + 'Z');
+  let year = ts.getUTCFullYear();
+  const tsMonth = ts.getUTCMonth();
+  const tsDay = ts.getUTCDate();
+  if (monthIdx < tsMonth || (monthIdx === tsMonth && day < tsDay)) {
+    year++;
+  }
+  return `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Return all-time spending grouped by billing cycle. Each unique reset_date
+ * (cycle end) yields one row, using the latest snapshot in that cycle for
+ * the cumulative additional spend. Plan subscription cost is looked up from
+ * plan_pricing per the snapshot's plan_name and counted once per cycle.
  */
 export async function getSpendingTotal(_req: Request, res: Response): Promise<void> {
   try {
-    // Latest claude.ai snapshot per UTC month — the cumulative figure as of
-    // the last sync that month, which is also the final value because the
-    // page resets on the 1st.
-    const monthRows = await allQuery<{
-      month: string;
+    // Fetch all claude.ai sync rows; cycle bucketing happens in JS because
+    // SQLite doesn't easily handle the "Jun 1" -> ISO conversion with year
+    // inference from the record timestamp.
+    const allRows = await allQuery<{
       cost_eur: number;
       input_tokens: number;
       response_metadata: string | null;
       timestamp: string;
     }>(
-      `SELECT month, cost_eur, input_tokens, response_metadata, timestamp
-       FROM (
-         SELECT strftime('%Y-%m', timestamp) as month,
-                cost as cost_eur,
-                input_tokens,
-                response_metadata,
-                timestamp,
-                ROW_NUMBER() OVER (
-                  PARTITION BY strftime('%Y-%m', timestamp)
-                  ORDER BY timestamp DESC
-                ) as rn
-         FROM usage_records
-         WHERE source = 'claude_official_sync'
-       )
-       WHERE rn = 1
-       ORDER BY month DESC`
+      `SELECT cost as cost_eur, input_tokens, response_metadata, timestamp
+       FROM usage_records
+       WHERE source = 'claude_official_sync'
+       ORDER BY timestamp DESC`
     );
 
-    // Lookup plan_pricing once and reuse across months.
+    interface CycleAccumulator {
+      cycleEnd: string;
+      plan_name: string | null;
+      additional_eur: number;
+      latestTs: string;
+    }
+    const byCycle = new Map<string, CycleAccumulator>();
+
+    for (const row of allRows) {
+      let meta: { plan_name?: string | null; reset_date?: string | null; spent_eur?: number } | null = null;
+      try {
+        meta = row.response_metadata ? JSON.parse(row.response_metadata) : null;
+      } catch {
+        meta = null;
+      }
+      const cycleEnd = parseResetDate(meta?.reset_date, row.timestamp);
+      if (!cycleEnd) continue; // skip rows with no parseable reset_date
+
+      const spent = typeof meta?.spent_eur === 'number'
+        ? meta.spent_eur
+        : (row.cost_eur ?? row.input_tokens / 1000);
+      const planName = meta?.plan_name ?? null;
+
+      const existing = byCycle.get(cycleEnd);
+      if (!existing || row.timestamp > existing.latestTs) {
+        byCycle.set(cycleEnd, {
+          cycleEnd,
+          plan_name: planName,
+          additional_eur: spent,
+          latestTs: row.timestamp
+        });
+      }
+    }
+
+    const cycles = Array.from(byCycle.values()).sort((a, b) =>
+      b.cycleEnd.localeCompare(a.cycleEnd)
+    );
+
     const { getPlanPrice } = await import('../services/planPricingService.js');
 
     const months: MonthSpendRow[] = [];
-    for (const row of monthRows) {
-      let plan_name: string | null = null;
-      let additional_eur = 0;
-      try {
-        const meta = row.response_metadata ? JSON.parse(row.response_metadata) : null;
-        plan_name = meta?.plan_name ?? null;
-        additional_eur = typeof meta?.spent_eur === 'number' ? meta.spent_eur : (row.cost_eur ?? row.input_tokens / 1000);
-      } catch {
-        additional_eur = row.cost_eur ?? row.input_tokens / 1000;
-      }
-      const subscription_eur = plan_name ? (await getPlanPrice(plan_name)) ?? 0 : 0;
+    for (const c of cycles) {
+      const subscription_eur = c.plan_name ? (await getPlanPrice(c.plan_name)) ?? 0 : 0;
       months.push({
-        month: row.month,
-        plan_name,
-        additional_eur,
+        month: c.cycleEnd,
+        plan_name: c.plan_name,
+        additional_eur: c.additional_eur,
         subscription_eur,
-        total_eur: subscription_eur + additional_eur
+        total_eur: subscription_eur + c.additional_eur
       });
     }
 
@@ -489,7 +539,10 @@ export async function getSpendingTotal(_req: Request, res: Response): Promise<vo
        WHERE rn = 1`
     );
 
-    const since = months.length > 0 ? months[months.length - 1]?.month ?? null : null;
+    // `since` reflects when tracking actually began, not the earliest cycle's
+    // end date — those differ now that we group by billing cycle.
+    const earliestRow = allRows[allRows.length - 1];
+    const since = earliestRow ? earliestRow.timestamp.slice(0, 10) : null;
     const apiTotalUsd = apiTotalRow?.total_usd ?? 0;
 
     // Convert API USD to EUR using the latest stored exchange rate so the

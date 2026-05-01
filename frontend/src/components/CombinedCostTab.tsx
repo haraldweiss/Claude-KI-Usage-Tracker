@@ -154,7 +154,9 @@ export default function CombinedCostTab(): React.ReactElement {
             <span className="text-2xl font-bold text-gray-900">
               {formatEur(allTime.grand_total_eur ?? allTime.claude_ai.total_eur)}
             </span>
-            <span className="text-sm text-gray-500">seit {allTime.since}</span>
+            <span className="text-sm text-gray-500">
+              seit {/^\d{4}-\d{2}-\d{2}$/.test(allTime.since) ? new Date(allTime.since).toLocaleDateString('de-DE') : allTime.since}
+            </span>
           </div>
           <p className="mt-1 text-sm text-gray-600">
             claude.ai {formatEur(allTime.claude_ai.total_eur)} (Plan-Abos{' '}
@@ -175,13 +177,13 @@ export default function CombinedCostTab(): React.ReactElement {
           {allTime.claude_ai.months.length > 0 && (
             <details className="mt-3">
               <summary className="cursor-pointer text-sm text-blue-600 hover:underline">
-                Monatliche Aufschlüsselung ({allTime.claude_ai.months.length}{' '}
-                {allTime.claude_ai.months.length === 1 ? 'Monat' : 'Monate'})
+                Aufschlüsselung pro Abrechnungsperiode ({allTime.claude_ai.months.length}{' '}
+                {allTime.claude_ai.months.length === 1 ? 'Periode' : 'Perioden'})
               </summary>
               <table className="w-full mt-3 text-sm">
                 <thead className="text-xs text-gray-500 uppercase">
                   <tr>
-                    <th className="text-left py-1">Monat</th>
+                    <th className="text-left py-1">Reset am</th>
                     <th className="text-left py-1">Plan</th>
                     <th className="text-right py-1">Plan-Abo</th>
                     <th className="text-right py-1">Zusatz</th>
@@ -191,7 +193,9 @@ export default function CombinedCostTab(): React.ReactElement {
                 <tbody className="divide-y">
                   {allTime.claude_ai.months.map((m) => (
                     <tr key={m.month}>
-                      <td className="py-2 font-mono text-xs">{m.month}</td>
+                      <td className="py-2 font-mono text-xs">
+                        {new Date(m.month).toLocaleDateString('de-DE')}
+                      </td>
                       <td className="py-2">{m.plan_name ?? '—'}</td>
                       <td className="py-2 text-right">{formatEur(m.subscription_eur)}</td>
                       <td className="py-2 text-right">{formatEur(m.additional_eur)}</td>
@@ -202,6 +206,10 @@ export default function CombinedCostTab(): React.ReactElement {
                   ))}
                 </tbody>
               </table>
+              <p className="mt-2 text-xs text-gray-500">
+                Eine Periode = ein Billing-Cycle (von „Reset" zu „Reset"). Das vermeidet
+                Doppelzählungen, wenn ein Cycle die Monatsgrenze überschreitet.
+              </p>
             </details>
           )}
         </div>

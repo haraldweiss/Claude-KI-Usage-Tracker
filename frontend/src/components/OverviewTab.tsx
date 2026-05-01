@@ -126,12 +126,21 @@ export default function OverviewTab(): React.ReactElement {
   const daysLeft = Math.max(0, daysRemainingInMonth() - 1); // -1 because today is partly done
   const currentDailyRate = day > 0 ? variableSoFar / day : 0;
 
-  const now = new Date();
-  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
-  const prevMonth = allTime?.claude_ai.months.find((m) => m.month === prevMonthKey) ?? null;
-  const daysInPrevMonth = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth() + 1, 0).getDate();
-  const priorDailyRate = prevMonth ? prevMonth.additional_eur / daysInPrevMonth : null;
+  // Take the second-most-recent billing cycle as the reference for early-month
+  // smoothing. months[0] is the current/in-progress cycle, months[1] is the
+  // last completed one. Cycle length is derived from the gap between the two
+  // cycle-end dates (defaults to 30 days if only one cycle exists).
+  const cycles = allTime?.claude_ai.months ?? [];
+  const prevCycle = cycles.length >= 2 ? cycles[1] : null;
+  let priorDailyRate: number | null = null;
+  if (prevCycle) {
+    const prevEnd = new Date(prevCycle.month);
+    const refEnd = cycles[0] ? new Date(cycles[0].month) : null;
+    const cycleLengthDays = refEnd
+      ? Math.max(1, Math.round((refEnd.getTime() - prevEnd.getTime()) / 86_400_000))
+      : 30;
+    priorDailyRate = prevCycle.additional_eur / cycleLengthDays;
+  }
 
   const SMOOTHING_DAYS = 7;
   const weight = Math.min(1, day / SMOOTHING_DAYS);
@@ -230,10 +239,11 @@ export default function OverviewTab(): React.ReactElement {
         <p className="mt-1 text-xs text-gray-500">
           {isSmoothed ? (
             <>
-              Geglättete Hochrechnung: in den ersten {SMOOTHING_DAYS} Tagen mit Vormonats-Tagesrate
-              ({formatEur(priorDailyRate ?? 0)}/Tag) gewichtet — {Math.round(weight * 100)}%
-              aktueller Monat, {Math.round((1 - weight) * 100)}% Vormonat. Plan-Abo
-              ({formatEur(planEur)}) ist fix; nur Zusatznutzung + API werden hochgerechnet.
+              Geglättete Hochrechnung: in den ersten {SMOOTHING_DAYS} Tagen mit der Tagesrate der
+              vorherigen Abrechnungsperiode ({formatEur(priorDailyRate ?? 0)}/Tag) gewichtet —
+              {' '}{Math.round(weight * 100)}% aktueller Monat, {Math.round((1 - weight) * 100)}%
+              Vorperiode. Plan-Abo ({formatEur(planEur)}) ist fix; nur Zusatznutzung + API werden
+              hochgerechnet.
             </>
           ) : (
             <>
@@ -247,18 +257,23 @@ export default function OverviewTab(): React.ReactElement {
       {/* Trend over months */}
       {allTime && allTime.claude_ai.months.length > 1 && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900">Kosten-Verlauf pro Monat</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            Kosten-Verlauf pro Abrechnungsperiode
+          </h3>
           <p className="text-sm text-gray-500">
-            claude.ai-Gesamtkosten je Monat (Plan-Abo + Zusatznutzung).
+            claude.ai-Gesamtkosten je Billing-Cycle (Plan-Abo + Zusatznutzung).
           </p>
           <div className="mt-4 space-y-2">
             {allTime.claude_ai.months.map((m) => {
               const max = Math.max(...allTime.claude_ai.months.map((x) => x.total_eur), 1);
               const widthPct = (m.total_eur / max) * 100;
+              const label = /^\d{4}-\d{2}-\d{2}$/.test(m.month)
+                ? `Reset ${new Date(m.month).toLocaleDateString('de-DE')}`
+                : m.month;
               return (
                 <div key={m.month}>
                   <div className="flex justify-between text-sm">
-                    <span className="font-mono">{m.month}</span>
+                    <span className="font-mono">{label}</span>
                     <span className="font-medium">{formatEur(m.total_eur)}</span>
                   </div>
                   <div className="h-2 bg-gray-100 rounded mt-1">

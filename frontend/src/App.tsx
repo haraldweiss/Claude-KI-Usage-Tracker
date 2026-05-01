@@ -1,80 +1,67 @@
 import React from 'react';
+import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import RequireAuth from './components/RequireAuth';
 import ErrorBoundary from './components/ErrorBoundary';
+import UserMenu from './components/UserMenu';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import RecommendationsPage from './pages/RecommendationsPage';
+import LoginPage from './pages/Login';
+import AuthVerifyPage from './pages/AuthVerify';
 import './index.css';
 
-type PageType = 'dashboard' | 'settings' | 'recommendations';
+function NavBar(): React.ReactElement {
+  const loc = useLocation();
+  const tab = (path: string, label: string) => (
+    <Link to={path} className={`px-4 py-2 rounded-lg font-medium transition ${
+      loc.pathname === path ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+    }`}>{label}</Link>
+  );
+  return (
+    <nav className="bg-white shadow">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">📊</span>
+          <h1 className="text-xl font-bold text-gray-900">Claude Usage Tracker</h1>
+        </div>
+        <div className="flex gap-4 items-center">
+          {tab('/', 'Dashboard')}
+          {tab('/recommendations', '🎯 Recommendations')}
+          {tab('/settings', 'Settings')}
+          <UserMenu />
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function ProtectedShell({ children }: { children: React.ReactNode }): React.ReactElement {
+  return (
+    <RequireAuth>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+        <NavBar />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">{children}</main>
+      </div>
+    </RequireAuth>
+  );
+}
 
 export default function App(): React.ReactElement {
-  const [currentPage, setCurrentPage] = React.useState<PageType>('dashboard');
-
-  const renderPage = (): React.ReactElement => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'recommendations':
-        return <RecommendationsPage />;
-      case 'settings':
-        return <Settings />;
-      default:
-        return <Dashboard />;
-    }
-  };
-
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-        {/* Navigation */}
-        <nav className="bg-white shadow">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">📊</span>
-                <h1 className="text-xl font-bold text-gray-900">Claude Usage Tracker</h1>
-              </div>
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setCurrentPage('dashboard')}
-                  className={`px-4 py-2 rounded-lg font-medium transition ${
-                    currentPage === 'dashboard'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  Dashboard
-                </button>
-                <button
-                  onClick={() => setCurrentPage('recommendations')}
-                  className={`px-4 py-2 rounded-lg font-medium transition ${
-                    currentPage === 'recommendations'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  🎯 Recommendations
-                </button>
-                <button
-                  onClick={() => setCurrentPage('settings')}
-                  className={`px-4 py-2 rounded-lg font-medium transition ${
-                    currentPage === 'settings'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  Settings
-                </button>
-              </div>
-            </div>
-          </div>
-        </nav>
-
-        {/* Main content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {renderPage()}
-        </main>
-      </div>
+      <BrowserRouter basename={import.meta.env.PROD ? '/claudetracker' : ''}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/verify" element={<AuthVerifyPage />} />
+            <Route path="/" element={<ProtectedShell><Dashboard /></ProtectedShell>} />
+            <Route path="/recommendations" element={<ProtectedShell><RecommendationsPage /></ProtectedShell>} />
+            <Route path="/settings" element={<ProtectedShell><Settings /></ProtectedShell>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
     </ErrorBoundary>
   );
 }

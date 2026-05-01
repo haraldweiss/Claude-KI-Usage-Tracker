@@ -119,12 +119,28 @@ export default function OverviewTab(): React.ReactElement {
 
   // Forecast: extrapolate today's spend rate to month end. Plan-Abo is fixed
   // (already counted), so we only forecast the variable parts (additional
-  // EUR + API USD->EUR).
+  // EUR + API USD->EUR). Early in the month we blend with the previous month's
+  // daily rate so a single high day doesn't produce a wild forecast.
   const variableSoFar = additionalEur + apiTotalEur;
   const day = dayOfMonth();
-  const daysLeft = daysRemainingInMonth() - 1; // -1 because today is partly done
-  const dailyRate = day > 0 ? variableSoFar / day : 0;
-  const forecastVariable = variableSoFar + Math.max(0, daysLeft) * dailyRate;
+  const daysLeft = Math.max(0, daysRemainingInMonth() - 1); // -1 because today is partly done
+  const currentDailyRate = day > 0 ? variableSoFar / day : 0;
+
+  const now = new Date();
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  const prevMonth = allTime?.claude_ai.months.find((m) => m.month === prevMonthKey) ?? null;
+  const daysInPrevMonth = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth() + 1, 0).getDate();
+  const priorDailyRate = prevMonth ? prevMonth.additional_eur / daysInPrevMonth : null;
+
+  const SMOOTHING_DAYS = 7;
+  const weight = Math.min(1, day / SMOOTHING_DAYS);
+  const isSmoothed = priorDailyRate != null && weight < 1;
+  const dailyRate = priorDailyRate != null
+    ? weight * currentDailyRate + (1 - weight) * priorDailyRate
+    : currentDailyRate;
+
+  const forecastVariable = variableSoFar + daysLeft * dailyRate;
   const forecastTotal = planEur + forecastVariable;
 
   // Limit forecast: at this weekly rate, when does the user hit 100%?
@@ -209,11 +225,22 @@ export default function OverviewTab(): React.ReactElement {
         </div>
         <p className="mt-2 text-sm text-gray-700">
           Aktuell {formatEur(grandTotalEur)} nach Tag {day} · Tagesschnitt{' '}
-          {formatEur(dailyRate)} · {Math.max(0, daysLeft)} Tage verbleiben.
+          {formatEur(dailyRate)} · {daysLeft} Tage verbleiben.
         </p>
         <p className="mt-1 text-xs text-gray-500">
-          Lineare Extrapolation des bisherigen Tagesverbrauchs. Plan-Abo ({formatEur(planEur)}) ist
-          fix; nur Zusatznutzung + API werden hochgerechnet.
+          {isSmoothed ? (
+            <>
+              Geglättete Hochrechnung: in den ersten {SMOOTHING_DAYS} Tagen mit Vormonats-Tagesrate
+              ({formatEur(priorDailyRate ?? 0)}/Tag) gewichtet — {Math.round(weight * 100)}%
+              aktueller Monat, {Math.round((1 - weight) * 100)}% Vormonat. Plan-Abo
+              ({formatEur(planEur)}) ist fix; nur Zusatznutzung + API werden hochgerechnet.
+            </>
+          ) : (
+            <>
+              Lineare Extrapolation des bisherigen Tagesverbrauchs. Plan-Abo ({formatEur(planEur)}) ist
+              fix; nur Zusatznutzung + API werden hochgerechnet.
+            </>
+          )}
         </p>
       </div>
 

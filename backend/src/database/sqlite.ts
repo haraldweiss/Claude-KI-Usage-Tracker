@@ -293,6 +293,8 @@ export function initDatabase(): Promise<void> {
               (uErr: Error | null) => (uErr ? rej(uErr) : res())
             );
           });
+          const { seedInitialUser } = await import('./migrations/seedInitialUser.js');
+          await seedInitialUser();
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

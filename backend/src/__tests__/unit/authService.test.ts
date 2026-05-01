@@ -37,6 +37,19 @@ describe('magic-link tokens', () => {
   it('invalidates outstanding tokens for the same email when a new one is created', async () => {
     const t1 = await createMagicLinkToken('eve@example.com');
     await createMagicLinkToken('eve@example.com');  // should invalidate t1
-    await expect(consumeMagicLinkToken(t1)).rejects.toThrow();
+    await expect(consumeMagicLinkToken(t1)).rejects.toThrow('already consumed');
+  });
+
+  it('survives concurrent double-consume — only one wins', async () => {
+    const token = await createMagicLinkToken('frank@example.com');
+    const results = await Promise.allSettled([
+      consumeMagicLinkToken(token),
+      consumeMagicLinkToken(token)
+    ]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toBe('already consumed');
   });
 });

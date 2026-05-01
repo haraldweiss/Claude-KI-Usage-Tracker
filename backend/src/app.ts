@@ -8,6 +8,7 @@ import pricingRoutes from './routes/pricing.js';
 import recommendationRoutes from './routes/recommendation.js';
 import authRouter from './routes/auth.js';
 import accountRouter from './routes/account.js';
+import adminRouter from './routes/admin.js';
 import errorHandler from './middleware/errorHandler.js';
 
 /**
@@ -75,6 +76,7 @@ export function createApp(): Express {
 
   app.use('/api/auth', authRouter);
   app.use('/api/account', accountRouter);
+  app.use('/api/admin', adminRouter);
   app.use('/api/usage', usageRoutes);
   app.use('/api/pricing', pricingRoutes);
   app.use('/api/recommend', recommendationRoutes);

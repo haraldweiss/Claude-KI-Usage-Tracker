@@ -4,6 +4,7 @@ import DashboardTabs from '../components/DashboardTabs';
 import OverviewTab from '../components/OverviewTab';
 import ModelsTab from '../components/ModelsTab';
 import CombinedCostTab from '../components/CombinedCostTab';
+import OnboardingBanner from '../components/OnboardingBanner';
 import { ModelBreakdown } from '../types/api';
 
 type TabType = 'overview' | 'models' | 'combined';
@@ -55,6 +56,7 @@ export default function Dashboard(): React.ReactElement {
 
   return (
     <div className="space-y-6">
+      <OnboardingBanner />
       <div className="flex justify-between items-center">
         <DashboardTabs activeTab={activeTab} onTabChange={setActiveTab} />
       </div>

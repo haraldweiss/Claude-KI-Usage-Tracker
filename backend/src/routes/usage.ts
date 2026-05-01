@@ -13,8 +13,10 @@ import {
   getHistoryValidator,
   handleValidationErrors
 } from '../middleware/validators.js';
+import { requireUser } from '../middleware/auth.js';
 
 const router: Router = express.Router();
+router.use(requireUser);
 
 // Track new usage
 router.post('/track', trackUsageValidator, handleValidationErrors, trackUsage);

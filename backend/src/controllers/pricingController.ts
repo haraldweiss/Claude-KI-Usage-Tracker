@@ -19,7 +19,20 @@ interface PricingRow {
 
 export async function getPricing(_req: Request, res: Response): Promise<void> {
   try {
-    const pricing = await allQuery('SELECT * FROM pricing ORDER BY model ASC');
+    // Exclude synthetic "models" that the sync sources (claude.ai dashboard,
+    // Claude Code page, Anthropic Console) auto-insert as placeholders for
+    // workspaces, API keys, and team members. They have no per-token price
+    // (they carry cost in cost_usd, not input_price/output_price), so showing
+    // them in the pricing UI just produces a long list of $0.00 "Needs review"
+    // rows the user can never sensibly fill in.
+    const pricing = await allQuery(
+      `SELECT * FROM pricing
+       WHERE model != 'Claude (Official Sync)'
+         AND model NOT LIKE 'Anthropic API (%'
+         AND model NOT LIKE 'Claude Code (%'
+         AND model NOT LIKE 'Claude Code · %'
+       ORDER BY model ASC`
+    );
     res.json({
       pricing: (pricing as PricingRecord[]) || []
     });

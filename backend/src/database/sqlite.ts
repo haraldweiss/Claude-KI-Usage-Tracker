@@ -50,6 +50,11 @@ export function initDatabase(): Promise<void> {
   return new Promise((resolve, reject) => {
     const database = getDb();
     database.serialize(() => {
+      // SQLite disables foreign-key enforcement by default and re-disables it on
+      // every new connection. Required for the ON DELETE CASCADE declarations on
+      // sessions/api_tokens to actually fire when a user is deleted.
+      database.run('PRAGMA foreign_keys = ON');
+
       // Usage records table
       database.run(`
         CREATE TABLE IF NOT EXISTS usage_records (
@@ -145,7 +150,9 @@ export function initDatabase(): Promise<void> {
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           last_login_at TEXT
         )
-      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
 
       database.run(`
         CREATE TABLE IF NOT EXISTS sessions (
@@ -156,7 +163,9 @@ export function initDatabase(): Promise<void> {
           user_agent TEXT,
           ip_address TEXT
         )
-      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
 
       database.run(`
         CREATE TABLE IF NOT EXISTS magic_link_tokens (
@@ -166,7 +175,9 @@ export function initDatabase(): Promise<void> {
           expires_at TEXT NOT NULL,
           consumed_at TEXT
         )
-      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
 
       database.run(`
         CREATE TABLE IF NOT EXISTS api_tokens (
@@ -178,7 +189,9 @@ export function initDatabase(): Promise<void> {
           last_used_at TEXT,
           revoked_at TEXT
         )
-      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
 
       // Create indexes
       database.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON usage_records(timestamp)');
@@ -236,21 +249,26 @@ export function initDatabase(): Promise<void> {
           // Indexes for multi-user SaaS tables
           await new Promise<void>((res, rej) => {
             database.run('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)',
-              (e: Error | null) => (e ? rej(e) : res()));
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
           });
           await new Promise<void>((res, rej) => {
             database.run('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)',
-              (e: Error | null) => (e ? rej(e) : res()));
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
           });
+          // Partial: every login flow only ever queries un-consumed tokens by email,
+          // so excluding consumed rows keeps the index narrow.
           await new Promise<void>((res, rej) => {
             database.run(
-              'CREATE INDEX IF NOT EXISTS idx_mlt_email_active ON magic_link_tokens(email) WHERE consumed_at IS NULL',
-              (e: Error | null) => (e ? rej(e) : res()));
+              'CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_email_active ON magic_link_tokens(email) WHERE consumed_at IS NULL',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
           });
+          // Partial UNIQUE: enforces "exactly one active API token per user".
+          // Token rotation flow: UPDATE sets revoked_at on the old row, then INSERT
+          // creates the new row — both inside one transaction, no race window.
           await new Promise<void>((res, rej) => {
             database.run(
               'CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_token_per_user ON api_tokens(user_id) WHERE revoked_at IS NULL',
-              (e: Error | null) => (e ? rej(e) : res()));
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
           });
           await addMissingColumns('pricing', [
             { name: 'api_id', ddl: 'TEXT' },

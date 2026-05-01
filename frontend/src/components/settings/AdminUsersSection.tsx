@@ -20,16 +20,21 @@ export default function AdminUsersSection(): React.ReactElement {
       <h2 className="text-lg font-semibold text-gray-900 mb-4">User-Verwaltung (Admin)</h2>
       <table className="w-full text-sm">
         <thead className="text-xs text-gray-500 uppercase">
-          <tr><th className="text-left py-2">Email</th><th className="text-left">Plan</th>
-              <th className="text-right">Records</th><th className="text-left">Letzter Login</th><th></th></tr>
+          <tr>
+            <th className="text-left py-2 pr-4">Email</th>
+            <th className="text-left pr-4">Plan</th>
+            <th className="text-right pr-6">Records</th>
+            <th className="text-left pr-4">Letzter Login</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody className="divide-y">
           {users.map((u) => (
             <tr key={u.id}>
-              <td className="py-2">{u.email} {u.is_admin === 1 && <span className="text-xs bg-purple-100 px-1.5 rounded ml-1">admin</span>}</td>
-              <td>{u.plan_name || '—'}</td>
-              <td className="text-right">{u.record_count}</td>
-              <td>{u.last_login_at ? new Date(u.last_login_at).toLocaleDateString('de-DE') : '—'}</td>
+              <td className="py-2 pr-4">{u.email} {u.is_admin === 1 && <span className="text-xs bg-purple-100 px-1.5 rounded ml-1">admin</span>}</td>
+              <td className="pr-4">{u.plan_name || '—'}</td>
+              <td className="text-right pr-6">{u.record_count}</td>
+              <td className="pr-4">{u.last_login_at ? new Date(u.last_login_at).toLocaleDateString('de-DE') : '—'}</td>
               <td className="text-right">
                 <button onClick={() => setEditing(u)} className="text-blue-600 text-xs hover:underline mr-2">Edit</button>
                 <button onClick={() => remove(u)} className="text-red-600 text-xs hover:underline">Löschen</button>

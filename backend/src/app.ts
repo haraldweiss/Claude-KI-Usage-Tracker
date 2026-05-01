@@ -1,10 +1,14 @@
 import express from 'express';
 import type { Express, Request, Response } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import bodyParser from 'body-parser';
 import usageRoutes from './routes/usage.js';
 import pricingRoutes from './routes/pricing.js';
 import recommendationRoutes from './routes/recommendation.js';
+import authRouter from './routes/auth.js';
+import accountRouter from './routes/account.js';
+import adminRouter from './routes/admin.js';
 import errorHandler from './middleware/errorHandler.js';
 
 /**
@@ -53,7 +57,12 @@ function buildCorsOptions(): cors.CorsOptions {
 export function createApp(): Express {
   const app: Express = express();
 
+  // Behind Apache reverse-proxy on the VPS; 1 hop. Without this, req.ip is
+  // always the loopback and per-IP rate limits become per-server limits.
+  app.set('trust proxy', 'loopback');
+
   app.use(cors(buildCorsOptions()));
+  app.use(cookieParser());
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -65,6 +74,9 @@ export function createApp(): Express {
     });
   }
 
+  app.use('/api/auth', authRouter);
+  app.use('/api/account', accountRouter);
+  app.use('/api/admin', adminRouter);
   app.use('/api/usage', usageRoutes);
   app.use('/api/pricing', pricingRoutes);
   app.use('/api/recommend', recommendationRoutes);

@@ -3,7 +3,7 @@ import { updatePricing, confirmPricing } from '../services/api';
 import { PricingTableProps } from '../types/components';
 
 export default function PricingTable(props: PricingTableProps): React.ReactElement {
-  const { pricing = [], onUpdate } = props;
+  const { pricing = [], onUpdate, readOnly = false } = props;
   const [editing, setEditing] = useState<Record<string, boolean | string>>({});
   const [saving, setSaving] = useState<boolean>(false);
 
@@ -78,7 +78,7 @@ export default function PricingTable(props: PricingTableProps): React.ReactEleme
             <tr key={item.model} className="hover:bg-gray-50">
               <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.model}</td>
               <td className="px-6 py-4 text-sm">
-                {editing[item.model] ? (
+                {editing[item.model] && !readOnly ? (
                   <input
                     type="number"
                     step="0.01"
@@ -91,7 +91,7 @@ export default function PricingTable(props: PricingTableProps): React.ReactEleme
                 )}
               </td>
               <td className="px-6 py-4 text-sm">
-                {editing[item.model] ? (
+                {editing[item.model] && !readOnly ? (
                   <input
                     type="number"
                     step="0.01"
@@ -131,23 +131,27 @@ export default function PricingTable(props: PricingTableProps): React.ReactEleme
               <td className="px-6 py-4 text-sm">
                 {editing[item.model] ? (
                   <>
-                    <button
-                      onClick={() => handleSave(item.model)}
-                      disabled={saving}
-                      className="text-blue-600 hover:text-blue-900 mr-2 font-medium"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => handleEdit(item.model)}
-                      className="text-gray-600 hover:text-gray-900 font-medium"
-                    >
-                      Cancel
-                    </button>
+                    {!readOnly && (
+                      <>
+                        <button
+                          onClick={() => handleSave(item.model)}
+                          disabled={saving}
+                          className="text-blue-600 hover:text-blue-900 mr-2 font-medium"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => handleEdit(item.model)}
+                          className="text-gray-600 hover:text-gray-900 font-medium"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
-                    {item.status === 'pending_confirmation' && (
+                    {item.status === 'pending_confirmation' && !readOnly && (
                       <button
                         onClick={async () => {
                           try {
@@ -162,12 +166,14 @@ export default function PricingTable(props: PricingTableProps): React.ReactEleme
                         Confirm
                       </button>
                     )}
-                    <button
-                      onClick={() => handleEdit(item.model)}
-                      className="text-blue-600 hover:text-blue-900 font-medium"
-                    >
-                      Edit
-                    </button>
+                    {!readOnly && (
+                      <button
+                        onClick={() => handleEdit(item.model)}
+                        className="text-blue-600 hover:text-blue-900 font-medium"
+                      >
+                        Edit
+                      </button>
+                    )}
                   </>
                 )}
               </td>

@@ -50,6 +50,11 @@ export function initDatabase(): Promise<void> {
   return new Promise((resolve, reject) => {
     const database = getDb();
     database.serialize(() => {
+      // SQLite disables foreign-key enforcement by default and re-disables it on
+      // every new connection. Required for the ON DELETE CASCADE declarations on
+      // sessions/api_tokens to actually fire when a user is deleted.
+      database.run('PRAGMA foreign_keys = ON');
+
       // Usage records table
       database.run(`
         CREATE TABLE IF NOT EXISTS usage_records (
@@ -133,6 +138,61 @@ export function initDatabase(): Promise<void> {
         if (err && !err.message.includes('already exists')) reject(err);
       });
 
+      // Multi-user SaaS tables (Phase A — additive only, no behavior change)
+      database.run(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT NOT NULL UNIQUE,
+          display_name TEXT,
+          is_admin INTEGER NOT NULL DEFAULT 0,
+          plan_name TEXT,
+          monthly_limit_eur REAL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_login_at TEXT
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          id TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL,
+          user_agent TEXT,
+          ip_address TEXT
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS magic_link_tokens (
+          token TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS api_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL,
+          label TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          revoked_at TEXT
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
       // Create indexes
       database.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON usage_records(timestamp)');
       database.run('CREATE INDEX IF NOT EXISTS idx_model ON usage_records(model)');
@@ -165,7 +225,8 @@ export function initDatabase(): Promise<void> {
             { name: 'workspace', ddl: 'TEXT' },
             { name: 'key_name', ddl: 'TEXT' },
             { name: 'key_id_suffix', ddl: 'TEXT' },
-            { name: 'cost_usd', ddl: 'REAL' }
+            { name: 'cost_usd', ddl: 'REAL' },
+            { name: 'user_id', ddl: 'INTEGER REFERENCES users(id)' }
           ]);
           // Indexes for the new categorization columns
           await new Promise<void>((res, rej) => {
@@ -186,6 +247,35 @@ export function initDatabase(): Promise<void> {
               (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
             );
           });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage_records(user_id, timestamp)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
+          });
+          // Indexes for multi-user SaaS tables
+          await new Promise<void>((res, rej) => {
+            database.run('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
+          });
+          await new Promise<void>((res, rej) => {
+            database.run('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
+          });
+          // Partial: every login flow only ever queries un-consumed tokens by email,
+          // so excluding consumed rows keeps the index narrow.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_email_active ON magic_link_tokens(email) WHERE consumed_at IS NULL',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
+          });
+          // Partial UNIQUE: enforces "exactly one active API token per user".
+          // Token rotation flow: UPDATE sets revoked_at on the old row, then INSERT
+          // creates the new row — both inside one transaction, no race window.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_token_per_user ON api_tokens(user_id) WHERE revoked_at IS NULL',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
+          });
           await addMissingColumns('pricing', [
             { name: 'api_id', ddl: 'TEXT' },
             { name: 'status', ddl: "TEXT DEFAULT 'active'" },
@@ -194,12 +284,17 @@ export function initDatabase(): Promise<void> {
           await addMissingColumns('plan_pricing', [
             { name: 'min_seats', ddl: 'INTEGER DEFAULT 1' }
           ]);
+          await addMissingColumns('model_analysis', [
+            { name: 'user_id', ddl: 'INTEGER REFERENCES users(id)' }
+          ]);
           await new Promise<void>((res, rej) => {
             database.run(
               "UPDATE pricing SET source = 'auto' WHERE source = 'anthropic'",
               (uErr: Error | null) => (uErr ? rej(uErr) : res())
             );
           });
+          const { seedInitialUser } = await import('./migrations/seedInitialUser.js');
+          await seedInitialUser();
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

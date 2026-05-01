@@ -26,12 +26,22 @@ process.env.NODE_ENV = 'test';
 const { createApp } = await import('../../app.js');
 const { initDatabase, closeDatabase, runQuery } = await import('../../database/sqlite.js');
 const { seedFromFallbackIfEmpty } = await import('../../services/pricingService.js');
+const { createSession } = await import('../../services/authService.js');
 
 const app = createApp();
+
+let adminCookie: string;
 
 beforeAll(async () => {
   await initDatabase();
   await seedFromFallbackIfEmpty();
+  // Create an admin user for authenticated requests.
+  // The seeded user is id=1 (anubclaw@gmail.com); use id=50 to avoid conflict.
+  await runQuery(
+    `INSERT OR IGNORE INTO users (id, email, is_admin) VALUES (50, 'admin@test.com', 1)`
+  );
+  const sid = await createSession(50, null, null);
+  adminCookie = `cut_session=${sid}`;
 });
 
 afterAll(async () => {
@@ -48,6 +58,7 @@ describe('POST /api/usage/track', () => {
   it('uses existing pricing for a known display name', async () => {
     const res = await request(app)
       .post('/api/usage/track')
+      .set('Cookie', adminCookie)
       .send({
         model: 'Claude Opus 4.7',
         input_tokens: 1000,
@@ -64,12 +75,16 @@ describe('POST /api/usage/track', () => {
     const futureModel = 'claude-future-haiku-9-9-20990101';
     const trackRes = await request(app)
       .post('/api/usage/track')
+      .set('Cookie', adminCookie)
       .send({ model: futureModel, input_tokens: 1000, output_tokens: 1000 })
       .expect(201);
 
     expect(trackRes.body.success).toBe(true);
 
-    const pricingRes = await request(app).get('/api/pricing').expect(200);
+    const pricingRes = await request(app)
+      .get('/api/pricing')
+      .set('Cookie', adminCookie)
+      .expect(200);
     const rows = pricingRes.body.pricing as Array<Record<string, unknown>>;
     const created = rows.find((r) => r.api_id === futureModel);
     expect(created).toBeDefined();
@@ -85,13 +100,17 @@ describe('POST /api/usage/track', () => {
   it('marks unrecognizable models pending_confirmation with zero prices', async () => {
     const trackRes = await request(app)
       .post('/api/usage/track')
+      .set('Cookie', adminCookie)
       .send({ model: 'some-totally-novel-llm', input_tokens: 100, output_tokens: 100 })
       .expect(201);
 
     expect(trackRes.body.success).toBe(true);
     expect(parseFloat(trackRes.body.cost)).toBe(0);
 
-    const pricingRes = await request(app).get('/api/pricing').expect(200);
+    const pricingRes = await request(app)
+      .get('/api/pricing')
+      .set('Cookie', adminCookie)
+      .expect(200);
     const rows = pricingRes.body.pricing as Array<Record<string, unknown>>;
     const created = rows.find((r) => r.model === 'some-totally-novel-llm');
     expect(created).toBeDefined();
@@ -108,17 +127,22 @@ describe('POST /api/pricing/:model/confirm', () => {
     // 1. Auto-create the pending row by tracking usage.
     await request(app)
       .post('/api/usage/track')
+      .set('Cookie', adminCookie)
       .send({ model: modelName, input_tokens: 1000, output_tokens: 1000 })
       .expect(201);
 
     // The historical record should currently have cost=0 (no prices).
-    const beforeHistory = await request(app).get('/api/usage/history?limit=1').expect(200);
+    const beforeHistory = await request(app)
+      .get('/api/usage/history?limit=1')
+      .set('Cookie', adminCookie)
+      .expect(200);
     const beforeRecord = beforeHistory.body.records[0];
     expect(beforeRecord.cost).toBeCloseTo(0, 6);
 
     // 2. Confirm with explicit prices.
     const confirmRes = await request(app)
       .post(`/api/pricing/${encodeURIComponent(modelName)}/confirm`)
+      .set('Cookie', adminCookie)
       .send({ inputPrice: 3, outputPrice: 15 })
       .expect(200);
 
@@ -127,7 +151,10 @@ describe('POST /api/pricing/:model/confirm', () => {
     expect(confirmRes.body.pricing.status).toBe('active');
 
     // 3. Verify the pricing row is now manual+active.
-    const pricingRes = await request(app).get('/api/pricing').expect(200);
+    const pricingRes = await request(app)
+      .get('/api/pricing')
+      .set('Cookie', adminCookie)
+      .expect(200);
     const updated = (pricingRes.body.pricing as Array<Record<string, unknown>>).find(
       (r) => r.model === modelName
     );
@@ -139,7 +166,10 @@ describe('POST /api/pricing/:model/confirm', () => {
 
     // 4. Historical record cost was recalculated.
     // (1000 * 3 + 1000 * 15) / 1_000_000 = 0.018
-    const afterHistory = await request(app).get('/api/usage/history?limit=1').expect(200);
+    const afterHistory = await request(app)
+      .get('/api/usage/history?limit=1')
+      .set('Cookie', adminCookie)
+      .expect(200);
     const afterRecord = afterHistory.body.records[0];
     expect(afterRecord.cost).toBeCloseTo(0.018, 6);
   });
@@ -147,6 +177,7 @@ describe('POST /api/pricing/:model/confirm', () => {
   it('returns 404 for a model that does not exist', async () => {
     const res = await request(app)
       .post('/api/pricing/nonexistent-model/confirm')
+      .set('Cookie', adminCookie)
       .send({ inputPrice: 1, outputPrice: 1 })
       .expect(404);
 

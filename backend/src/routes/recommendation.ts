@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import * as modelRecommendationController from '../controllers/modelRecommendationController.js';
+import { requireUser } from '../middleware/auth.js';
 import {
   recommendValidator,
   getModelAnalysisValidator,
@@ -8,6 +9,7 @@ import {
 } from '../middleware/validators.js';
 
 const router: Router = express.Router();
+router.use(requireUser);
 
 /**
  * POST /api/recommend

@@ -63,7 +63,9 @@ export async function trackUsage(
       await runQuery(
         `DELETE FROM usage_records
          WHERE source = 'claude_official_sync'
-           AND date(timestamp) = date('now')`
+           AND date(timestamp) = date('now')
+           AND user_id = ?`,
+        [req.user!.id]
       );
     }
 
@@ -130,8 +132,8 @@ export async function trackUsage(
       `INSERT INTO usage_records (
         model, input_tokens, output_tokens, total_tokens, cost, conversation_id, source,
         task_description, success_status, response_metadata,
-        workspace, key_name, key_id_suffix, cost_usd
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        workspace, key_name, key_id_suffix, cost_usd, user_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         model,
         input_tokens,
@@ -146,7 +148,8 @@ export async function trackUsage(
         workspace,
         key_name,
         key_id_suffix,
-        cost_usd
+        cost_usd,
+        req.user!.id
       ]
     );
 
@@ -212,7 +215,9 @@ export async function getSummary(
         SUM(total_tokens) as total_tokens,
         SUM(cost) as total_cost
        FROM usage_records
-       WHERE ${dateFilter}`
+       WHERE ${dateFilter}
+         AND user_id = ?`,
+      [req.user!.id]
     ) as SummaryRow | undefined;
 
     // -------- Plan B: combined claude.ai + Console API breakdown ---------
@@ -230,8 +235,10 @@ export async function getSummary(
       `SELECT cost as cost_eur, input_tokens, output_tokens, timestamp, response_metadata
        FROM usage_records
        WHERE source = 'claude_official_sync'
+         AND user_id = ?
        ORDER BY timestamp DESC
-       LIMIT 1`
+       LIMIT 1`,
+      [req.user!.id]
     );
 
     let parsedMeta: ClaudeAiMeta | null = null;
@@ -258,11 +265,12 @@ export async function getSummary(
       const prevCycleRow = await getQuery<{ response_metadata: string | null }>(
         `SELECT response_metadata FROM usage_records
          WHERE source = 'claude_official_sync'
+           AND user_id = ?
            AND json_extract(response_metadata, '$.reset_date') IS NOT NULL
            AND json_extract(response_metadata, '$.reset_date') != ?
          ORDER BY timestamp DESC
          LIMIT 1`,
-        [parsedMeta.reset_date]
+        [req.user!.id, parsedMeta.reset_date]
       );
       if (prevCycleRow?.response_metadata) {
         try {
@@ -341,6 +349,7 @@ export async function getSummary(
                   ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
            FROM usage_records
            WHERE ${apiSourceFilter}
+             AND user_id = ?
              AND datetime(timestamp) >= datetime(${windowStartExpr})
          )
          WHERE rn = 1
@@ -352,6 +361,7 @@ export async function getSummary(
                   ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
            FROM usage_records
            WHERE ${apiSourceFilter}
+             AND user_id = ?
              AND datetime(timestamp) < datetime(${windowStartExpr})
          )
          WHERE rn = 1
@@ -369,7 +379,8 @@ export async function getSummary(
          GROUP BY l.workspace
        )
        WHERE cost_usd > 0
-       ORDER BY cost_usd DESC`
+       ORDER BY cost_usd DESC`,
+      [req.user!.id, req.user!.id]
     );
 
     const apiTotalUsd = apiByWorkspace.reduce((sum, r) => sum + (r.cost_usd || 0), 0);
@@ -439,13 +450,15 @@ export async function getModelBreakdown(
         SUM(cost) as total_cost
        FROM usage_records
        WHERE ${dateFilter}
+         AND user_id = ?
          AND COALESCE(source, '') NOT IN (
            'claude_official_sync',
            'anthropic_console_sync',
            'claude_code_sync'
          )
        GROUP BY model
-       ORDER BY total_tokens DESC`
+       ORDER BY total_tokens DESC`,
+      [req.user!.id]
     );
 
     // Per-model category breakdown — used by the "Model × Category" matrix.
@@ -456,9 +469,12 @@ export async function getModelBreakdown(
         COUNT(*) as count,
         SUM(cost) as cost
        FROM usage_records
-       WHERE ${dateFilter} AND category IS NOT NULL AND category != 'Pending'
+       WHERE ${dateFilter}
+         AND user_id = ?
+         AND category IS NOT NULL AND category != 'Pending'
        GROUP BY model, category
-       ORDER BY model, count DESC`
+       ORDER BY model, count DESC`,
+      [req.user!.id]
     );
 
     const byModelCategory: Record<string, Array<{ category: string; count: number; cost: number }>> = {};
@@ -542,7 +558,7 @@ function parseResetDate(resetStr: string | null | undefined, recordTs: string): 
  * the cumulative additional spend. Plan subscription cost is looked up from
  * plan_pricing per the snapshot's plan_name and counted once per cycle.
  */
-export async function getSpendingTotal(_req: Request, res: Response): Promise<void> {
+export async function getSpendingTotal(req: Request, res: Response): Promise<void> {
   try {
     // Fetch all claude.ai sync rows; cycle bucketing happens in JS because
     // SQLite doesn't easily handle the "Jun 1" -> ISO conversion with year
@@ -556,7 +572,9 @@ export async function getSpendingTotal(_req: Request, res: Response): Promise<vo
       `SELECT cost as cost_eur, input_tokens, response_metadata, timestamp
        FROM usage_records
        WHERE source = 'claude_official_sync'
-       ORDER BY timestamp DESC`
+         AND user_id = ?
+       ORDER BY timestamp DESC`,
+      [req.user!.id]
     );
 
     interface CycleAccumulator {
@@ -645,10 +663,12 @@ export async function getSpendingTotal(_req: Request, res: Response): Promise<vo
                   PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC
                 ) as rn
          FROM usage_records
-         WHERE (source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
-            OR source = 'claude_code_sync'
+         WHERE user_id = ?
+           AND ((source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
+            OR source = 'claude_code_sync')
        )
-       WHERE rn = 1`
+       WHERE rn = 1`,
+      [req.user!.id]
     );
 
     // `since` reflects when tracking actually began, not the earliest cycle's
@@ -687,7 +707,7 @@ export async function getSpendingTotal(_req: Request, res: Response): Promise<vo
   }
 }
 
-export async function getConsoleKeys(_req: Request, res: Response): Promise<void> {
+export async function getConsoleKeys(req: Request, res: Response): Promise<void> {
   try {
     // Latest snapshot per (workspace, key_id_suffix) across both
     // anthropic_console_sync (regular API keys) and claude_code_sync
@@ -704,11 +724,13 @@ export async function getConsoleKeys(_req: Request, res: Response): Promise<void
                   PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC
                 ) as rn
          FROM usage_records
-         WHERE (source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
-            OR source = 'claude_code_sync'
+         WHERE user_id = ?
+           AND ((source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
+            OR source = 'claude_code_sync')
        )
        WHERE rn = 1
-       ORDER BY cost_usd DESC NULLS LAST`
+       ORDER BY cost_usd DESC NULLS LAST`,
+      [req.user!.id]
     );
 
     // Pull lines_accepted out of the JSON metadata for claude_code_sync rows.
@@ -761,9 +783,10 @@ export async function getHistory(
         id, model, input_tokens, output_tokens, total_tokens, cost,
         timestamp, conversation_id
        FROM usage_records
+       WHERE user_id = ?
        ORDER BY timestamp DESC
        LIMIT ? OFFSET ?`,
-      [limitNum, offsetNum]
+      [req.user!.id, limitNum, offsetNum]
     );
 
     res.json({

@@ -27,78 +27,54 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Settings save / reset
   document.getElementById('settings-save').addEventListener('click', saveSettings);
   document.getElementById('settings-reset').addEventListener('click', resetSettings);
+
+  document.getElementById('open-token-page').addEventListener('click', async () => {
+    const { dashboard_url } = await chrome.storage.local.get('dashboard_url');
+    const url = (dashboard_url || DEFAULT_DASHBOARD_URL) + '/settings';
+    chrome.tabs.create({ url });
+  });
 });
 
 async function initSettings() {
-  const stored = await chrome.storage.local.get([
-    'api_base',
-    'dashboard_url',
-    'auth_user',
-    'auth_pass'
-  ]);
+  const stored = await chrome.storage.local.get(['api_base', 'dashboard_url', 'api_token']);
   const apiBase = stored.api_base || DEFAULT_API_BASE;
   const dashboardUrl = stored.dashboard_url || DEFAULT_DASHBOARD_URL;
 
   document.getElementById('api-base-input').value = apiBase;
   document.getElementById('dashboard-url-input').value = dashboardUrl;
-  document.getElementById('auth-user-input').value = stored.auth_user || '';
-  document.getElementById('auth-pass-input').value = stored.auth_pass || '';
+  document.getElementById('api-token-input').value = stored.api_token || '';
 
-  // Footer shows the host portion so the user can see at a glance
-  // whether the popup is talking to localhost or a remote VPS.
   const footerEl = document.getElementById('footer-api-base');
   if (footerEl) {
-    try {
-      footerEl.textContent = new URL(apiBase).host;
-    } catch {
-      footerEl.textContent = apiBase;
-    }
+    try { footerEl.textContent = new URL(apiBase).host; } catch { footerEl.textContent = apiBase; }
   }
 }
 
 async function saveSettings() {
   const apiBase = document.getElementById('api-base-input').value.trim();
   const dashboardUrl = document.getElementById('dashboard-url-input').value.trim();
-  const authUser = document.getElementById('auth-user-input').value.trim();
-  const authPass = document.getElementById('auth-pass-input').value;
+  const apiToken = document.getElementById('api-token-input').value.trim();
   const status = document.getElementById('settings-status');
 
   if (!apiBase || !dashboardUrl) {
     status.textContent = '⚠️ Backend- und Dashboard-URL müssen ausgefüllt sein';
-    status.style.color = '#c33';
-    return;
+    status.style.color = '#c33'; return;
   }
-
-  // Auth is optional: leave both empty for unauthenticated local dev. If only
-  // one is filled, that's almost certainly a mistake — flag it.
-  if ((authUser && !authPass) || (!authUser && authPass)) {
-    status.textContent = '⚠️ User und Passwort müssen beide gesetzt oder beide leer sein';
-    status.style.color = '#c33';
-    return;
-  }
-
   await chrome.storage.local.set({
     api_base: apiBase.replace(/\/+$/, ''),
     dashboard_url: dashboardUrl.replace(/\/+$/, ''),
-    auth_user: authUser,
-    auth_pass: authPass
+    api_token: apiToken
   });
-  status.textContent = '✅ Gespeichert. Background-Service nutzt die neue Konfiguration ab dem nächsten Sync.';
+  await chrome.storage.local.remove(['auth_user', 'auth_pass']);  // clean up old
+  status.textContent = '✅ Gespeichert.';
   status.style.color = '#3a3';
   await initSettings();
 }
 
 async function resetSettings() {
-  await chrome.storage.local.remove([
-    'api_base',
-    'dashboard_url',
-    'auth_user',
-    'auth_pass'
-  ]);
+  await chrome.storage.local.remove(['api_base', 'dashboard_url', 'api_token', 'auth_user', 'auth_pass']);
   await initSettings();
-  const status = document.getElementById('settings-status');
-  status.textContent = 'Auf localhost zurückgesetzt, Auth gelöscht.';
-  status.style.color = '#666';
+  document.getElementById('settings-status').textContent = 'Auf localhost zurückgesetzt.';
 }
 
 async function loadStats() {

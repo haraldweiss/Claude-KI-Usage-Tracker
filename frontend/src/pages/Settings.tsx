@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { getPricing, getPlanPricing } from '../services/api';
-import PricingTable from '../components/PricingTable';
+import { useAuth } from '../contexts/AuthContext';
+import AccountSection from '../components/settings/AccountSection';
+import ApiTokenSection from '../components/settings/ApiTokenSection';
 import PlanPricingTable from '../components/PlanPricingTable';
-import { PricingData, PlanPricingRow } from '../types/api';
+import PricingTable from '../components/PricingTable';
+import type { PricingData, PlanPricingRow } from '../types/api';
+import AdminUsersSection from '../components/settings/AdminUsersSection';
+import AdminStatsSection from '../components/settings/AdminStatsSection';
 
 export default function Settings(): React.ReactElement {
+  const { user } = useAuth();
+  const isAdmin = !!user?.is_admin;
+
   const [pricing, setPricing] = useState<PricingData[]>([]);
   const [plans, setPlans] = useState<PlanPricingRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -41,10 +49,9 @@ export default function Settings(): React.ReactElement {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Settings</h1>
-        <p className="text-gray-600">Manage pricing and configure the tracker</p>
-      </div>
+      <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+      <AccountSection />
+      <ApiTokenSection />
 
       {/* Plan subscription pricing section */}
       <div className="bg-white rounded-lg shadow p-6">
@@ -59,11 +66,11 @@ export default function Settings(): React.ReactElement {
         {loading ? (
           <div className="text-center py-6 text-gray-500">Lade Plan-Preise…</div>
         ) : (
-          <PlanPricingTable plans={plans} onUpdate={loadPricing} />
+          <PlanPricingTable plans={plans} onUpdate={loadPricing} readOnly={!isAdmin} />
         )}
       </div>
 
-      {/* Pricing section */}
+      {/* Model pricing section */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -90,39 +97,13 @@ export default function Settings(): React.ReactElement {
                 <em> Needs review</em> below.
               </div>
             )}
-            <PricingTable pricing={pricing} onUpdate={loadPricing} />
+            <PricingTable pricing={pricing} onUpdate={loadPricing} readOnly={!isAdmin} />
           </>
         )}
       </div>
 
-      {/* Information section */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 mb-2">About Pricing</h3>
-        <ul className="text-blue-800 space-y-2 text-sm">
-          <li>• Prices sync daily from the LiteLLM community pricing index (covers all current Anthropic models)</li>
-          <li>• When the extension reports a model that isn't priced yet, the system creates a tier-default placeholder; if it can't infer a tier, it shows <em>Needs review</em> — click "Confirm" to set the real price</li>
-          <li>• You can manually override any price by clicking "Edit"; manual overrides are never auto-overwritten</li>
-          <li>• Changes apply to all future calculations and trigger a recalculation of recent records</li>
-        </ul>
-      </div>
-
-      {/* API Configuration section */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">API Configuration</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-gray-700">Backend API</label>
-            <p className="text-gray-600 mt-1">http://localhost:3000</p>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Status</label>
-            <p className="text-green-600 mt-1 flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-600 rounded-full"></span>
-              Connected
-            </p>
-          </div>
-        </div>
-      </div>
+      {isAdmin && <AdminUsersSection />}
+      {isAdmin && <AdminStatsSection />}
     </div>
   );
 }

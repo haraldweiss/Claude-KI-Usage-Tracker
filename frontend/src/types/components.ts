@@ -49,6 +49,7 @@ export interface PricingTableProps {
   pricing?: PricingData[];
   loading?: boolean;
   onUpdate?: () => void | Promise<void>;
+  readOnly?: boolean;
 }
 
 // ModelSuggester Component

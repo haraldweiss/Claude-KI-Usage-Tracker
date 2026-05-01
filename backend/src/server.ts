@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { initDatabase, closeDatabase } from './database/sqlite.js';
+import { initDatabase, closeDatabase, runQuery } from './database/sqlite.js';
 import {
   schedulePricingCheck,
   seedFromFallbackIfEmpty,
@@ -63,6 +63,20 @@ async function start(): Promise<void> {
         console.error('Scheduled analytics refresh failed:', error);
       }
     });
+
+    // Schedule hourly cleanup of expired sessions and magic-link tokens
+    cron.schedule('0 * * * *', async () => {
+      try {
+        const sessions = await runQuery(`DELETE FROM sessions WHERE expires_at < datetime('now')`);
+        const tokens = await runQuery(`DELETE FROM magic_link_tokens WHERE expires_at < datetime('now')`);
+        if (sessions.changes || tokens.changes) {
+          console.log(`[cleanup] sessions: ${sessions.changes}, magic_link_tokens: ${tokens.changes}`);
+        }
+      } catch (err) {
+        console.error('[cleanup] error:', (err as Error).message);
+      }
+    });
+    console.log('Hourly cleanup scheduled for expired sessions and magic-link tokens');
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);

@@ -96,8 +96,9 @@ export async function getModelAnalysis(req: Request<unknown, unknown, unknown, {
         SELECT response_metadata FROM usage_records
         WHERE model = ? AND success_status = 'error'
         AND timestamp >= datetime('now', ?)
+        AND user_id = ?
         LIMIT 5
-      `, [model.model, modifier]);
+      `, [model.model, modifier, req.user!.id]);
 
       // Parse error metadata if available
       const errorPatterns: Record<string, number> = {};
@@ -162,8 +163,9 @@ export async function getOptimizationOpportunities(req: Request<unknown, unknown
         success_status
       FROM usage_records
       WHERE timestamp >= datetime('now', ?)
+      AND user_id = ?
       ORDER BY timestamp DESC
-    `, [modifier]);
+    `, [modifier, req.user!.id]);
 
     if (!records || (records as any[]).length === 0) {
       res.status(200).json({

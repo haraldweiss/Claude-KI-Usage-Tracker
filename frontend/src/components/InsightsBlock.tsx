@@ -59,6 +59,32 @@ function daysRemainingInMonth(): number {
   return Math.max(1, lastDay - now.getDate() + 1);
 }
 
+function daysSince(isoDate: string | null | undefined): number {
+  if (!isoDate) return 0;
+  const start = new Date(isoDate);
+  if (isNaN(start.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86_400_000));
+}
+
+/** Daily additional-spend rate of the last completed billing cycle, or null
+ * if there's no prior cycle to reference. */
+function priorCycleDailyRate(allTime: SpendingTotal | null): number | null {
+  const cycles = allTime?.claude_ai.months ?? [];
+  if (cycles.length < 2) return null;
+  const prevCycle = cycles[1];
+  const currentCycle = cycles[0];
+  if (!prevCycle || !currentCycle) return null;
+  const prevEnd = new Date(prevCycle.month).getTime();
+  const refEnd = new Date(currentCycle.month).getTime();
+  if (isNaN(prevEnd) || isNaN(refEnd)) return null;
+  const cycleLen = Math.max(1, Math.round((refEnd - prevEnd) / 86_400_000));
+  return prevCycle.additional_eur / cycleLen;
+}
+
+const MIN_DAYS_FOR_PLAN_ADVICE = 14;
+const MIN_DAYS_FOR_FORECAST = 3;
+const FORECAST_SMOOTHING_DAYS = 7;
+
 function buildInsights(
   combined: CombinedSpendBreakdown | null,
   allTime: SpendingTotal | null,
@@ -75,8 +101,12 @@ function buildInsights(
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const claudeAiTotalEur = planEur + additionalEur;
   const grandTotalEur = claudeAiTotalEur + apiEur;
+  const daysTracked = daysSince(allTime?.since);
 
   // -------- Plan right-sizing --------
+  // A single week's % isn't enough — wait for at least ~2 weeks of tracking
+  // before nudging the user to change plans, otherwise a quiet first week
+  // recommends a downgrade prematurely.
   if (typeof meta?.weekly_all_models_pct === 'number' && meta.plan_name) {
     const pct = meta.weekly_all_models_pct;
     const singleUserPlans = plans.filter((p) => !p.min_seats || p.min_seats <= 1);
@@ -87,7 +117,13 @@ function buildInsights(
       .filter((p) => p.monthly_eur > planEur)
       .sort((a, b) => a.monthly_eur - b.monthly_eur)[0];
 
-    if (pct < 25 && cheaperPlan) {
+    if (daysTracked < MIN_DAYS_FOR_PLAN_ADVICE) {
+      insights.push({
+        level: 'info',
+        title: `${meta.plan_name}: noch keine Plan-Empfehlung`,
+        body: `Aktuell ${pct}% des Wochenlimits. Für eine fundierte Empfehlung brauche ich mindestens ${MIN_DAYS_FOR_PLAN_ADVICE} Tage Tracking-Daten — bisher sind es ${daysTracked}.`
+      });
+    } else if (pct < 25 && cheaperPlan) {
       const savings = (planEur - cheaperPlan.monthly_eur) * 12;
       insights.push({
         level: 'good',
@@ -113,26 +149,38 @@ function buildInsights(
   }
 
   // -------- Forecast monthly limit --------
-  if (typeof meta?.monthly_limit_eur === 'number' && additionalEur > 0) {
+  // claude.ai hard-caps additional usage at monthly_limit_eur, so a runaway
+  // linear projection (e.g. "971€" on day 1) is meaningless. Use the same
+  // smoothing approach as the overview forecast and frame the warning as
+  // "limit reached on date X" once the cap is binding.
+  if (typeof meta?.monthly_limit_eur === 'number' && additionalEur > 0 && daysTracked >= MIN_DAYS_FOR_FORECAST) {
     const day = dayOfMonth();
-    const dailyRate = additionalEur / Math.max(1, day);
-    const daysLeft = daysRemainingInMonth() - 1;
-    const forecastAdditional = additionalEur + dailyRate * Math.max(0, daysLeft);
+    const daysLeft = Math.max(0, daysRemainingInMonth() - 1);
+    const currentDailyRate = additionalEur / Math.max(1, day);
+    const priorRate = priorCycleDailyRate(allTime);
+    const weight = Math.min(1, day / FORECAST_SMOOTHING_DAYS);
+    const dailyRate = priorRate != null ? weight * currentDailyRate + (1 - weight) * priorRate : currentDailyRate;
     const limit = meta.monthly_limit_eur;
-    if (forecastAdditional > limit) {
-      const overshoot = forecastAdditional - limit;
+    const rawForecast = additionalEur + dailyRate * daysLeft;
+    const forecastCapped = Math.min(rawForecast, limit);
+
+    if (rawForecast > limit && dailyRate > 0) {
+      // User will hit the cap before month-end. Compute the day they hit it.
+      const daysToLimit = Math.ceil((limit - additionalEur) / dailyRate);
+      const hitDate = new Date();
+      hitDate.setDate(hitDate.getDate() + Math.max(0, daysToLimit));
       insights.push({
         level: 'alert',
-        title: 'Monatslimit wird voraussichtlich überschritten',
-        body: `Bei aktuellem Tempo (${formatEur(dailyRate)}/Tag) erreichst du ca. ${formatEur(forecastAdditional)} an Zusatznutzung — ${formatEur(overshoot)} über deinem Limit von ${formatEur(limit)}.`,
+        title: 'Monatslimit wird voraussichtlich erreicht',
+        body: `Bei aktuellem Tempo (${formatEur(dailyRate)}/Tag) erreichst du dein ${formatEur(limit)}-Limit voraussichtlich am ${hitDate.toLocaleDateString('de-DE')}. Danach blockiert claude.ai weitere Zusatznutzung bis zum Reset.`,
         action:
           'Limit in claude.ai/settings/usage anheben, oder häufiger pausieren bis zum Reset.'
       });
-    } else if (forecastAdditional > limit * 0.8) {
+    } else if (forecastCapped > limit * 0.8) {
       insights.push({
         level: 'warn',
         title: 'Monatslimit wird eng',
-        body: `Hochrechnung: ${formatEur(forecastAdditional)} bis Monatsende, das sind ${Math.round((forecastAdditional / limit) * 100)}% deines Limits (${formatEur(limit)}).`
+        body: `Hochrechnung: ${formatEur(forecastCapped)} bis Cycle-Ende, das sind ${Math.round((forecastCapped / limit) * 100)}% deines Limits (${formatEur(limit)}).`
       });
     }
   }
@@ -180,13 +228,27 @@ function buildInsights(
   }
 
   // -------- All-time grand total context --------
+  // Use actual elapsed days for the average — counting "months" by number of
+  // billing cycles touched is misleading when tracking just started (3 days
+  // of data shouldn't extrapolate to a "monthly average").
   if (allTime && allTime.claude_ai.months.length > 0) {
-    const months = allTime.claude_ai.months.length;
+    const cycles = allTime.claude_ai.months.length;
     const total = allTime.grand_total_eur ?? allTime.claude_ai.total_eur;
+    const sinceLabel = allTime.since
+      ? new Date(allTime.since).toLocaleDateString('de-DE')
+      : '?';
+    let body: string;
+    if (daysTracked < 14) {
+      body = `${formatEur(total)} über ${daysTracked} ${daysTracked === 1 ? 'Tag' : 'Tage'} Tracking — noch zu kurz für einen belastbaren Monatsschnitt.`;
+    } else {
+      const dailyAvg = total / Math.max(1, daysTracked);
+      const monthlyExtrap = dailyAvg * 30;
+      body = `${formatEur(total)} über ${daysTracked} Tage (${cycles} ${cycles === 1 ? 'Cycle' : 'Cycles'}). Tagesschnitt ${formatEur(dailyAvg)}, hochgerechnet ca. ${formatEur(monthlyExtrap)}/Monat.`;
+    }
     insights.push({
       level: 'info',
-      title: `Insgesamt seit ${allTime.since}`,
-      body: `${formatEur(total)} über ${months} ${months === 1 ? 'Monat' : 'Monate'} hinweg. Das sind im Schnitt ${formatEur(total / months)}/Monat.`
+      title: `Insgesamt seit ${sinceLabel}`,
+      body
     });
   }
 

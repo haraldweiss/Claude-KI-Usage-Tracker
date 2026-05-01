@@ -1,5 +1,5 @@
 import { initDatabase, runQuery } from '../../database/sqlite.js';
-import { createMagicLinkToken, consumeMagicLinkToken, createSession, getSessionUser, deleteSession } from '../../services/authService.js';
+import { createMagicLinkToken, consumeMagicLinkToken, createSession, getSessionUser, deleteSession, createApiToken, getActiveApiToken, revokeApiToken, findUserByApiToken } from '../../services/authService.js';
 
 beforeAll(async () => {
   process.env.DATABASE_PATH = ':memory:';
@@ -85,5 +85,41 @@ describe('sessions', () => {
     const sid = await createSession(103, null, null);
     await deleteSession(sid);
     expect(await getSessionUser(sid)).toBeNull();
+  });
+});
+
+describe('API tokens', () => {
+  it('creates a token, returns plaintext only once', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (200, 'tok1@x.com')`);
+    const { plaintext, id } = await createApiToken(200, 'Test Label');
+    expect(plaintext).toMatch(/^ck_live_[a-f0-9]{64}$/);
+    expect(id).toBeGreaterThan(0);
+  });
+
+  it('rotates: creating a new token revokes the previous active one', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (201, 'tok2@x.com')`);
+    const t1 = await createApiToken(201, 'first');
+    const t2 = await createApiToken(201, 'second');
+    expect(t1.id).not.toBe(t2.id);
+    const active = await getActiveApiToken(201);
+    expect(active?.id).toBe(t2.id);
+  });
+
+  it('resolves a plaintext token back to its user', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (202, 'tok3@x.com')`);
+    const { plaintext } = await createApiToken(202, null);
+    const user = await findUserByApiToken(plaintext);
+    expect(user?.id).toBe(202);
+  });
+
+  it('returns null for an unknown token', async () => {
+    expect(await findUserByApiToken('ck_live_deadbeef')).toBeNull();
+  });
+
+  it('revoked tokens no longer resolve', async () => {
+    await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (203, 'tok4@x.com')`);
+    const { plaintext, id } = await createApiToken(203, null);
+    await revokeApiToken(203, id);
+    expect(await findUserByApiToken(plaintext)).toBeNull();
   });
 });

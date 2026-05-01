@@ -1,10 +1,12 @@
 import express from 'express';
 import type { Express, Request, Response } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import bodyParser from 'body-parser';
 import usageRoutes from './routes/usage.js';
 import pricingRoutes from './routes/pricing.js';
 import recommendationRoutes from './routes/recommendation.js';
+import authRouter from './routes/auth.js';
 import errorHandler from './middleware/errorHandler.js';
 
 /**
@@ -54,6 +56,7 @@ export function createApp(): Express {
   const app: Express = express();
 
   app.use(cors(buildCorsOptions()));
+  app.use(cookieParser());
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -65,6 +68,7 @@ export function createApp(): Express {
     });
   }
 
+  app.use('/api/auth', authRouter);
   app.use('/api/usage', usageRoutes);
   app.use('/api/pricing', pricingRoutes);
   app.use('/api/recommend', recommendationRoutes);

@@ -14,27 +14,53 @@ import {
   OptimizationOpportunity,
   ConsoleKeyRecord,
   PlanPricingRow,
-  SpendingTotal
+  SpendingTotal,
+  CurrentUser,
+  ApiTokenInfo,
+  AdminUserRow,
+  AdminStats
 } from '../types/api';
 
 const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`;
 
 /**
+ * Central fetch helper.
+ * - Always sends cookies (credentials: 'include')
+ * - Redirects to /login on 401, unless the request itself is an /auth/ call
+ *   (those handle their own auth flow and must not loop)
+ */
+async function apiCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(init.headers || {}) }
+  });
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    window.location.assign('/claudetracker/login');
+    throw new Error('redirecting to login');
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  // 204 No Content — return undefined cast to T
+  if (res.status === 204) return undefined as unknown as T;
+  return res.json() as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// Usage endpoints
+// ---------------------------------------------------------------------------
+
+/**
  * Fetch usage summary statistics
  */
 export async function getSummary(period: Period = 'day'): Promise<UsageSummaryData> {
-  const response = await fetch(`${API_BASE}/usage/summary?period=${period}`);
-  if (!response.ok) throw new Error('Failed to fetch summary');
-  return response.json() as Promise<UsageSummaryData>;
+  return apiCall<UsageSummaryData>(`/usage/summary?period=${period}`);
 }
 
 /**
  * Fetch model usage breakdown
  */
 export async function getModelBreakdown(): Promise<{ models: ModelBreakdown[] }> {
-  const response = await fetch(`${API_BASE}/usage/models`);
-  if (!response.ok) throw new Error('Failed to fetch model breakdown');
-  return response.json() as Promise<{ models: ModelBreakdown[] }>;
+  return apiCall<{ models: ModelBreakdown[] }>('/usage/models');
 }
 
 /**
@@ -44,14 +70,9 @@ export async function getHistory(
   limit: number = 50,
   offset: number = 0
 ): Promise<{ records: UsageHistoryRecord[]; total: number }> {
-  const response = await fetch(
-    `${API_BASE}/usage/history?limit=${limit}&offset=${offset}`
+  return apiCall<{ records: UsageHistoryRecord[]; total: number }>(
+    `/usage/history?limit=${limit}&offset=${offset}`
   );
-  if (!response.ok) throw new Error('Failed to fetch history');
-  return response.json() as Promise<{
-    records: UsageHistoryRecord[];
-    total: number;
-  }>;
 }
 
 /**
@@ -59,9 +80,7 @@ export async function getHistory(
  * Used by the Combined Cost tab to render the per-key drilldown table.
  */
 export async function getConsoleKeys(): Promise<{ keys: ConsoleKeyRecord[] }> {
-  const response = await fetch(`${API_BASE}/usage/console/keys`);
-  if (!response.ok) throw new Error('Failed to fetch console keys');
-  return response.json() as Promise<{ keys: ConsoleKeyRecord[] }>;
+  return apiCall<{ keys: ConsoleKeyRecord[] }>('/usage/console/keys');
 }
 
 /**
@@ -69,18 +88,18 @@ export async function getConsoleKeys(): Promise<{ keys: ConsoleKeyRecord[] }> {
  * the Anthropic API. Returns one entry per month with claude.ai data.
  */
 export async function getSpendingTotal(): Promise<SpendingTotal> {
-  const response = await fetch(`${API_BASE}/usage/spending-total`);
-  if (!response.ok) throw new Error('Failed to fetch spending total');
-  return response.json() as Promise<SpendingTotal>;
+  return apiCall<SpendingTotal>('/usage/spending-total');
 }
+
+// ---------------------------------------------------------------------------
+// Pricing endpoints
+// ---------------------------------------------------------------------------
 
 /**
  * List the current plan-subscription pricing rows (Pro / Max / Team / …).
  */
 export async function getPlanPricing(): Promise<{ plans: PlanPricingRow[] }> {
-  const response = await fetch(`${API_BASE}/pricing/plans`);
-  if (!response.ok) throw new Error('Failed to fetch plan pricing');
-  return response.json() as Promise<{ plans: PlanPricingRow[] }>;
+  return apiCall<{ plans: PlanPricingRow[] }>('/pricing/plans');
 }
 
 /**
@@ -88,21 +107,17 @@ export async function getPlanPricing(): Promise<{ plans: PlanPricingRow[] }> {
  * daily refresh job won't override the user's edit.
  */
 export async function updatePlanPricing(planName: string, monthlyEur: number): Promise<void> {
-  const response = await fetch(`${API_BASE}/pricing/plans/${encodeURIComponent(planName)}`, {
+  return apiCall<void>(`/pricing/plans/${encodeURIComponent(planName)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ monthly_eur: monthlyEur })
   });
-  if (!response.ok) throw new Error('Failed to update plan pricing');
 }
 
 /**
  * Fetch current pricing for all models
  */
 export async function getPricing(): Promise<{ pricing: PricingData[] }> {
-  const response = await fetch(`${API_BASE}/pricing`);
-  if (!response.ok) throw new Error('Failed to fetch pricing');
-  return response.json() as Promise<{ pricing: PricingData[] }>;
+  return apiCall<{ pricing: PricingData[] }>('/pricing');
 }
 
 /**
@@ -113,16 +128,10 @@ export async function updatePricing(
   inputPrice: number,
   outputPrice: number
 ): Promise<PricingData> {
-  const response = await fetch(`${API_BASE}/pricing/${encodeURIComponent(model)}`, {
+  return apiCall<PricingData>(`/pricing/${encodeURIComponent(model)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      input_price: inputPrice,
-      output_price: outputPrice
-    })
+    body: JSON.stringify({ input_price: inputPrice, output_price: outputPrice })
   });
-  if (!response.ok) throw new Error('Failed to update pricing');
-  return response.json() as Promise<PricingData>;
 }
 
 /**
@@ -136,13 +145,15 @@ export async function confirmPricing(
   const body: Record<string, number> = {};
   if (inputPrice !== undefined) body.inputPrice = inputPrice;
   if (outputPrice !== undefined) body.outputPrice = outputPrice;
-  const res = await fetch(`${API_BASE}/pricing/${encodeURIComponent(model)}/confirm`, {
+  return apiCall<void>(`/pricing/${encodeURIComponent(model)}/confirm`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(`Confirm failed: HTTP ${res.status}`);
 }
+
+// ---------------------------------------------------------------------------
+// Recommendation endpoints
+// ---------------------------------------------------------------------------
 
 /**
  * Get model recommendation for a task
@@ -151,27 +162,20 @@ export async function recommendModel(
   taskDescription: string,
   constraints?: Record<string, unknown>
 ): Promise<{ success: boolean; recommendation?: ModelRecommendation; error?: string }> {
-  const response = await fetch(`${API_BASE}/recommend`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      taskDescription,
-      constraints: constraints || {}
-    })
-  });
-  if (!response.ok) throw new Error('Failed to get recommendation');
-  return response.json() as Promise<{ success: boolean; recommendation?: ModelRecommendation; error?: string }>;
+  return apiCall<{ success: boolean; recommendation?: ModelRecommendation; error?: string }>(
+    '/recommend',
+    {
+      method: 'POST',
+      body: JSON.stringify({ taskDescription, constraints: constraints || {} })
+    }
+  );
 }
 
 /**
  * Fetch model performance analysis for a period
  */
 export async function getModelAnalysis(period: Period = 'month'): Promise<ModelAnalysis> {
-  const response = await fetch(
-    `${API_BASE}/recommend/analysis/models?period=${period}`
-  );
-  if (!response.ok) throw new Error('Failed to fetch model analysis');
-  return response.json() as Promise<ModelAnalysis>;
+  return apiCall<ModelAnalysis>(`/recommend/analysis/models?period=${period}`);
 }
 
 /**
@@ -180,9 +184,77 @@ export async function getModelAnalysis(period: Period = 'month'): Promise<ModelA
 export async function getOptimizationOpportunities(
   period: Period = 'month'
 ): Promise<{ success: boolean; opportunities?: OptimizationOpportunity[]; error?: string; [key: string]: unknown }> {
-  const response = await fetch(
-    `${API_BASE}/recommend/analysis/opportunities?period=${period}`
+  return apiCall<{ success: boolean; opportunities?: OptimizationOpportunity[]; error?: string; [key: string]: unknown }>(
+    `/recommend/analysis/opportunities?period=${period}`
   );
-  if (!response.ok) throw new Error('Failed to fetch optimization opportunities');
-  return response.json() as Promise<{ success: boolean; opportunities?: OptimizationOpportunity[]; error?: string; [key: string]: unknown }>;
 }
+
+// ---------------------------------------------------------------------------
+// Auth endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Request a magic-link / one-time login email for the given address.
+ */
+export const requestMagicLink = (email: string) =>
+  apiCall<{ ok: true }>('/auth/request', { method: 'POST', body: JSON.stringify({ email }) });
+
+/**
+ * Return the currently authenticated user, or throw on 401.
+ * Note: 401 on /auth/me does NOT redirect (path starts with /auth/).
+ */
+export const getCurrentUser = () => apiCall<CurrentUser>('/auth/me');
+
+/**
+ * Log out the current session.
+ * Uses raw fetch intentionally — the cookie is already being invalidated server-side,
+ * so we must not let the 401 interceptor cause a redirect loop.
+ */
+export const logout = () =>
+  fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+
+// ---------------------------------------------------------------------------
+// Account endpoints
+// ---------------------------------------------------------------------------
+
+/** Return the current user's account details. */
+export const getAccount = () => apiCall<CurrentUser>('/account');
+
+/** Patch mutable fields on the current user's account. */
+export const patchAccount = (
+  body: Partial<{ display_name: string; plan_name: string; monthly_limit_eur: number }>
+) => apiCall<CurrentUser>('/account', { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Permanently delete the current user's account. */
+export const deleteAccount = () => apiCall<void>('/account', { method: 'DELETE' });
+
+/** Return the current user's API token info (null if none exists). */
+export const getApiToken = () => apiCall<ApiTokenInfo | null>('/account/token');
+
+/** Issue a new API token (rotates any existing token). */
+export const rotateApiToken = (label?: string) =>
+  apiCall<{ token: string; id: number; label: string }>('/account/token', {
+    method: 'POST',
+    body: JSON.stringify({ label })
+  });
+
+/** Revoke the current API token. */
+export const revokeApiToken = () => apiCall<void>('/account/token', { method: 'DELETE' });
+
+// ---------------------------------------------------------------------------
+// Admin endpoints
+// ---------------------------------------------------------------------------
+
+/** List all users (admin only). */
+export const adminListUsers = () => apiCall<{ users: AdminUserRow[] }>('/admin/users');
+
+/** Update a user record by ID (admin only). */
+export const adminPatchUser = (id: number, body: Partial<AdminUserRow>) =>
+  apiCall<AdminUserRow>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Delete a user by ID (admin only). */
+export const adminDeleteUser = (id: number) =>
+  apiCall<void>(`/admin/users/${id}`, { method: 'DELETE' });
+
+/** Return aggregate admin stats. */
+export const adminStats = () => apiCall<AdminStats>('/admin/stats');

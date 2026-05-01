@@ -295,28 +295,67 @@ export async function getSummary(
         }
       : null;
 
-    // For each (workspace, key_id_suffix), pick the latest snapshot in the
-    // requested window — that's the cumulative cost as of last sync.
-    // Two sources contribute here:
+    // Anthropic Console reports cumulative-since-key-creation cost per key,
+    // so a single snapshot is meaningless for "this month" — we compute the
+    // delta between the latest snapshot inside the period window and the
+    // latest snapshot that existed before the window started. That difference
+    // is what was actually spent during the period.
+    //
+    // Two sources contribute:
     //   - anthropic_console_sync: regular API keys from console/settings/keys
     //   - claude_code_sync: Claude Code keys (different page, different
     //     billing surface, but conceptually still "Anthropic API" spend)
     //
-    // Filter: console/settings/keys reports 0 USD for the 'Claude Code'
-    // workspace because billing flows through the Claude Code page instead.
-    // We exclude those rows to avoid double-counting (and to avoid showing
-    // the same key twice with different key_id_suffix values).
+    // The 'Claude Code' workspace from anthropic_console_sync is excluded
+    // because billing flows through the Claude Code page (rows show $0 there
+    // and would double-count with claude_code_sync entries otherwise).
+    let windowStartExpr: string;
+    if (period === 'day') {
+      windowStartExpr = "date('now')";
+    } else if (period === 'week') {
+      windowStartExpr = "datetime('now', '-7 days')";
+    } else {
+      windowStartExpr = "date('now', 'start of month')";
+    }
+
+    const apiSourceFilter = `((source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code') OR source = 'claude_code_sync')`;
+
     const apiByWorkspace = await allQuery<ApiWorkspaceRow>(
-      `SELECT workspace, SUM(cost_usd) as cost_usd
-       FROM (
-         SELECT workspace, key_id_suffix, cost_usd,
-                ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
-         FROM usage_records
-         WHERE (source = 'anthropic_console_sync' AND COALESCE(workspace, '') != 'Claude Code')
-            OR source = 'claude_code_sync'
+      `WITH latest_in_window AS (
+         SELECT workspace, key_id_suffix, cost_usd
+         FROM (
+           SELECT workspace, key_id_suffix, cost_usd,
+                  ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
+           FROM usage_records
+           WHERE ${apiSourceFilter}
+             AND datetime(timestamp) >= datetime(${windowStartExpr})
+         )
+         WHERE rn = 1
+       ),
+       baseline AS (
+         SELECT workspace, key_id_suffix, cost_usd
+         FROM (
+           SELECT workspace, key_id_suffix, cost_usd,
+                  ROW_NUMBER() OVER (PARTITION BY workspace, key_id_suffix ORDER BY timestamp DESC) as rn
+           FROM usage_records
+           WHERE ${apiSourceFilter}
+             AND datetime(timestamp) < datetime(${windowStartExpr})
+         )
+         WHERE rn = 1
        )
-       WHERE rn = 1
-       GROUP BY workspace
+       SELECT workspace, cost_usd FROM (
+         SELECT l.workspace,
+                SUM(CASE
+                      WHEN l.cost_usd > COALESCE(b.cost_usd, 0)
+                      THEN l.cost_usd - COALESCE(b.cost_usd, 0)
+                      ELSE 0
+                    END) as cost_usd
+         FROM latest_in_window l
+         LEFT JOIN baseline b
+           ON l.workspace IS b.workspace AND l.key_id_suffix IS b.key_id_suffix
+         GROUP BY l.workspace
+       )
+       WHERE cost_usd > 0
        ORDER BY cost_usd DESC`
     );
 

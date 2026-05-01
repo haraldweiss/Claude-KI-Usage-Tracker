@@ -80,6 +80,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'GET_MONTHLY_STATS') {
+    getMonthlyStats()
+      .then((stats) => sendResponse(stats))
+      .catch(() => sendResponse(null));
+    return true;
+  }
+
   if (message.type === 'TRIGGER_AUTO_SYNC') {
     autoSync()
       .then((result) => sendResponse({ success: true, result }))
@@ -150,6 +157,18 @@ async function getTodayStats() {
     return await response.json();
   } catch (error) {
     console.error('Error getting stats:', error);
+    return null;
+  }
+}
+
+async function getMonthlyStats() {
+  try {
+    const apiBase = await getApiBase();
+    const response = await authFetch(`${apiBase}/usage/summary?period=month`);
+    if (!response.ok) throw new Error('Failed to fetch monthly stats');
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting monthly stats:', error);
     return null;
   }
 }

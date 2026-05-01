@@ -107,22 +107,20 @@ async function loadStats() {
   const errorContainer = document.getElementById('error-container');
 
   try {
-    // Get stats from background script
-    chrome.runtime.sendMessage({ type: 'GET_TODAY_STATS' }, (stats) => {
+    chrome.runtime.sendMessage({ type: 'GET_MONTHLY_STATS' }, (stats) => {
       if (stats) {
         displayStats(stats);
         loadingEl.style.display = 'none';
         statsContainer.style.display = 'block';
         errorContainer.innerHTML = '';
       } else {
-        throw new Error('Failed to load stats');
+        showError('Backend nicht erreichbar. Prüfe Backend-URL & Auth in den Einstellungen.');
       }
     });
 
-    // Set timeout in case background doesn't respond
     setTimeout(() => {
       if (loadingEl.style.display !== 'none') {
-        showError('Could not connect to backend. Make sure port 3000 is running.');
+        showError('Backend nicht erreichbar. Prüfe Backend-URL & Auth in den Einstellungen.');
       }
     }, 3000);
   } catch (error) {
@@ -130,12 +128,44 @@ async function loadStats() {
   }
 }
 
+function formatEur(value) {
+  return new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value || 0);
+}
+
+function formatUsd(value) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value || 0);
+}
+
 function displayStats(stats) {
-  document.getElementById('total-tokens').textContent = formatNumber(stats.total_tokens || 0);
-  document.getElementById('input-tokens').textContent = formatNumber(stats.total_input_tokens || 0);
-  document.getElementById('output-tokens').textContent = formatNumber(stats.total_output_tokens || 0);
-  document.getElementById('total-cost').textContent = '$' + (stats.total_cost || 0).toFixed(4);
-  document.getElementById('request-count').textContent = stats.request_count || 0;
+  const claudeAi = stats?.combined?.claude_ai;
+  const api = stats?.combined?.anthropic_api;
+  const meta = claudeAi?.meta;
+
+  const claudeAiTotalEur = claudeAi?.total_eur ?? 0;
+  const apiUsd = api?.cost_usd ?? 0;
+  const apiEur = api?.cost_eur_equivalent ?? 0;
+  const grandTotal = claudeAiTotalEur + apiEur;
+
+  document.getElementById('grand-total').textContent = formatEur(grandTotal);
+  document.getElementById('claudeai-total').textContent = claudeAi
+    ? `${formatEur(claudeAiTotalEur)}`
+    : '—';
+  document.getElementById('api-total').textContent =
+    apiUsd > 0 ? `${formatUsd(apiUsd)} ≈ ${formatEur(apiEur)}` : formatEur(0);
+  document.getElementById('weekly-pct').textContent =
+    typeof meta?.weekly_all_models_pct === 'number' ? `${meta.weekly_all_models_pct}%` : '—';
+  document.getElementById('session-pct').textContent =
+    typeof meta?.session_pct === 'number' ? `${meta.session_pct}%` : '—';
 }
 
 function showError(message, isSuccess = false) {

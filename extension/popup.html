@@ -193,35 +193,35 @@
 <body>
   <div class="container">
     <div class="header">
-      <h2>📊 Usage Today</h2>
-      <p>Track your Claude usage in real-time</p>
+      <h2>📊 Diesen Monat</h2>
+      <p>Aktueller Stand aus Sync-Daten</p>
     </div>
 
     <div id="error-container"></div>
 
-    <div id="loading" class="loading">Loading stats...</div>
+    <div id="loading" class="loading">Lade Daten…</div>
 
     <div id="stats-container" style="display: none;">
       <div class="stats">
         <div class="stat-item">
-          <span class="stat-label">Total Tokens</span>
-          <span class="stat-value" id="total-tokens">-</span>
+          <span class="stat-label">Gesamt diesen Monat</span>
+          <span class="stat-value" id="grand-total">-</span>
         </div>
         <div class="stat-item">
-          <span class="stat-label">Input Tokens</span>
-          <span class="stat-value" id="input-tokens">-</span>
+          <span class="stat-label">claude.ai (Plan + Zusatz)</span>
+          <span class="stat-value" id="claudeai-total">-</span>
         </div>
         <div class="stat-item">
-          <span class="stat-label">Output Tokens</span>
-          <span class="stat-value" id="output-tokens">-</span>
+          <span class="stat-label">Anthropic API</span>
+          <span class="stat-value" id="api-total">-</span>
         </div>
         <div class="stat-item">
-          <span class="stat-label">Estimated Cost</span>
-          <span class="stat-value" id="total-cost">-</span>
+          <span class="stat-label">Wochenlimit</span>
+          <span class="stat-value" id="weekly-pct">-</span>
         </div>
         <div class="stat-item">
-          <span class="stat-label">Requests</span>
-          <span class="stat-value" id="request-count">-</span>
+          <span class="stat-label">Aktuelle Sitzung</span>
+          <span class="stat-value" id="session-pct">-</span>
         </div>
       </div>
 

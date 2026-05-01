@@ -176,6 +176,8 @@ interface ClaudeAiMeta {
 
 interface ClaudeAiSyncRow {
   cost_eur: number;
+  plan_eur: number;
+  total_eur: number;
   weekly_used_pct: number;
   last_synced: string;
   meta: ClaudeAiMeta | null;
@@ -281,9 +283,20 @@ export async function getSummary(
       parsedMeta?.spent_eur ?? (claudeAiRow ? claudeAiRow.input_tokens / 1000 : 0);
     const effectiveSpentEur = staleCarryover ? 0 : rawSpentEur;
 
+    // Resolve the plan subscription EUR so simple consumers (e.g. the
+    // extension popup) can render a complete claude.ai monthly figure
+    // without needing a separate /pricing/plans request.
+    let planEur = 0;
+    if (parsedMeta?.plan_name) {
+      const { getPlanPrice } = await import('../services/planPricingService.js');
+      planEur = (await getPlanPrice(parsedMeta.plan_name)) ?? 0;
+    }
+
     const claudeAi: ClaudeAiSyncRow | null = claudeAiRow
       ? {
           cost_eur: effectiveSpentEur,
+          plan_eur: planEur,
+          total_eur: planEur + effectiveSpentEur,
           weekly_used_pct:
             parsedMeta?.weekly_all_models_pct ?? claudeAiRow.output_tokens,
           last_synced: claudeAiRow.timestamp,

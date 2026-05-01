@@ -7,7 +7,11 @@ const FROM_ADDRESS = process.env.MAIL_FROM || 'Claude Usage Tracker <noreply@wol
 const transport = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
-  secure: false
+  secure: false,
+  // Talking to Postfix on localhost — STARTTLS would hit Postfix's self-signed
+  // cert (cert validation fails). The relay path Postfix → Ionos still uses
+  // proper TLS, only the localhost hop is plaintext.
+  ignoreTLS: true
 });
 
 export async function sendMagicLinkMail(

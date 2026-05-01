@@ -242,15 +242,56 @@ export async function getSummary(
       }
     }
 
+    // Stale-carryover guard for the in-progress cycle: claude.ai's dashboard
+    // can keep displaying the previous cycle's spent_eur for a while after
+    // reset before refreshing. Detect this by comparing against the latest
+    // sync that had a different reset_date — if the values match exactly,
+    // the current reading is cached carryover and effective spend is 0.
+    let staleCarryover = false;
+    if (
+      parsedMeta?.spent_eur != null &&
+      parsedMeta.spent_eur > 0 &&
+      parsedMeta.reset_date
+    ) {
+      const prevCycleRow = await getQuery<{ response_metadata: string | null }>(
+        `SELECT response_metadata FROM usage_records
+         WHERE source = 'claude_official_sync'
+           AND json_extract(response_metadata, '$.reset_date') IS NOT NULL
+           AND json_extract(response_metadata, '$.reset_date') != ?
+         ORDER BY timestamp DESC
+         LIMIT 1`,
+        [parsedMeta.reset_date]
+      );
+      if (prevCycleRow?.response_metadata) {
+        try {
+          const prevMeta = JSON.parse(prevCycleRow.response_metadata) as ClaudeAiMeta;
+          if (
+            typeof prevMeta?.spent_eur === 'number' &&
+            Math.abs(prevMeta.spent_eur - parsedMeta.spent_eur) < 0.01
+          ) {
+            staleCarryover = true;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    const rawSpentEur =
+      parsedMeta?.spent_eur ?? (claudeAiRow ? claudeAiRow.input_tokens / 1000 : 0);
+    const effectiveSpentEur = staleCarryover ? 0 : rawSpentEur;
+
     const claudeAi: ClaudeAiSyncRow | null = claudeAiRow
       ? {
-          // Prefer the rich metadata when present, fall back to the legacy
-          // input_tokens/1000 encoding used before the scraper expansion.
-          cost_eur: parsedMeta?.spent_eur ?? claudeAiRow.input_tokens / 1000,
+          cost_eur: effectiveSpentEur,
           weekly_used_pct:
             parsedMeta?.weekly_all_models_pct ?? claudeAiRow.output_tokens,
           last_synced: claudeAiRow.timestamp,
           meta: parsedMeta
+            ? staleCarryover
+              ? { ...parsedMeta, spent_eur: 0, spent_pct: 0 }
+              : parsedMeta
+            : parsedMeta
         }
       : null;
 
@@ -503,6 +544,25 @@ export async function getSpendingTotal(_req: Request, res: Response): Promise<vo
     const cycles = Array.from(byCycle.values()).sort((a, b) =>
       b.cycleEnd.localeCompare(a.cycleEnd)
     );
+
+    // Stale-carryover guard: right after a cycle resets, claude.ai's dashboard
+    // can keep displaying the previous cycle's final spent_eur for a while
+    // before refreshing to the new cycle's actual value. If the in-progress
+    // cycle's spent_eur matches the previous cycle's exactly, treat it as
+    // cached carryover and reset to 0 — real new spending will diverge from
+    // the old value and the next sync will pick it up correctly.
+    const STALE_EPS = 0.01;
+    if (cycles.length >= 2) {
+      const current = cycles[0];
+      const prev = cycles[1];
+      if (
+        current && prev &&
+        current.additional_eur > 0 &&
+        Math.abs(current.additional_eur - prev.additional_eur) < STALE_EPS
+      ) {
+        current.additional_eur = 0;
+      }
+    }
 
     const { getPlanPrice } = await import('../services/planPricingService.js');
 

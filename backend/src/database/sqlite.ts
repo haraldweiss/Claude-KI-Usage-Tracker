@@ -225,7 +225,8 @@ export function initDatabase(): Promise<void> {
             { name: 'workspace', ddl: 'TEXT' },
             { name: 'key_name', ddl: 'TEXT' },
             { name: 'key_id_suffix', ddl: 'TEXT' },
-            { name: 'cost_usd', ddl: 'REAL' }
+            { name: 'cost_usd', ddl: 'REAL' },
+            { name: 'user_id', ddl: 'INTEGER REFERENCES users(id)' }
           ]);
           // Indexes for the new categorization columns
           await new Promise<void>((res, rej) => {
@@ -245,6 +246,11 @@ export function initDatabase(): Promise<void> {
               'CREATE INDEX IF NOT EXISTS idx_usage_workspace ON usage_records(workspace)',
               (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
             );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage_records(user_id, timestamp)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
           });
           // Indexes for multi-user SaaS tables
           await new Promise<void>((res, rej) => {
@@ -277,6 +283,9 @@ export function initDatabase(): Promise<void> {
           ]);
           await addMissingColumns('plan_pricing', [
             { name: 'min_seats', ddl: 'INTEGER DEFAULT 1' }
+          ]);
+          await addMissingColumns('model_analysis', [
+            { name: 'user_id', ddl: 'INTEGER REFERENCES users(id)' }
           ]);
           await new Promise<void>((res, rej) => {
             database.run(

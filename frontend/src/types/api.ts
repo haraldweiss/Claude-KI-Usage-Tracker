@@ -167,3 +167,36 @@ export interface OptimizationOpportunity {
   potential_savings: number;
   recommendation: string;
 }
+
+export interface CurrentUser {
+  id: number;
+  email: string;
+  display_name: string | null;
+  plan_name: string | null;
+  monthly_limit_eur: number | null;
+  is_admin: boolean;
+}
+
+export interface ApiTokenInfo {
+  id: number;
+  label: string | null;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface AdminUserRow {
+  id: number;
+  email: string;
+  display_name: string | null;
+  is_admin: 0 | 1;
+  plan_name: string | null;
+  created_at: string;
+  last_login_at: string | null;
+  record_count: number;
+}
+
+export interface AdminStats {
+  total_users: number;
+  active_last_7d: number;
+  total_records: number;
+}

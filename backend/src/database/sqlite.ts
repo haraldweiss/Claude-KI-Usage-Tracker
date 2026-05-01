@@ -133,6 +133,53 @@ export function initDatabase(): Promise<void> {
         if (err && !err.message.includes('already exists')) reject(err);
       });
 
+      // Multi-user SaaS tables (Phase A — additive only, no behavior change)
+      database.run(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT NOT NULL UNIQUE,
+          display_name TEXT,
+          is_admin INTEGER NOT NULL DEFAULT 0,
+          plan_name TEXT,
+          monthly_limit_eur REAL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_login_at TEXT
+        )
+      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          id TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL,
+          user_agent TEXT,
+          ip_address TEXT
+        )
+      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS magic_link_tokens (
+          token TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT
+        )
+      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS api_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL,
+          label TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          revoked_at TEXT
+        )
+      `, (err: Error | null) => { if (err && !err.message.includes('already exists')) reject(err); });
+
       // Create indexes
       database.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON usage_records(timestamp)');
       database.run('CREATE INDEX IF NOT EXISTS idx_model ON usage_records(model)');
@@ -185,6 +232,25 @@ export function initDatabase(): Promise<void> {
               'CREATE INDEX IF NOT EXISTS idx_usage_workspace ON usage_records(workspace)',
               (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
             );
+          });
+          // Indexes for multi-user SaaS tables
+          await new Promise<void>((res, rej) => {
+            database.run('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)',
+              (e: Error | null) => (e ? rej(e) : res()));
+          });
+          await new Promise<void>((res, rej) => {
+            database.run('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)',
+              (e: Error | null) => (e ? rej(e) : res()));
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_mlt_email_active ON magic_link_tokens(email) WHERE consumed_at IS NULL',
+              (e: Error | null) => (e ? rej(e) : res()));
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_token_per_user ON api_tokens(user_id) WHERE revoked_at IS NULL',
+              (e: Error | null) => (e ? rej(e) : res()));
           });
           await addMissingColumns('pricing', [
             { name: 'api_id', ddl: 'TEXT' },

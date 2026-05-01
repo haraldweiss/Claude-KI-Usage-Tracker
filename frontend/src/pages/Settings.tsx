@@ -6,7 +6,8 @@ import ApiTokenSection from '../components/settings/ApiTokenSection';
 import PlanPricingTable from '../components/PlanPricingTable';
 import PricingTable from '../components/PricingTable';
 import type { PricingData, PlanPricingRow } from '../types/api';
-// AdminUsersSection and AdminStatsSection will be added by Task D9
+import AdminUsersSection from '../components/settings/AdminUsersSection';
+import AdminStatsSection from '../components/settings/AdminStatsSection';
 
 export default function Settings(): React.ReactElement {
   const { user } = useAuth();
@@ -101,8 +102,8 @@ export default function Settings(): React.ReactElement {
         )}
       </div>
 
-      {/* {isAdmin && <AdminUsersSection />} */}
-      {/* {isAdmin && <AdminStatsSection />} */}
+      {isAdmin && <AdminUsersSection />}
+      {isAdmin && <AdminStatsSection />}
     </div>
   );
 }

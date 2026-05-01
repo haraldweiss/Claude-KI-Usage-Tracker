@@ -2,7 +2,21 @@
 
 A web application + browser extension that tracks the **real cost** of using Claude across three Anthropic surfaces — claude.ai subscription, Anthropic Console API keys, and Claude Code — and surfaces it as a single number on a unified dashboard.
 
-**Status**: ✅ Phase 5 — Multi-Source Cost Tracker (live on VPS, Plan-B architecture)
+**Status**: ✅ Phase 5 — Multi-Source Cost Tracker (live on VPS, Plan-B architecture, multi-user auth)
+
+---
+
+## 🔑 Sign Up (hosted instance)
+
+> This section applies to the publicly hosted instance at `https://wolfinisoftware.de/claudetracker/`. Skip it if you are running locally — local dev has no auth by default.
+
+1. **Visit the dashboard URL** in your browser. You will be redirected to the login page.
+2. **Enter your email address** and click "Magic-Link senden". Check your inbox for a login email (valid for 15 minutes, single-use).
+3. **Click the link** in the email. You are now logged in with a 30-day rolling session — no password needed.
+4. **Generate an API token**: open **Settings → API Token**, click "Generate", and copy the token. This is what the extension uses to authenticate its sync calls.
+5. **Install the extension** (see §4 of Quick Start below) and paste the token into the extension popup's "⚙️ Verbindung" panel → **API Token** field → "Speichern".
+
+> **Mail deliverability tip:** the sender domain must have valid SPF, DKIM, and DMARC records, or magic-link emails may land in spam. Check `Settings → Admin` if you are the first user; the first registered email address is automatically granted the admin role.
 
 ---
 
@@ -43,8 +57,8 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 ### Architecture
 - **Backend**: Node.js + Express + TypeScript (strict mode), SQLite, additive migrations.
 - **Frontend**: React + TypeScript + Vite, Tailwind CSS. Same-origin XHRs in production; dev server uses Vite proxy.
-- **Extension**: Chrome MV3, configurable Backend URL + Basic-Auth credentials in the popup so the same extension build works against local dev (`localhost:3000`) and the deployed VPS.
-- **VPS deployment**: Apache reverse-proxy + systemd unit + Let's Encrypt TLS + HTTP Basic Auth + automated health monitoring with email alerts.
+- **Extension**: Chrome MV3 (v2.0.0), configurable Backend URL + API Token in the popup so the same extension build works against local dev (`localhost:3000`) and the deployed VPS.
+- **VPS deployment**: Apache reverse-proxy + systemd unit + Let's Encrypt TLS + magic-link auth + automated health monitoring with email alerts.
 
 ---
 
@@ -89,11 +103,16 @@ Or use the convenience scripts that handle both at once:
 The scripts auto-detect when launched from a worktree and point the backend at the main repo's SQLite file so test runs and dev runs share the same data.
 
 ### 4. Install the extension
+
+> **Version note**: the extension is now at **v2.0.0** (MV3). It is incompatible with any v1.x install — remove the old version from `chrome://extensions` before loading this one.
+
 1. Open `chrome://extensions`.
 2. Enable Developer mode (top right).
 3. Click "Load unpacked".
 4. Select the `extension/` directory.
-5. Click the Tracker icon in the toolbar → expand "⚙️ Verbindung" → leave Backend-API URL = `http://localhost:3000/api` (default) and Auth fields empty for local dev → "Speichern".
+5. Click the Tracker icon in the toolbar → expand "⚙️ Verbindung":
+   - **Local dev**: leave Backend-API URL = `http://localhost:3000/api` and the API Token field empty → "Speichern".
+   - **Hosted instance**: set Backend-API URL to `https://your-domain/claudetracker/api`, paste the **API Token** from Settings → API Token → "Speichern". The extension sends `Authorization: Bearer <token>` on every request; no Basic-Auth credentials are needed.
 
 ### 5. Trigger your first sync
 Log into claude.ai, console.anthropic.com, and platform.claude.com in regular browser tabs (so the extension can reuse your session). Then in the extension popup, click the sync button — or in the service-worker console:
@@ -110,7 +129,7 @@ The dashboard at `http://localhost:5173` will populate within a few seconds.
 
 The tracker is also deployable as a subpath of an existing Apache vhost — useful if you already host other things on a domain and don't want to spin up a separate one.
 
-**Live at:** `https://wolfinisoftware.de/claudetracker/` (Basic Auth protected; this is the maintainer's instance).
+**Live at:** `https://wolfinisoftware.de/claudetracker/` (magic-link auth; this is the maintainer's instance).
 
 ### How it works
 
@@ -119,10 +138,10 @@ The tracker is also deployable as a subpath of an existing Apache vhost — usef
 | Apache vhost | `/etc/httpd/conf.d/claudetracker.conf` — `Alias /claudetracker → /var/www/.../frontend/dist` plus `ProxyPass /claudetracker/api/ → http://127.0.0.1:3001/api/`. SPA fallback rewrite for client-side routing. |
 | Backend | systemd unit `claudetracker-backend.service`, listens on `127.0.0.1:3001`, env-configured via `Environment=DATABASE_PATH=...` and `Environment=CORS_ALLOWED_ORIGINS=...`. |
 | Frontend | static bundle under `/var/www/wolfinisoftware/claudetracker/frontend/dist/` (Vite build, base path `/claudetracker/`). |
-| Auth | HTTP Basic via `.htpasswd-claudetracker`. The extension's popup has matching User/Password fields that get sent as `Authorization: Basic …` on every fetch. |
+| Auth | **Application-level magic-link auth** (see Sign Up section above). The Apache `.htpasswd-claudetracker` file is kept as a legacy fallback / extra layer but is no longer the primary gate — the app handles auth itself via session cookies and Bearer API tokens. |
 | TLS | Let's Encrypt cert managed by the surrounding vhost (no separate cert for the subpath). |
 
-The frontend production build reads `frontend/.env.production` (`VITE_API_URL=/claudetracker`) so all fetches use a same-origin relative URL — no separate API hostname, no CORS dance, the browser remembers the Basic-Auth credentials across requests.
+The frontend production build reads `frontend/.env.production` (`VITE_API_URL=/claudetracker`) so all fetches use a same-origin relative URL — no separate API hostname, no CORS dance.
 
 ### Deploy a fresh build
 
@@ -148,7 +167,7 @@ ssh user@vps 'systemctl restart claudetracker-backend'
 - `claudetracker-onfailure.service` — systemd `OnFailure=` hook that fires when the backend exhausts its 5-restarts-in-10-min budget.
 - Mail relay: Postfix → Ionos SMTP → recipient inbox. Tested and live.
 
-See [docs/superpowers/specs/2026-04-29-console-api-tracking-design.md](./docs/superpowers/specs/2026-04-29-console-api-tracking-design.md) for the architectural rationale and [docs/superpowers/specs/2026-04-29-multi-user-auth-design.md](./docs/superpowers/specs/2026-04-29-multi-user-auth-design.md) for the planned multi-user replacement of HTTP Basic Auth.
+See [docs/superpowers/specs/2026-04-29-console-api-tracking-design.md](./docs/superpowers/specs/2026-04-29-console-api-tracking-design.md) for the scraping architecture rationale and [docs/superpowers/specs/2026-04-29-multi-user-auth-design.md](./docs/superpowers/specs/2026-04-29-multi-user-auth-design.md) for the multi-user auth design decisions.
 
 ---
 
@@ -201,14 +220,14 @@ Claude-KI-Usage-Tracker/
 │   │                                       #   three sync targets
 │   ├── background.js                       # autoSync, consoleSync,
 │   │                                       #   claudeCodeSync; chrome.alarms;
-│   │                                       #   authFetch with Basic-Auth header
+│   │                                       #   authFetch with Bearer token
 │   ├── content.js                          # DOM scrape helpers (claude.ai)
 │   └── popup.html / popup.js               # Stats + connection settings
 │
 ├── docs/superpowers/specs/                 # Architecture decision records
 │   ├── 2026-04-29-data-quality-insights-design.md     # ABANDONED
 │   ├── 2026-04-29-console-api-tracking-design.md      # Plan B (current)
-│   └── 2026-04-29-multi-user-auth-design.md           # Next session
+│   └── 2026-04-29-multi-user-auth-design.md           # Multi-user auth design
 │
 ├── start.sh / stop.sh / status.sh          # Dev lifecycle (worktree-aware)
 └── database.sqlite                         # Auto-created on first run
@@ -247,13 +266,12 @@ Claude-KI-Usage-Tracker/
 ## 🔐 Authentication
 
 ### Local dev
-None by default. Backend listens on `localhost:3000`, frontend on `localhost:5173`, extension talks to `http://localhost:3000/api`. Leave the popup's Basic-Auth fields empty.
+None by default. Backend listens on `localhost:3000`, frontend on `localhost:5173`, extension talks to `http://localhost:3000/api`. Leave the popup's API Token field empty.
 
 ### VPS (production)
-HTTP Basic Auth at the Apache layer, applied to the whole `/claudetracker/` subtree (frontend + API). The extension popup has matching User/Password fields under "⚙️ Verbindung" that get sent as `Authorization: Basic <base64>` on every fetch. Browsers cache the credentials after the first prompt.
+Magic-link auth at the application layer. Users sign in with their email address; the backend sends a single-use token link valid for 15 minutes. On success a 30-day rolling session cookie (`cut_session`) is set. The browser extension authenticates via a per-user **Bearer API token** (`Authorization: Bearer <token>`) obtained from Settings → API Token. No Basic-Auth credentials are required.
 
-### Future: multi-user (planned, not implemented)
-Replaces Basic Auth with JWT-based login, an admin role for invites, and per-user data partitioning. Specced in [docs/superpowers/specs/2026-04-29-multi-user-auth-design.md](./docs/superpowers/specs/2026-04-29-multi-user-auth-design.md). To be implemented in a separate session.
+The Apache `.htpasswd-claudetracker` file remains on the VPS as an optional extra layer but the app no longer depends on it — removing it does not break anything.
 
 ---
 
@@ -265,14 +283,25 @@ PORT=3000                                       # 3001 on the VPS
 DATABASE_PATH=./database.sqlite                 # absolute path on VPS
 NODE_ENV=development                            # production on VPS
 CORS_ALLOWED_ORIGINS=https://wolfinisoftware.de # comma-separated extras
+
+# Auth (required on VPS; sensible defaults for local dev shown)
+VERIFY_BASE_URL=https://your-domain/claudetracker/auth/verify
+                                                # full URL the magic-link points to
+MAIL_FROM=Claude Usage Tracker <noreply@your-domain>
+                                                # From: address for magic-link emails
+SMTP_HOST=localhost                             # SMTP relay host (default: localhost)
+SMTP_PORT=25                                    # SMTP port (default: 25)
+COOKIE_PATH=/claudetracker/                     # cookie path; set to / for local dev
 ```
+
+> **Mail deliverability**: ensure the sender domain has valid SPF, DKIM, and DMARC records so magic-link emails are not rejected by recipients' mail providers.
 
 ### Frontend
 - `frontend/.env` (dev): `VITE_API_URL=http://localhost:3000`
 - `frontend/.env.production` (prod build): `VITE_API_URL=/claudetracker` so the bundle issues same-origin requests.
 
 ### Extension
-All connection settings live in `chrome.storage.local` and are configured through the popup's "⚙️ Verbindung" panel. No environment variables to bake in at build time. Reset removes both the URLs and any stored Basic-Auth credentials.
+All connection settings live in `chrome.storage.local` and are configured through the popup's "⚙️ Verbindung" panel. No environment variables to bake in at build time. Reset clears the stored Backend URL and API token.
 
 ---
 
@@ -284,7 +313,7 @@ All connection settings live in `chrome.storage.local` and are configured throug
 | Multiple nodemon zombies | `./status.sh` shows them; `./stop.sh` cleans them up. |
 | "No data" in dashboard | Trigger a sync manually from the extension popup or the service-worker console. Check `chrome://extensions` → service worker for errors. |
 | `sqlite3` GLIBC error on VPS | The pre-built binary needs glibc ≥ 2.38; on Rocky 9 run `npm rebuild sqlite3 --build-from-source` once. |
-| 401 on every API call | Extension popup → "⚙️ Verbindung" → enter the matching Basic-Auth credentials and Save. The extension does not share cookies with the browser; credentials must be set in the popup. |
+| 401 on every API call | Extension popup → "⚙️ Verbindung" → paste the API Token from Settings → API Token and Save. The extension authenticates with `Authorization: Bearer <token>`; it does not share cookies with the browser. |
 | Frontend shows port 3000 in error message | Stale build — re-run `npm run build` and Cmd+Shift+R in the browser to bust the bundle cache. |
 | Models tab shows 0,00 across the board | Expected. The three scrape sources don't carry per-message tokens; the per-key table below shows the real numbers. |
 | All-time spending only shows current month | The history-retention change keeps one snapshot per UTC day, so older months only appear once they actually have data. |
@@ -302,6 +331,20 @@ cd frontend && npm test
 ```
 
 Backend dev runtime uses `tsx` (no compile step in dev). Production: `npm run build && npm start` builds to `dist/` and serves the compiled output.
+
+---
+
+## 👥 Multi-User Architecture
+
+The hosted instance supports multiple independent users sharing a single deployment without any data leaking between them.
+
+| Concern | How it works |
+|---|---|
+| **Data isolation** | Every `usage_records` and `model_analysis` row carries a `user_id` foreign key. All queries in controllers are scoped to `req.user.id`; there is no admin view that reads another user's usage data. |
+| **Auth flow** | Passwordless magic-link. `POST /api/auth/request` → email with a single-use token → `GET /api/auth/verify?token=…` sets a 30-day rolling `cut_session` cookie. |
+| **API tokens** | One active token per user (enforced by a partial UNIQUE index). Generated and revoked from Settings → API Token. The extension sends `Authorization: Bearer <token>`. |
+| **Admin role** | The `is_admin` flag unlocks `/admin/*` routes for user management (list users, deactivate). Admins cannot read other users' usage data — the privacy boundary is at the controller layer, not just the route guard. |
+| **Database** | Single SQLite file; no separate schema per user. Additive migrations keep the schema forward-compatible. |
 
 ---
 
@@ -324,6 +367,6 @@ MIT — see [LICENSE](./LICENSE).
 
 ---
 
-**Last Updated**: April 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights)
+**Last Updated**: May 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights, multi-user magic-link auth)
 **Maintained by**: Harald Weiss
 **Repository**: [GitHub](https://github.com/haraldweiss/Claude-KI-Usage-Tracker)

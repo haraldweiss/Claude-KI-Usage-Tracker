@@ -13,7 +13,10 @@
     "https://claude.ai/*",
     "https://api.claude.ai/*",
     "https://console.anthropic.com/*",
-    "https://platform.claude.com/*"
+    "https://platform.claude.com/*",
+    "http://localhost:3000/*",
+    "http://localhost:3001/*",
+    "https://wolfinisoftware.de/*"
   ],
   "background": {
     "service_worker": "background.js"

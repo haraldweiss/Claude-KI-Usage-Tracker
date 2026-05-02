@@ -115,7 +115,9 @@ The scripts auto-detect when launched from a worktree and point the backend at t
    - **Hosted instance**: set Backend-API URL to `https://your-domain/claudetracker/api`, paste the **API Token** from Settings → API Token → "Speichern". The extension sends `Authorization: Bearer <token>` on every request; no Basic-Auth credentials are needed.
 
 ### 5. Trigger your first sync
-Log into claude.ai, console.anthropic.com, and platform.claude.com in regular browser tabs (so the extension can reuse your session). Then in the extension popup, click the sync button — or in the service-worker console:
+Log into claude.ai, console.anthropic.com, and platform.claude.com in regular browser tabs (so the extension can reuse your session). Then click **↻ Sync alle** in the popup — it runs all three sources sequentially (Claude.ai → Console → Claude Code), persists per-step progress to `chrome.storage.local`, and shows the result in a coloured status box (green = all OK, yellow = some skipped, red = error). The popup may close briefly when a hidden tab opens during scraping; re-open it and the latest status is still there.
+
+For ad-hoc runs from the service-worker console:
 ```javascript
 autoSync().then(console.log)         // claude.ai
 consoleSync().then(console.log)      // console.anthropic.com

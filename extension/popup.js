@@ -8,9 +8,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initSettings();
   loadStats();
 
-  // Sync from Claude button
+  // If a sync was launched in a previous popup-open and is still running
+  // (or just finished), surface it.
+  const { last_sync_all } = await chrome.storage.local.get('last_sync_all');
+  if (last_sync_all) {
+    renderLastSyncAll(last_sync_all);
+    if (last_sync_all.status === 'running') {
+      const syncBtn = document.getElementById('sync-btn');
+      syncBtn.disabled = true;
+      syncBtn.textContent = '⏳ Sync läuft…';
+      pollSyncAllProgress();
+    }
+  }
+
+  // Sync alle button — triggers Claude.ai, Anthropic Console, and Claude Code
   document.getElementById('sync-btn').addEventListener('click', () => {
-    syncFromClaude();
+    syncAll();
   });
 
   // Refresh button
@@ -176,33 +189,82 @@ function formatNumber(num) {
   return num.toString();
 }
 
-// Sync usage from Claude's official settings page.
-// Delegates to the background's auto-sync, which finds an open settings/usage
-// tab or opens a hidden one, scrapes, posts, and closes.
-async function syncFromClaude() {
+// Fire-and-forget: orchestration lives in background.js because the popup
+// closes as soon as the first hidden tab opens (which would kill any
+// sequential await loop here). The popup just hands off, then polls
+// chrome.storage.local for progress + final result.
+async function syncAll() {
   const syncBtn = document.getElementById('sync-btn');
-  const originalText = syncBtn.textContent;
-
-  syncBtn.textContent = '⏳ Syncing...';
   syncBtn.disabled = true;
+  syncBtn.textContent = '⏳ Sync läuft…';
+  renderSyncStatus('Sync gestartet — Fortschritt erscheint hier.', 'info');
 
-  chrome.runtime.sendMessage({ type: 'TRIGGER_AUTO_SYNC' }, (response) => {
-    syncBtn.textContent = originalText;
-    syncBtn.disabled = false;
+  chrome.runtime.sendMessage({ type: 'TRIGGER_SYNC_ALL' });
 
-    if (chrome.runtime.lastError) {
-      showError('❌ Sync failed: ' + chrome.runtime.lastError.message);
-      return;
+  // Poll storage. The popup may close mid-sync (when a hidden tab opens);
+  // when the user re-opens it, renderLastSyncAll() picks up where we left off.
+  pollSyncAllProgress();
+}
+
+async function pollSyncAllProgress() {
+  const syncBtn = document.getElementById('sync-btn');
+  const originalText = '↻ Sync alle';
+  for (let i = 0; i < 60; i++) {  // up to ~60s
+    const { last_sync_all } = await chrome.storage.local.get('last_sync_all');
+    if (last_sync_all) {
+      renderLastSyncAll(last_sync_all);
+      if (last_sync_all.status === 'done') {
+        syncBtn.disabled = false;
+        syncBtn.textContent = originalText;
+        setTimeout(loadStats, 800);
+        return;
+      }
     }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  syncBtn.disabled = false;
+  syncBtn.textContent = originalText;
+}
 
-    const result = response?.result;
-    if (response?.success && result?.success) {
-      showError('✅ Synced from Claude.', true);
-      setTimeout(loadStats, 800);
-    } else if (result?.skipped) {
-      showError('⚠️ Page had no usage figures to scrape. Try again in a moment.');
-    } else {
-      showError('❌ Sync failed: ' + (result?.error || response?.error || 'unknown error'));
-    }
+function renderLastSyncAll(state) {
+  if (!state) return;
+  const parts = (state.steps || []).map((s) => {
+    if (s.status === 'ok') return `✅ ${s.label}`;
+    if (s.status === 'skipped') return `⚠️ ${s.label}: ${s.message || 'nichts zu syncen'}`;
+    return `❌ ${s.label}: ${s.message || 'Fehler'}`;
   });
+  if (state.status === 'running') parts.push('⏳ läuft…');
+  if (parts.length === 0) return;
+  const allOk = state.status === 'done' && (state.steps || []).every((s) => s.status === 'ok');
+  const hasError = (state.steps || []).some((s) => s.status === 'error');
+  const tone = state.status === 'done'
+    ? (allOk ? 'success' : (hasError ? 'error' : 'warn'))
+    : 'info';
+  renderSyncStatus(parts.join(' · '), tone);
+}
+
+// Renders into the dedicated #sync-status container so it survives the
+// loadStats() refresh (which clears #error-container).
+function renderSyncStatus(message, tone) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const palette = {
+    success: { bg: '#efe', border: '#4c4', color: '#3a3' },
+    info:    { bg: '#eef',  border: '#88f', color: '#447' },
+    warn:    { bg: '#ffd',  border: '#dc4', color: '#864' },
+    error:   { bg: '#fee',  border: '#f44', color: '#c33' },
+  };
+  const c = palette[tone] || palette.info;
+  el.replaceChildren();
+  const div = document.createElement('div');
+  div.style.background = c.bg;
+  div.style.borderLeft = `4px solid ${c.border}`;
+  div.style.color = c.color;
+  div.style.padding = '10px 12px';
+  div.style.borderRadius = '4px';
+  div.style.fontSize = '11px';
+  div.style.marginBottom = '12px';
+  div.style.lineHeight = '1.4';
+  div.textContent = message;
+  el.appendChild(div);
 }

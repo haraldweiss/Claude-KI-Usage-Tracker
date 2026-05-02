@@ -102,7 +102,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (message.type === 'TRIGGER_SYNC_ALL') {
+    // Fire-and-forget: the popup will close as soon as the first hidden tab
+    // opens, so we orchestrate here and persist the result to storage. The
+    // popup reads `last_sync_all` next time it opens.
+    syncAll();
+    sendResponse({ success: true, started: true });
+    return false;
+  }
+
+  if (message.type === 'GET_LAST_SYNC_ALL') {
+    chrome.storage.local.get('last_sync_all').then((d) => sendResponse(d.last_sync_all || null));
+    return true;
+  }
 });
+
+async function syncAll() {
+  const startedAt = Date.now();
+  await chrome.storage.local.set({
+    last_sync_all: { status: 'running', startedAt, steps: [] }
+  });
+
+  const steps = [
+    { type: 'auto', label: 'Claude.ai', fn: autoSync },
+    { type: 'console', label: 'Console', fn: consoleSync },
+    { type: 'claude_code', label: 'Claude Code', fn: claudeCodeSync },
+  ];
+
+  const stepResults = [];
+  for (const step of steps) {
+    let outcome;
+    try {
+      const result = await step.fn();
+      if (result?.success) outcome = { label: step.label, status: 'ok' };
+      else if (result?.skipped) outcome = { label: step.label, status: 'skipped', message: result?.reason || 'nichts zu syncen' };
+      else outcome = { label: step.label, status: 'error', message: result?.error || 'unbekannt' };
+    } catch (err) {
+      outcome = { label: step.label, status: 'error', message: err?.message || String(err) };
+    }
+    stepResults.push(outcome);
+    await chrome.storage.local.set({
+      last_sync_all: { status: 'running', startedAt, steps: stepResults }
+    });
+  }
+
+  await chrome.storage.local.set({
+    last_sync_all: { status: 'done', startedAt, finishedAt: Date.now(), steps: stepResults }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Backend integration
@@ -438,75 +486,31 @@ async function consoleSync() {
       tabId = tab.id;
       createdTabId = tab.id;
       await waitForTabComplete(tab.id, 30000);
-      // The table is rendered after a short async hop; give it time.
-      await sleep(3000);
     }
 
-    const [injection] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        // Walk every table on the page and pick the one with a "Cost" column.
-        // Anthropic's UI uses a real <table> at the time of writing; if they
-        // ever switch to a virtualized list this needs updating.
-        const tables = Array.from(document.querySelectorAll('table'));
-        for (const table of tables) {
-          const headers = Array.from(table.querySelectorAll('thead th, thead td'))
-            .map((h) => h.textContent.trim().toLowerCase());
-          const costIdx = headers.findIndex((h) => h === 'cost');
-          if (costIdx === -1) continue;
+    // Poll the page for the keys table. The Console SPA hydrates async after
+    // navigation/load, and reused tabs may also be mid-render. We retry the
+    // scrape every 500 ms until either rows are returned or we hit a 30 s
+    // budget. Returns the scrape result of the last successful call.
+    const data = await pollForConsoleRows(tabId, 30000, 500);
 
-          const keyIdx = headers.findIndex((h) => h === 'key');
-          const workspaceIdx = headers.findIndex((h) => h === 'workspace');
-          const lastUsedIdx = headers.findIndex((h) => h === 'last used at' || h === 'last used');
-
-          const rows = Array.from(table.querySelectorAll('tbody tr'));
-          const out = [];
-
-          for (const row of rows) {
-            const cells = Array.from(row.querySelectorAll('td'));
-            if (cells.length === 0) continue;
-
-            const costRaw = (cells[costIdx]?.textContent || '').trim();
-            // Skip keys with no usage. Anthropic uses an em-dash placeholder.
-            if (!costRaw || costRaw === '—' || costRaw === '-' || costRaw === '0') continue;
-
-            // "0,52 USD" or "0.52 USD" or "$0.52" — normalize to a Number.
-            const numMatch = costRaw.match(/[\d.,]+/);
-            if (!numMatch) continue;
-            const cost_usd = parseFloat(numMatch[0].replace(',', '.'));
-            if (!isFinite(cost_usd) || cost_usd < 0) continue;
-
-            const keyCell = keyIdx >= 0 ? cells[keyIdx] : cells[0];
-            // The cell renders the friendly name and masked key on two
-            // visual lines, but textContent concatenates them without a
-            // separator. Split on the 'sk-ant-' prefix instead — everything
-            // before it is the name, everything from there is the masked key.
-            const keyText = (keyCell?.textContent || '').trim();
-            const skIdx = keyText.indexOf('sk-ant-');
-            const key_name = skIdx > 0 ? keyText.substring(0, skIdx).trim() : keyText.trim() || null;
-            const masked = skIdx >= 0 ? keyText.substring(skIdx).trim() : '';
-            const key_id_suffix = masked.length >= 4 ? masked.slice(-4) : null;
-
-            const workspace = workspaceIdx >= 0
-              ? (cells[workspaceIdx]?.textContent || '').trim().split('\n')[0].trim() || null
-              : null;
-            const last_used = lastUsedIdx >= 0
-              ? (cells[lastUsedIdx]?.textContent || '').trim() || null
-              : null;
-
-            out.push({ key_name, key_id_suffix, workspace, cost_usd, last_used });
-          }
-
-          return { rows: out };
-        }
-        return { rows: [] };
-      }
-    });
-
-    const data = injection?.result;
     if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
-      console.log('Console-sync: no usable rows scraped, skipping');
-      return { skipped: true, reason: 'no_rows' };
+      const diag = data || {};
+      let reason;
+      if (diag.tables_seen === 0) {
+        reason = 'keine Tabelle gefunden';
+      } else if (!diag.candidate_headers) {
+        const seen = (diag.all_headers || []).map((h) => `[${h.join(' | ')}]`).join(' / ');
+        reason = `keine Cost-Spalte. Headers: ${seen || '(leer)'}`;
+      } else if (diag.body_row_count === 0) {
+        reason = 'Tabelle leer (Zeilen rendern noch?)';
+      } else if (diag.rows_skipped_no_cost > 0) {
+        reason = `alle ${diag.body_row_count} Zeilen ohne Kosten. Beispiele: ${(diag.cost_samples || []).join(' | ')}`;
+      } else {
+        reason = 'unbekannt';
+      }
+      console.log('Console-sync skipped:', reason, diag);
+      return { skipped: true, reason };
     }
 
     // Post one record per key. The backend appends each one — diffing
@@ -546,6 +550,128 @@ async function consoleSync() {
       try { await chrome.tabs.remove(createdTabId); } catch {}
     }
   }
+}
+
+// Polls a tab for the Anthropic Console keys table. Retries the scrape
+// every `intervalMs` until rows are found or `budgetMs` elapses. The scrape
+// itself runs inside the page so we get the live DOM each attempt.
+async function pollForConsoleRows(tabId, budgetMs = 30000, intervalMs = 500) {
+  const deadline = Date.now() + budgetMs;
+  let lastResult = { rows: [], reason: 'never_ran' };
+
+  while (Date.now() < deadline) {
+    try {
+      const [injection] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: scrapeConsoleKeysTable
+      });
+      lastResult = injection?.result || lastResult;
+      if (lastResult && Array.isArray(lastResult.rows) && lastResult.rows.length > 0) {
+        return lastResult;
+      }
+    } catch (err) {
+      // Tab may not be ready for executeScript yet; just retry.
+      lastResult = { rows: [], reason: `inject_error: ${err?.message || err}` };
+    }
+    await sleep(intervalMs);
+  }
+  return lastResult;
+}
+
+// Inlined scrape function — kept top-level so executeScript can serialize it.
+// Returns rich diagnostic info alongside the rows so the caller can tell the
+// difference between "no table found", "found a table but no Cost column",
+// "table found but every row has — for cost", etc.
+function scrapeConsoleKeysTable() {
+  const diag = {
+    rows: [],
+    tables_seen: 0,
+    candidate_headers: null,
+    all_headers: [],
+    body_row_count: 0,
+    rows_skipped_no_cost: 0,
+    rows_skipped_other: 0,
+    cost_samples: [],
+  };
+
+  // Try real <table> first, then fall back to ARIA tables (div-based grids).
+  const realTables = Array.from(document.querySelectorAll('table'));
+  const ariaTables = Array.from(document.querySelectorAll('[role="table"]'));
+  const tables = realTables.length > 0 ? realTables : ariaTables;
+  diag.tables_seen = tables.length;
+
+  // Lenient match: lowercase + word-boundary contains. Handles "Cost",
+  // "Cost (USD)", "Cost ▲", "Cost  ⓘ", "MTD Cost", etc. Strict match for
+  // 'key' / 'workspace' would also fail with sort-indicator suffixes — same
+  // treatment.
+  const matchHeader = (headers, needle, opts = {}) => {
+    const re = opts.exact
+      ? new RegExp(`^${needle}\\b`)
+      : new RegExp(`\\b${needle}\\b`);
+    return headers.findIndex((h) => re.test(h));
+  };
+
+  for (const table of tables) {
+    // Real <table>: headers from thead. ARIA: role="columnheader".
+    const headerEls = realTables.length > 0
+      ? table.querySelectorAll('thead th, thead td')
+      : table.querySelectorAll('[role="columnheader"]');
+    const headers = Array.from(headerEls).map((h) => h.textContent.trim().toLowerCase());
+    diag.all_headers.push(headers);
+
+    const costIdx = matchHeader(headers, 'cost');
+    if (costIdx === -1) continue;
+    diag.candidate_headers = headers;
+
+    const keyIdx = matchHeader(headers, 'key');
+    const workspaceIdx = matchHeader(headers, 'workspace');
+    const lastUsedIdx = headers.findIndex((h) => /\blast used\b/.test(h));
+
+    const rows = realTables.length > 0
+      ? Array.from(table.querySelectorAll('tbody tr'))
+      : Array.from(table.querySelectorAll('[role="row"]')).filter(
+          (r) => !r.querySelector('[role="columnheader"]')
+        );
+    diag.body_row_count = rows.length;
+
+    for (const row of rows) {
+      const cells = realTables.length > 0
+        ? Array.from(row.querySelectorAll('td'))
+        : Array.from(row.querySelectorAll('[role="cell"], [role="gridcell"]'));
+      if (cells.length === 0) { diag.rows_skipped_other++; continue; }
+
+      const costRaw = (cells[costIdx]?.textContent || '').trim();
+      if (diag.cost_samples.length < 8) diag.cost_samples.push(costRaw);
+      if (!costRaw || costRaw === '—' || costRaw === '-' || costRaw === '0') {
+        diag.rows_skipped_no_cost++;
+        continue;
+      }
+
+      const numMatch = costRaw.match(/[\d.,]+/);
+      if (!numMatch) { diag.rows_skipped_no_cost++; continue; }
+      const cost_usd = parseFloat(numMatch[0].replace(',', '.'));
+      if (!isFinite(cost_usd) || cost_usd < 0) { diag.rows_skipped_other++; continue; }
+
+      const keyCell = keyIdx >= 0 ? cells[keyIdx] : cells[0];
+      const keyText = (keyCell?.textContent || '').trim();
+      const skIdx = keyText.indexOf('sk-ant-');
+      const key_name = skIdx > 0 ? keyText.substring(0, skIdx).trim() : keyText.trim() || null;
+      const masked = skIdx >= 0 ? keyText.substring(skIdx).trim() : '';
+      const key_id_suffix = masked.length >= 4 ? masked.slice(-4) : null;
+
+      const workspace = workspaceIdx >= 0
+        ? (cells[workspaceIdx]?.textContent || '').trim().split('\n')[0].trim() || null
+        : null;
+      const last_used = lastUsedIdx >= 0
+        ? (cells[lastUsedIdx]?.textContent || '').trim() || null
+        : null;
+
+      diag.rows.push({ key_name, key_id_suffix, workspace, cost_usd, last_used });
+    }
+
+    return diag;
+  }
+  return diag;
 }
 
 // ---------------------------------------------------------------------------

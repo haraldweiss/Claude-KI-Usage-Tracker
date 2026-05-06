@@ -875,29 +875,52 @@ function sleep(ms) {
 // them back up reliably).
 // ---------------------------------------------------------------------------
 
-function ensureAlarms() {
-  chrome.alarms.create(AUTO_SYNC_ALARM, {
-    delayInMinutes: 1,
-    periodInMinutes: AUTO_SYNC_INTERVAL_MIN
-  });
-  chrome.alarms.create(CONSOLE_SYNC_ALARM, {
+// Idempotent: only creates alarms that don't already exist. Safe to call on
+// every service-worker wakeup — existing alarms keep their schedule instead
+// of being reset, so the period actually elapses and the alarm fires.
+async function ensureAlarms() {
+  const existing = await chrome.alarms.getAll();
+  const have = new Set(existing.map((a) => a.name));
+
+  if (!have.has(AUTO_SYNC_ALARM)) {
+    chrome.alarms.create(AUTO_SYNC_ALARM, {
+      delayInMinutes: 1,
+      periodInMinutes: AUTO_SYNC_INTERVAL_MIN
+    });
+  }
+  if (!have.has(CONSOLE_SYNC_ALARM)) {
     // Run once a few minutes after startup so we have at least one snapshot
     // even on fresh installs, then settle into the daily cadence.
-    delayInMinutes: 3,
-    periodInMinutes: CONSOLE_SYNC_INTERVAL_MIN
-  });
-  chrome.alarms.create(CLAUDE_CODE_SYNC_ALARM, {
+    chrome.alarms.create(CONSOLE_SYNC_ALARM, {
+      delayInMinutes: 3,
+      periodInMinutes: CONSOLE_SYNC_INTERVAL_MIN
+    });
+  }
+  if (!have.has(CLAUDE_CODE_SYNC_ALARM)) {
     // Stagger the second daily scrape by a few minutes so we don't open
     // two background tabs in the same second on cold start.
-    delayInMinutes: 5,
-    periodInMinutes: CLAUDE_CODE_SYNC_INTERVAL_MIN
-  });
-  chrome.alarms.create('retry-queue', { delayInMinutes: 1, periodInMinutes: 5 });
-  chrome.alarms.create('refresh-badge', { delayInMinutes: 1, periodInMinutes: 3 });
+    chrome.alarms.create(CLAUDE_CODE_SYNC_ALARM, {
+      delayInMinutes: 5,
+      periodInMinutes: CLAUDE_CODE_SYNC_INTERVAL_MIN
+    });
+  }
+  if (!have.has('retry-queue')) {
+    chrome.alarms.create('retry-queue', { delayInMinutes: 1, periodInMinutes: 5 });
+  }
+  if (!have.has('refresh-badge')) {
+    chrome.alarms.create('refresh-badge', { delayInMinutes: 1, periodInMinutes: 3 });
+  }
 }
 
 chrome.runtime.onInstalled.addListener(ensureAlarms);
 chrome.runtime.onStartup.addListener(ensureAlarms);
+
+// Defensive: also re-register on every service-worker wakeup. If Chrome ever
+// loses the alarms (rare MV3 edge case observed in the wild), neither
+// onInstalled nor onStartup will fire to restore them — the SW just sits
+// there with no schedule. Calling ensureAlarms() at top level closes that
+// hole; the getAll() check inside keeps it idempotent.
+ensureAlarms();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AUTO_SYNC_ALARM) {

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 // Default endpoints — used on a fresh install and when the user clicks
 // "Zurücksetzen". Overrides live in chrome.storage.local under the same keys.
 const DEFAULT_API_BASE = 'http://localhost:3000/api';

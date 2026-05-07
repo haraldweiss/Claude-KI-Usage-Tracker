@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import cron from 'node-cron';
 import { initDatabase, closeDatabase, runQuery } from './database/sqlite.js';
 import {

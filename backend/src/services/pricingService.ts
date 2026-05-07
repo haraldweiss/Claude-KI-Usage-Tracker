@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import { getQuery, allQuery, runQuery } from '../database/sqlite.js';
 import { fetchLiteLLMPricing, type UpstreamModel } from './litellmPricingSource.js';
 import { decideUpdateAction } from './pricingUpdatePolicy.js';

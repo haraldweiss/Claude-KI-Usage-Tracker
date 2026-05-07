@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 // Default API base for a fresh install. Users running the backend on a VPS
 // override this from the popup via chrome.storage.local.api_base. Every
 // fetch resolves the URL fresh so a settings change takes effect on the

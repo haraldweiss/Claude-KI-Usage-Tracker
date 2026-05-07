@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © 2026 Harald Weiss
 
 # Claude Usage Tracker - Simple Sequential Startup
 # Runs backend and frontend in the same terminal

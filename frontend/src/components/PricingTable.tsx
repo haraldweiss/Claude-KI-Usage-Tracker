@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import React, { useState } from 'react';
 import { updatePricing, confirmPricing } from '../services/api';
 import { PricingTableProps } from '../types/components';

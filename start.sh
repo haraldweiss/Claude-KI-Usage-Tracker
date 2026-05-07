@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © 2026 Harald Weiss
 # Claude Usage Tracker - Start backend (port 3000) and frontend (port 5173).
 #
 # Idempotent: if anything is already listening on either port, it's stopped

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
 import { getApiToken, rotateApiToken, revokeApiToken } from '../../services/api';
 import type { ApiTokenInfo } from '../../types/api';

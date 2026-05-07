@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © 2026 Harald Weiss
 # Claude Usage Tracker - Show whether backend and frontend are running.
 # Also surfaces:
 # - The working directory of the listening process (so you can tell whether

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import * as db from '../database/sqlite.js';
 import type { TaskComplexity, SafetyScore, ModelAnalyticsRefreshResult } from '../types/index.js';
 

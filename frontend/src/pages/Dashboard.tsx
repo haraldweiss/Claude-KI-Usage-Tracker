@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import React, { useState, useEffect } from 'react';
 import { getModelBreakdown } from '../services/api';
 import DashboardTabs from '../components/DashboardTabs';

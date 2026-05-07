@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 /**
  * API Response Type Definitions
  * Defines all TypeScript types for API responses and data structures

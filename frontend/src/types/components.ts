@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 /**
  * React Component Props Type Definitions
  * Defines TypeScript interfaces for all component props

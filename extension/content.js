@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 // Claude Usage Tracker - Content Script
 // Provides DOM scraping for the manual / automatic sync flow.
 // (Per-message tracking via fetch interception was removed: Claude.ai's web UI

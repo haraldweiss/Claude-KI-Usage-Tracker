@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 /**
  * API Request/Response Type Definitions
  * Defines all request bodies and response shapes for the Claude Usage Tracker API

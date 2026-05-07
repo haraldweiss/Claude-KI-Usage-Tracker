@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { getCurrentUser, logout as apiLogout } from '../services/api';
 import type { CurrentUser } from '../types/api';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
 import { adminStats } from '../../services/api';
 import type { AdminStats } from '../../types/api';

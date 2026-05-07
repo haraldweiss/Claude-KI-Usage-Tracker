@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 // Set DATABASE_PATH BEFORE importing anything that touches sqlite.ts.
 process.env.DATABASE_PATH = ':memory:';
 

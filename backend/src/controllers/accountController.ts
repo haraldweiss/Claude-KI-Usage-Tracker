@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import type { Request, Response } from 'express';
 import { runQuery, getQuery } from '../database/sqlite.js';
 import { createApiToken, getActiveApiToken, revokeApiToken } from '../services/authService.js';

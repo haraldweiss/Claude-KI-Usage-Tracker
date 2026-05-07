@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import { describe, it, expect } from '@jest/globals';
 import { decideUpdateAction, type CurrentRow } from '../../services/pricingUpdatePolicy.js';
 

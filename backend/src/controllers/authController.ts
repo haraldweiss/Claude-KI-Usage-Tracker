@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import type { Request, Response } from 'express';
 import { createMagicLinkToken, consumeMagicLinkToken, createSession, deleteSession, getSessionUser, touchSession } from '../services/authService.js';
 import { sendMagicLinkMail } from '../services/mailService.js';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 /**
  * End-to-end HTTP integration tests for the pricing flow:
  *   - POST /api/usage/track with a known display name → existing pricing used

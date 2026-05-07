@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © 2026 Harald Weiss
 # Claude Usage Tracker - Stop both backend and frontend dev servers.
 #
 # Identifies running services by their listening ports (3000 backend, 5173

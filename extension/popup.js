@@ -7,6 +7,7 @@ const DEFAULT_DASHBOARD_URL = 'http://localhost:5173';
 document.addEventListener('DOMContentLoaded', async () => {
   await initSettings();
   loadStats();
+  renderSyncInfo();
 
   // If a sync was launched in a previous popup-open and is still running
   // (or just finished), surface it.
@@ -217,6 +218,7 @@ async function pollSyncAllProgress() {
         syncBtn.disabled = false;
         syncBtn.textContent = originalText;
         setTimeout(loadStats, 800);
+        renderSyncInfo();
         return;
       }
     }
@@ -224,6 +226,86 @@ async function pollSyncAllProgress() {
   }
   syncBtn.disabled = false;
   syncBtn.textContent = originalText;
+}
+
+// Format a relative timespan in German, picking the largest reasonable unit.
+function formatRelativeDe(deltaMs) {
+  const sec = Math.max(0, Math.round(deltaMs / 1000));
+  if (sec < 60) return 'gerade eben';
+  const min = Math.round(sec / 60);
+  if (min < 60) return `vor ${min} Min`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `vor ${hr} Std`;
+  const day = Math.round(hr / 24);
+  return `vor ${day} Tag${day === 1 ? '' : 'en'}`;
+}
+
+// Format an absolute timestamp: time-only if today, date+time otherwise.
+function formatAbsoluteDe(ts) {
+  const d = new Date(ts);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  if (sameDay) {
+    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+  return d.toLocaleString('de-DE', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+}
+
+// Two-line readout: when the auto-sync last fired, and when its scraped
+// values last actually changed. Helps the user notice silent staleness
+// (sync keeps succeeding, but the numbers haven't moved in hours).
+async function renderSyncInfo() {
+  const el = document.getElementById('sync-info');
+  if (!el) return;
+
+  const {
+    last_auto_sync,
+    last_auto_sync_change_at
+  } = await chrome.storage.local.get(['last_auto_sync', 'last_auto_sync_change_at']);
+
+  if (!last_auto_sync) {
+    el.style.display = 'none';
+    return;
+  }
+
+  const now = Date.now();
+  const syncAgo = formatRelativeDe(now - last_auto_sync);
+  const syncAt = formatAbsoluteDe(last_auto_sync);
+
+  el.replaceChildren();
+
+  const row1 = document.createElement('div');
+  row1.className = 'sync-info-row';
+  const lbl1 = document.createElement('span');
+  lbl1.className = 'sync-info-label';
+  lbl1.textContent = 'Letzter Sync';
+  const val1 = document.createElement('span');
+  val1.className = 'sync-info-value';
+  val1.textContent = `${syncAt} (${syncAgo})`;
+  row1.append(lbl1, val1);
+  el.appendChild(row1);
+
+  if (last_auto_sync_change_at) {
+    const sinceChange = now - last_auto_sync_change_at;
+    const changedNow = sinceChange < 60_000;  // within last minute → "soeben"
+    const row2 = document.createElement('div');
+    row2.className = 'sync-info-row';
+    const lbl2 = document.createElement('span');
+    lbl2.className = 'sync-info-label';
+    lbl2.textContent = changedNow ? 'Werte aktualisiert' : 'Werte unverändert seit';
+    const val2 = document.createElement('span');
+    val2.className = 'sync-info-value';
+    // Mark stale (orange) if values haven't moved in over an hour.
+    if (sinceChange > 60 * 60_000) val2.classList.add('stale');
+    val2.textContent = changedNow
+      ? 'soeben'
+      : `${formatAbsoluteDe(last_auto_sync_change_at)} (${formatRelativeDe(sinceChange)})`;
+    row2.append(lbl2, val2);
+    el.appendChild(row2);
+  }
+
+  el.style.display = 'block';
 }
 
 function renderLastSyncAll(state) {

@@ -273,6 +273,21 @@ async function retryQueuedData() {
 // existing usage tab or open a hidden one, scrape, post, and close it.
 // ---------------------------------------------------------------------------
 
+// Stable string of the headline figures, used to detect whether values
+// actually changed between two syncs. scraped_at is excluded on purpose —
+// it changes every run and would mask a no-op data plateau.
+const AUTO_SYNC_SIGNATURE_FIELDS = [
+  'weekly_all_models_pct',
+  'weekly_sonnet_pct',
+  'session_pct',
+  'spent_eur',
+  'spent_pct',
+  'balance_eur'
+];
+function autoSyncSignature(d) {
+  return AUTO_SYNC_SIGNATURE_FIELDS.map((f) => `${f}=${d?.[f] ?? ''}`).join('|');
+}
+
 async function autoSync() {
   let createdTabId = null;
 
@@ -449,7 +464,24 @@ async function autoSync() {
       throw new Error('Backend rejected sync: ' + backendResponse.status);
     }
 
-    await chrome.storage.local.set({ last_auto_sync: Date.now() });
+    // Track value-change history alongside the sync timestamp. The popup
+    // surfaces "Werte unverändert seit X" so the user can spot the case
+    // where the sync itself keeps succeeding but the scraped figures have
+    // plateaued (e.g. claude.ai's settings page is cached and the numbers
+    // haven't refreshed in hours).
+    const sig = autoSyncSignature(data);
+    const prev = await chrome.storage.local.get([
+      'last_auto_sync_signature',
+      'last_auto_sync_change_at'
+    ]);
+    const now = Date.now();
+    const changed = prev.last_auto_sync_signature !== sig;
+    await chrome.storage.local.set({
+      last_auto_sync: now,
+      last_auto_sync_signature: sig,
+      last_auto_sync_change_at: changed ? now : (prev.last_auto_sync_change_at || now),
+      last_auto_sync_data: data
+    });
     updateBadge();
     console.log('Auto-sync ok:', data);
     return { success: true, data };

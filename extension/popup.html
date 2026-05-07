@@ -71,6 +71,35 @@
       color: #667eea;
     }
 
+    .sync-info {
+      background: rgba(255, 255, 255, 0.92);
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      color: #555;
+      line-height: 1.5;
+    }
+
+    .sync-info .sync-info-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .sync-info .sync-info-label {
+      color: #888;
+    }
+
+    .sync-info .sync-info-value {
+      color: #333;
+      font-weight: 600;
+    }
+
+    .sync-info .sync-info-value.stale {
+      color: #c63;
+    }
+
     .actions {
       display: flex;
       gap: 8px;
@@ -225,6 +254,8 @@
           <span class="stat-value" id="session-pct">-</span>
         </div>
       </div>
+
+      <div id="sync-info" class="sync-info" style="display: none;"></div>
 
       <div class="actions">
         <button class="btn-primary" id="sync-btn" title="Claude.ai + Anthropic Console + Claude Code">↻ Sync alle</button>

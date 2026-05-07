@@ -372,3 +372,17 @@ MIT — see [LICENSE](./LICENSE).
 **Last Updated**: May 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights, multi-user magic-link auth)
 **Maintained by**: Harald Weiss
 **Repository**: [GitHub](https://github.com/haraldweiss/Claude-KI-Usage-Tracker)
+
+## Mitwirken
+
+Pull-Requests sind willkommen. Bitte einmal kurz [`CONTRIBUTING.md`](CONTRIBUTING.md)
+lesen — wir nutzen das Developer Certificate of Origin (DCO), Commits müssen
+also mit `git commit -s` signiert werden.
+
+## Lizenz
+
+Veröffentlicht unter der [GNU AGPL v3.0](LICENSE) — © 2026 Harald Weiss.
+
+Die AGPL stellt sicher, dass auch netzbasierte Bereitstellungen den Quellcode
+ihrer Modifikationen weitergeben müssen. Ideen und Konzepte sind durch keine
+Lizenz schützbar.

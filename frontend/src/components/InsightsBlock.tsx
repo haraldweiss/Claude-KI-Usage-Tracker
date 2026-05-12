@@ -31,17 +31,23 @@ function formatUsd(value: number): string {
   }).format(value);
 }
 
-// Confidence tiers for progressive recommendations
+// Confidence tiers gate insight visibility by tracking duration.
+// Days 3-6: preliminary insights with basic trends
+// Days 7-13: actionable insights suitable for plan decisions
+// Days 14+: confident insights without disclaimers for extrapolation
 export const INSIGHT_CONFIDENCE_TIERS = {
-  early: 3,      // Day 3+: Basic trend insights
-  actionable: 7, // Day 7+: Plan recommendations (preliminary)
-  confident: 14  // Day 14+: Full analysis, no disclaimers
+  early: 3,      // First pattern visible, basic trend detected
+  actionable: 7, // Full week captures weekly variations, safe for preliminary recommendations
+  confident: 14  // Two weeks smooth anomalies, stable for extrapolation
 } as const;
 
 export type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
 
 /** Determine the confidence level for an insight based on days of tracking data.
- * Thresholds: early (3+), actionable (7+), confident (14+) */
+ * Thresholds: early (3+), actionable (7+), confident (14+)
+ * @param daysTracked - Non-negative integer of days since tracking started
+ * @returns The confidence level ('early', 'actionable', or 'confident')
+ * @throws Error if daysTracked is not a non-negative integer */
 export function getConfidenceLevel(daysTracked: number): ConfidenceLevel {
   if (!Number.isFinite(daysTracked) || daysTracked < 0 || !Number.isInteger(daysTracked)) {
     throw new Error(`Invalid daysTracked value: ${daysTracked}. Must be a non-negative integer.`);
@@ -331,7 +337,6 @@ export default function InsightsBlock(): React.ReactElement {
             since.setDate(since.getDate() - days);
             const mockAllTime = { ...total, since: since.toISOString().slice(0, 10) };
             setAllTime(mockAllTime);
-            console.log(`[TEST MODE] Overriding daysTracked to ${days} days (since: ${mockAllTime.since})`);
           }
         } else {
           setAllTime(total);

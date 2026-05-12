@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import { describe, it, expect } from 'vitest';
-import { getConfidenceLevel, INSIGHT_CONFIDENCE_TIERS, type ConfidenceLevel } from '../InsightsBlock';
+import { getConfidenceLevel } from '../InsightsBlock';
 
 describe('getConfidenceLevel', () => {
   describe('returns "early" for days 0-6', () => {

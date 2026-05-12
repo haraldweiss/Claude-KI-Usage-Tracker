@@ -119,7 +119,9 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     }
     if (!user) throw new Error('user creation failed');
     const sid = await createSession(user.id, req.headers['user-agent'] || null, req.ip || null);
+    console.log(`[auth] created session ${sid} for user ${user.id} (${user.email})`);
     res.cookie(SESSION_COOKIE_NAME, sid, COOKIE_OPTS);
+    console.log(`[auth] set cookie "${SESSION_COOKIE_NAME}=${sid}" with path="${COOKIE_PATH}", httpOnly=${COOKIE_OPTS.httpOnly}, secure=${COOKIE_OPTS.secure}, sameSite=${COOKIE_OPTS.sameSite}`);
     // Return HTML that redirects and loads the app — ensures session cookie is sent
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!DOCTYPE html><html><head>
@@ -147,9 +149,11 @@ export async function logout(req: Request, res: Response): Promise<void> {
 
 export async function whoami(req: Request, res: Response): Promise<void> {
   const sid = req.cookies?.[SESSION_COOKIE_NAME];
-  if (!sid) { res.status(401).json({ error: 'no session' }); return; }
+  console.log(`[auth/me] SESSION_COOKIE_NAME="${SESSION_COOKIE_NAME}", sid="${sid}", cookies=${JSON.stringify(req.cookies)}`);
+  if (!sid) { console.log(`[auth/me] no session cookie found`); res.status(401).json({ error: 'no session' }); return; }
   const user = await getSessionUser(sid);
-  if (!user) { res.status(401).json({ error: 'invalid session' }); return; }
+  if (!user) { console.log(`[auth/me] session ${sid} not found in database`); res.status(401).json({ error: 'invalid session' }); return; }
+  console.log(`[auth/me] session ${sid} authenticated as user ${user.id}`);
   await touchSession(sid);   // roll expiry on /me too, matching requireUser middleware
   res.json({ id: user.id, email: user.email, display_name: user.display_name,
              plan_name: user.plan_name, monthly_limit_eur: user.monthly_limit_eur,

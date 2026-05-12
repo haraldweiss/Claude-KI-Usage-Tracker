@@ -31,11 +31,21 @@ function formatUsd(value: number): string {
   }).format(value);
 }
 
+// Confidence tiers for progressive recommendations
+const INSIGHT_CONFIDENCE_TIERS = {
+  early: 3,      // Day 3+: Basic trend insights
+  actionable: 7, // Day 7+: Plan recommendations (preliminary)
+  confident: 14  // Day 14+: Full analysis, no disclaimers
+} as const;
+
+type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
+
 interface Insight {
   level: 'info' | 'good' | 'warn' | 'alert';
   title: string;
   body: string;
   action?: string;
+  confidence?: ConfidenceLevel;
 }
 
 const LEVEL_STYLES: Record<Insight['level'], string> = {
@@ -82,15 +92,6 @@ function priorCycleDailyRate(allTime: SpendingTotal | null): number | null {
   const cycleLen = Math.max(1, Math.round((refEnd - prevEnd) / 86_400_000));
   return prevCycle.additional_eur / cycleLen;
 }
-
-// Confidence tiers for progressive recommendations
-const INSIGHT_CONFIDENCE_TIERS = {
-  early: 3,      // Day 3+: Basic trend insights
-  actionable: 7, // Day 7+: Plan recommendations (preliminary)
-  confident: 14  // Day 14+: Full analysis, no disclaimers
-} as const;
-
-type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
 
 const MIN_DAYS_FOR_PLAN_ADVICE = INSIGHT_CONFIDENCE_TIERS.confident; // Keep for backward compat, remove in future
 const MIN_DAYS_FOR_FORECAST = 3; // Keep for backward compat, remove in future
@@ -340,7 +341,14 @@ export default function InsightsBlock(): React.ReactElement {
           <div className="flex items-start gap-3">
             <span className="text-xl leading-none">{LEVEL_ICON[ins.level]}</span>
             <div className="flex-1">
-              <h3 className="font-semibold">{ins.title}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold">{ins.title}</h3>
+                {ins.confidence && ins.confidence !== 'confident' && (
+                  <span className="inline-block px-2 py-0.5 bg-gray-200 text-gray-700 text-xs rounded whitespace-nowrap">
+                    🔄 {ins.confidence === 'early' ? 'Preliminary (3+ days)' : 'Preliminary (7+ days)'}
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-sm">{ins.body}</p>
               {ins.action && (
                 <p className="mt-2 text-sm font-medium">→ {ins.action}</p>

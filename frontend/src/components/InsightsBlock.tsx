@@ -32,13 +32,13 @@ function formatUsd(value: number): string {
 }
 
 // Confidence tiers for progressive recommendations
-const INSIGHT_CONFIDENCE_TIERS = {
+export const INSIGHT_CONFIDENCE_TIERS = {
   early: 3,      // Day 3+: Basic trend insights
   actionable: 7, // Day 7+: Plan recommendations (preliminary)
   confident: 14  // Day 14+: Full analysis, no disclaimers
 } as const;
 
-type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
+export type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
 
 /** Determine the confidence level for an insight based on days of tracking data.
  * Thresholds: early (3+), actionable (7+), confident (14+) */

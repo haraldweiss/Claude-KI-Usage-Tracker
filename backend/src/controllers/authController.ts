@@ -120,7 +120,15 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     if (!user) throw new Error('user creation failed');
     const sid = await createSession(user.id, req.headers['user-agent'] || null, req.ip || null);
     res.cookie(SESSION_COOKIE_NAME, sid, COOKIE_OPTS);
-    res.redirect('/claudetracker/');
+    // Return HTML that redirects and loads the app — ensures session cookie is sent
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html><head>
+    <meta charset="utf-8">
+    <title>Anmeldung erfolgreich</title>
+    <script>window.location.href = '/claudetracker/';</script>
+    </head><body>
+    Weitergeleitet zu <a href="/claudetracker/">Claude Usage Tracker</a>...
+    </body></html>`);
   } catch (err) {
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(
       `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center">

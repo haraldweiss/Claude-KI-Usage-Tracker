@@ -125,6 +125,7 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     console.log(`[auth] created session ${sid} for user ${user.id} (${user.email})`);
     res.cookie(SESSION_COOKIE_NAME, sid, COOKIE_OPTS);
     console.log(`[auth] set cookie "${SESSION_COOKIE_NAME}=${sid}" with path="${COOKIE_PATH}", httpOnly=${COOKIE_OPTS.httpOnly}, secure=${COOKIE_OPTS.secure}, sameSite=${COOKIE_OPTS.sameSite}`);
+    console.log(`[auth] response headers: ${JSON.stringify(res.getHeaders())}`);
     // Return HTML that redirects and loads the app — ensures session cookie is sent
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!DOCTYPE html><html><head>

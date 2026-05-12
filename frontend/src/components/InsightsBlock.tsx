@@ -320,7 +320,22 @@ export default function InsightsBlock(): React.ReactElement {
         ]);
         if (cancelled) return;
         setCombined(summary.combined ?? null);
-        setAllTime(total);
+        // TEST MODE: Allow overriding daysTracked via URL parameter for manual testing
+        const params = new URLSearchParams(window.location.search);
+        const testDaysTracked = params.get('testDaysTracked');
+        if (testDaysTracked) {
+          const days = parseInt(testDaysTracked, 10);
+          if (!isNaN(days) && days >= 0) {
+            // Create a mock allTime object with a since date that results in the test days value
+            const since = new Date();
+            since.setDate(since.getDate() - days);
+            const mockAllTime = { ...total, since: since.toISOString().slice(0, 10) };
+            setAllTime(mockAllTime);
+            console.log(`[TEST MODE] Overriding daysTracked to ${days} days (since: ${mockAllTime.since})`);
+          }
+        } else {
+          setAllTime(total);
+        }
         setPlans(planRes.plans);
         setKeys(keyRes.keys);
         setError(null);

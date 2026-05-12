@@ -47,7 +47,10 @@ function buildCorsOptions(): cors.CorsOptions {
       if (baseAllow.has(origin)) return callback(null, true);
       return callback(new Error(`CORS: origin ${origin} not allowed`));
     },
-    credentials: false
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    maxAge: 86400
   };
 }
 
@@ -63,7 +66,24 @@ export function createApp(): Express {
   // always the loopback and per-IP rate limits become per-server limits.
   app.set('trust proxy', 'loopback');
 
-  app.use(cors(buildCorsOptions()));
+  // Manual CORS middleware to ensure credentials header is set
+  app.use((req: Request, res: Response, next) => {
+    const origin = req.get('origin');
+    if (!origin || origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173' || origin.startsWith('chrome-extension://')) {
+      res.set('Access-Control-Allow-Origin', origin || '*');
+      res.set('Access-Control-Allow-Credentials', 'true');
+      res.set('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+      res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+      res.set('Access-Control-Max-Age', '86400');
+    }
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
+  // Don't use cors middleware — use manual headers above instead
+  // app.use(cors(buildCorsOptions()));
   app.use(cookieParser());
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: true }));

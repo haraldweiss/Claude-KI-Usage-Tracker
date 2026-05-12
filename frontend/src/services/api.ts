@@ -27,14 +27,16 @@ const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api
 
 /**
  * Central fetch helper.
- * - Always sends cookies (credentials: 'include')
+ * - Sends cookies for non-auth requests (credentials: 'include')
+ * - Auth requests don't send credentials (credentials: 'omit')
  * - Redirects to /login on 401, unless the request itself is an /auth/ call
  *   (those handle their own auth flow and must not loop)
  */
 async function apiCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const isAuthRequest = path.startsWith('/auth/');
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    credentials: 'include',
+    credentials: isAuthRequest ? 'omit' : 'include',
     headers: { 'Content-Type': 'application/json', ...(init.headers || {}) }
   });
   if (res.status === 401 && !path.startsWith('/auth/')) {

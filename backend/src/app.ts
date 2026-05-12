@@ -27,14 +27,24 @@ export function createApp(): Express {
 
   // Manual CORS middleware to allow credentials from dev & extension origins
   app.use((req: Request, res: Response, next): void => {
-    const origin = req.get('origin');
-    if (!origin || origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173' || origin.startsWith('chrome-extension://')) {
-      res.set('Access-Control-Allow-Origin', origin || '*');
+    const origin = req.get('origin') || '';
+    const knownOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+    const isKnownOrigin = knownOrigins.includes(origin) || origin.startsWith('chrome-extension://');
+
+    if (isKnownOrigin) {
+      // Known origin: allow credentials
+      res.set('Access-Control-Allow-Origin', origin);
       res.set('Access-Control-Allow-Credentials', 'true');
-      res.set('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-      res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-      res.set('Access-Control-Max-Age', '86400');
+    } else if (!origin) {
+      // No origin header (form submissions, same-origin requests): allow all without credentials
+      res.set('Access-Control-Allow-Origin', '*');
     }
+    // Unknown origin: don't set CORS headers at all (deny cross-origin access)
+
+    res.set('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.set('Access-Control-Max-Age', '86400');
+
     if (req.method === 'OPTIONS') {
       return void res.sendStatus(204);
     }

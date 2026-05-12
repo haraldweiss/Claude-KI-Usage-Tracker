@@ -40,6 +40,21 @@ const INSIGHT_CONFIDENCE_TIERS = {
 
 type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
 
+/** Determine the confidence level for an insight based on days of tracking data.
+ * Thresholds: early (3+), actionable (7+), confident (14+) */
+export function getConfidenceLevel(daysTracked: number): ConfidenceLevel {
+  if (!Number.isFinite(daysTracked) || daysTracked < 0 || !Number.isInteger(daysTracked)) {
+    throw new Error(`Invalid daysTracked value: ${daysTracked}. Must be a non-negative integer.`);
+  }
+  if (daysTracked >= INSIGHT_CONFIDENCE_TIERS.confident) {
+    return 'confident';
+  }
+  if (daysTracked >= INSIGHT_CONFIDENCE_TIERS.actionable) {
+    return 'actionable';
+  }
+  return 'early';
+}
+
 interface Insight {
   level: 'info' | 'good' | 'warn' | 'alert';
   title: string;

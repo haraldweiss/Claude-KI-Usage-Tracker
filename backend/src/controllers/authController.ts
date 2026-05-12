@@ -12,9 +12,9 @@ import type { User } from '../types/index.js';
 // SPA route which would just bounce to /login without consuming the token.
 const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.de/claudetracker/api/auth/verify';
 
-// NIT N4: cookie path comes from env so dev (localhost) can use '/' while
-// production uses '/claudetracker/'. Set COOKIE_PATH=/ in .env for local dev.
-const COOKIE_PATH = process.env.COOKIE_PATH || '/claudetracker/';
+// Cookie path must be '/' because frontend calls /api/* at root, not /claudetracker/api/*
+// The Apache proxy routes both paths to the same backend
+const COOKIE_PATH = process.env.COOKIE_PATH || '/';
 const COOKIE_OPTS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',

@@ -2,6 +2,7 @@
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
 import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
+import { formatResetDateDisplay } from '../utils/resetDateDisplay';
 import { CombinedSpendBreakdown, PlanPricingRow, SpendingTotal } from '../types/api';
 
 function formatEur(value: number): string {
@@ -165,15 +166,22 @@ export default function OverviewTab(): React.ReactElement {
     <div className="space-y-6 py-6">
       {/* Hero */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
-          Diesen Monat
-        </h2>
-        <div className="mt-2">
-          <span className="text-3xl font-bold text-gray-900">{formatEur(grandTotalEur)}</span>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
+              Diesen Monat
+            </h2>
+            <div className="mt-2">
+              <span className="text-3xl font-bold text-gray-900">{formatEur(grandTotalEur)}</span>
+            </div>
+            <p className="mt-1 text-sm text-gray-500">
+              claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
+            </p>
+          </div>
+          <div className="text-sm text-gray-500 sm:text-right">
+            {formatResetDateDisplay(meta?.reset_date, claudeAi?.last_synced ?? new Date().toISOString())}
+          </div>
         </div>
-        <p className="mt-1 text-sm text-gray-500">
-          claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
-        </p>
       </div>
 
       {/* Status row: 3 cards */}

@@ -2,7 +2,6 @@
 // © 2026 Harald Weiss
 import express from 'express';
 import type { Express, Request, Response } from 'express';
-import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import bodyParser from 'body-parser';
 import usageRoutes from './routes/usage.js';
@@ -13,46 +12,6 @@ import accountRouter from './routes/account.js';
 import adminRouter from './routes/admin.js';
 import errorHandler from './middleware/errorHandler.js';
 
-/**
- * Allowed CORS origins. Includes:
- *   - the local Vite dev server (port 5173)
- *   - any chrome-extension:// origin (the tracker extension calls in from
- *     the browser background, where the origin header is the extension id)
- *   - the production VPS subpath (whole-site CORS, the path doesn't matter
- *     to CORS — only the origin)
- *   - extra origins from CORS_ALLOWED_ORIGINS env var (comma-separated)
- *     for ad-hoc deploys.
- *
- * Same-origin requests (frontend served from the same Apache vhost) don't
- * trigger CORS at all.
- */
-function buildCorsOptions(): cors.CorsOptions {
-  const fromEnv = (process.env.CORS_ALLOWED_ORIGINS || '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
-
-  const baseAllow = new Set<string>([
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'https://wolfinisoftware.de',
-    ...fromEnv
-  ]);
-
-  return {
-    origin(origin, callback) {
-      // No origin = same-origin / curl / server-to-server. Always allow.
-      if (!origin) return callback(null, true);
-      if (origin.startsWith('chrome-extension://')) return callback(null, true);
-      if (baseAllow.has(origin)) return callback(null, true);
-      return callback(new Error(`CORS: origin ${origin} not allowed`));
-    },
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    maxAge: 86400
-  };
-}
 
 /**
  * Build the Express app. No side effects: caller is responsible for
@@ -66,7 +25,7 @@ export function createApp(): Express {
   // always the loopback and per-IP rate limits become per-server limits.
   app.set('trust proxy', 'loopback');
 
-  // Manual CORS middleware to ensure credentials header is set
+  // Manual CORS middleware to allow credentials from dev & extension origins
   app.use((req: Request, res: Response, next) => {
     const origin = req.get('origin');
     if (!origin || origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173' || origin.startsWith('chrome-extension://')) {
@@ -82,8 +41,6 @@ export function createApp(): Express {
     next();
   });
 
-  // Don't use cors middleware — use manual headers above instead
-  // app.use(cors(buildCorsOptions()));
   app.use(cookieParser());
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: true }));

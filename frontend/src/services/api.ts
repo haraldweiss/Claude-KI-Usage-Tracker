@@ -23,7 +23,9 @@ import {
   AdminStats
 } from '../types/api';
 
-const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`;
+// Use relative path for API calls — works both locally and on production VPS
+// On production, Apache routes /api to the backend (port 3001)
+const API_BASE = '/api';
 
 /**
  * Central fetch helper.

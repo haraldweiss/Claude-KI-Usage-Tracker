@@ -33,6 +33,10 @@ export function createApp(): Express {
     const isKnownOrigin = knownOrigins.includes(origin) || origin.startsWith('chrome-extension://');
     const isProductionDomain = referer.includes('wolfinisoftware.de');
 
+    if (req.path.startsWith('/api/')) {
+      console.log(`[CORS] origin="${origin}", referer="${referer}", isKnownOrigin=${isKnownOrigin}, isProductionDomain=${isProductionDomain}`);
+    }
+
     if (isKnownOrigin) {
       // Known origin: allow credentials
       res.set('Access-Control-Allow-Origin', origin);

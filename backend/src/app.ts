@@ -26,7 +26,7 @@ export function createApp(): Express {
   app.set('trust proxy', 'loopback');
 
   // Manual CORS middleware to allow credentials from dev & extension origins
-  app.use((req: Request, res: Response, next) => {
+  app.use((req: Request, res: Response, next): void => {
     const origin = req.get('origin');
     if (!origin || origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173' || origin.startsWith('chrome-extension://')) {
       res.set('Access-Control-Allow-Origin', origin || '*');
@@ -36,9 +36,9 @@ export function createApp(): Express {
       res.set('Access-Control-Max-Age', '86400');
     }
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(204);
+      return void res.sendStatus(204);
     }
-    next();
+    return void next();
   });
 
   app.use(cookieParser());

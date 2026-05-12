@@ -2,8 +2,8 @@
 // © 2026 Harald Weiss
 // Default endpoints — used on a fresh install and when the user clicks
 // "Zurücksetzen". Overrides live in chrome.storage.local under the same keys.
-const DEFAULT_API_BASE = 'http://localhost:3000/api';
-const DEFAULT_DASHBOARD_URL = 'http://localhost:5173';
+const DEFAULT_API_BASE = 'https://wolfinisoftware.de/api';
+const DEFAULT_DASHBOARD_URL = 'https://wolfinisoftware.de/claudetracker';
 
 // Load stats when popup opens
 document.addEventListener('DOMContentLoaded', async () => {

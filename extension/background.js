@@ -4,7 +4,7 @@
 // override this from the popup via chrome.storage.local.api_base. Every
 // fetch resolves the URL fresh so a settings change takes effect on the
 // next call without reloading the extension.
-const DEFAULT_API_BASE = 'http://localhost:3000/api';
+const DEFAULT_API_BASE = 'https://wolfinisoftware.de/api';
 const API_BASE_STORAGE_KEY = 'api_base';
 const QUEUE_STORAGE_KEY = 'usage_queue';
 

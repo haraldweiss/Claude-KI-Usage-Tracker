@@ -15,11 +15,13 @@ const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.
 // Cookie path must be '/' because frontend calls /api/* at root, not /claudetracker/api/*
 // The Apache proxy routes both paths to the same backend
 const COOKIE_PATH = process.env.COOKIE_PATH || '/';
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
 const COOKIE_OPTS = {
   httpOnly: true,
   secure: true, // HTTPS production requirement — browsers reject secure:false over HTTPS
   sameSite: 'lax' as const,
   path: COOKIE_PATH,
+  domain: COOKIE_DOMAIN,
   maxAge: 30 * 24 * 60 * 60 * 1000
 };
 

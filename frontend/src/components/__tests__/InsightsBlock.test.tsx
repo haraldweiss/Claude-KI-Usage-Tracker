@@ -16,9 +16,15 @@ describe('getConfidenceLevel', () => {
     });
   });
 
-  describe('returns "confident" for days 14+', () => {
-    it.each([14, 15, 20, 100])('returns "confident" for day %i', (day) => {
+  describe('returns "confident" for days 14-29', () => {
+    it.each([14, 15, 20, 29])('returns "confident" for day %i', (day) => {
       expect(getConfidenceLevel(day)).toBe('confident');
+    });
+  });
+
+  describe('returns "established" for days 30+', () => {
+    it.each([30, 31, 60, 100])('returns "established" for day %i', (day) => {
+      expect(getConfidenceLevel(day)).toBe('established');
     });
   });
 
@@ -55,5 +61,6 @@ describe('getConfidenceLevel', () => {
     expect(getConfidenceLevel(4)).toBe('early');
     expect(getConfidenceLevel(8)).toBe('actionable');
     expect(getConfidenceLevel(15)).toBe('confident');
+    expect(getConfidenceLevel(31)).toBe('established');
   });
 });

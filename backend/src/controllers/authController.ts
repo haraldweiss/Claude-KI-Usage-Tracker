@@ -17,7 +17,7 @@ const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.
 const COOKIE_PATH = process.env.COOKIE_PATH || '/';
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: false, // Disable secure flag to test cookie transmission through proxy
+  secure: true, // HTTPS production requirement — browsers reject secure:false over HTTPS
   sameSite: 'lax' as const,
   path: COOKIE_PATH,
   maxAge: 30 * 24 * 60 * 60 * 1000

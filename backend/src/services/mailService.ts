@@ -37,10 +37,17 @@ export async function sendMagicLinkMail(
     'Claude Usage Tracker'
   ].join('\n');
 
-  await transport.sendMail({
-    from: FROM_ADDRESS,
-    to: email,
-    subject: 'Dein Login-Link für Claude Usage Tracker',
-    text: body
-  });
+  try {
+    console.log(`[Email] Attempting to send magic link to ${email}`);
+    const info = await transport.sendMail({
+      from: FROM_ADDRESS,
+      to: email,
+      subject: 'Dein Login-Link für Claude Usage Tracker',
+      text: body
+    });
+    console.log(`[Email] Successfully sent to ${email}, response: ${info.response}`);
+  } catch (error) {
+    console.error(`[Email] Failed to send to ${email}:`, error);
+    throw error;
+  }
 }

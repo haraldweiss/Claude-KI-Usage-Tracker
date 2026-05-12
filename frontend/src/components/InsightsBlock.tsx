@@ -83,8 +83,17 @@ function priorCycleDailyRate(allTime: SpendingTotal | null): number | null {
   return prevCycle.additional_eur / cycleLen;
 }
 
-const MIN_DAYS_FOR_PLAN_ADVICE = 14;
-const MIN_DAYS_FOR_FORECAST = 3;
+// Confidence tiers for progressive recommendations
+const INSIGHT_CONFIDENCE_TIERS = {
+  early: 3,      // Day 3+: Basic trend insights
+  actionable: 7, // Day 7+: Plan recommendations (preliminary)
+  confident: 14  // Day 14+: Full analysis, no disclaimers
+} as const;
+
+type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
+
+const MIN_DAYS_FOR_PLAN_ADVICE = INSIGHT_CONFIDENCE_TIERS.confident; // Keep for backward compat, remove in future
+const MIN_DAYS_FOR_FORECAST = 3; // Keep for backward compat, remove in future
 const FORECAST_SMOOTHING_DAYS = 7;
 
 function buildInsights(

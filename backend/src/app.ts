@@ -28,7 +28,7 @@ export function createApp(): Express {
   // Manual CORS middleware to allow credentials from dev & extension origins
   app.use((req: Request, res: Response, next): void => {
     const origin = req.get('origin') || '';
-    const knownOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+    const knownOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://wolfinisoftware.de'];
     const isKnownOrigin = knownOrigins.includes(origin) || origin.startsWith('chrome-extension://');
 
     if (isKnownOrigin) {

@@ -346,17 +346,22 @@ async function autoSync() {
         // Plan-usage panel rows are rendered as e.g.
         //   "Wöchentlich · alle Modelle\n82% · Reset in 1T"
         //   "5-Stunden-Limit\n5% · Reset in 4h"
-        // Capture both the percentage AND the "Reset in X" duration so the
-        // dashboard can show when each limit clears. The reset string is kept
-        // raw ("1T", "4h", "30m") and parsed downstream.
+        // …but on the plain /settings/usage page they appear without the
+        // 'Reset in X' suffix. So percentage capture is the must-have and
+        // the reset suffix is best-effort — never let a missing 'Reset in'
+        // cause the percentage match to fail.
         const extractPctAndReset = (labels) => {
           for (const label of labels) {
-            const re = new RegExp(
-              `${label}[\\s\\S]{0,200}?(\\d+)\\s*%(?:\\s*[·•\\-]\\s*Reset(?:\\s+in)?\\s+([^\\n·•]+?))?(?=\\n|$|\\s{2,})`,
-              'i'
-            );
-            const m = text.match(re);
-            if (m) return { pct: parseInt(m[1], 10), reset: m[2] ? m[2].trim() : null };
+            const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
+            const pctMatch = text.match(pctRe);
+            if (!pctMatch) continue;
+            const pct = parseInt(pctMatch[1], 10);
+            // Search for 'Reset in X' within ~40 chars after the percentage.
+            // Greedy `[^\n·•]+` naturally terminates at line break / next bullet.
+            const tail = text.slice((pctMatch.index ?? 0) + pctMatch[0].length, (pctMatch.index ?? 0) + pctMatch[0].length + 60);
+            const resetMatch = tail.match(/Reset(?:\s+in)?\s+([^\n·•]+)/i);
+            const reset = resetMatch ? resetMatch[1].trim() : null;
+            return { pct, reset };
           }
           return { pct: null, reset: null };
         };

@@ -343,23 +343,50 @@ async function autoSync() {
           if (candidate.length < 80) plan_name = candidate;
         }
 
-        // Session usage % — labeled "Aktuelle Sitzung" / "Current session".
-        // The percent appears on the same row but a different DOM line; we
-        // accept any % within ~200 chars after the label.
-        const sessionMatch =
-          text.match(/Aktuelle Sitzung[\s\S]{0,200}?(\d+)\s*%/i) ||
-          text.match(/Current session[\s\S]{0,200}?(\d+)\s*%/i);
-        const session_pct = sessionMatch ? parseInt(sessionMatch[1], 10) : null;
+        // Plan-usage panel rows are rendered as e.g.
+        //   "Wöchentlich · alle Modelle\n82% · Reset in 1T"
+        //   "5-Stunden-Limit\n5% · Reset in 4h"
+        // Capture both the percentage AND the "Reset in X" duration so the
+        // dashboard can show when each limit clears. The reset string is kept
+        // raw ("1T", "4h", "30m") and parsed downstream.
+        const extractPctAndReset = (labels) => {
+          for (const label of labels) {
+            const re = new RegExp(
+              `${label}[\\s\\S]{0,200}?(\\d+)\\s*%(?:\\s*[·•\\-]\\s*Reset(?:\\s+in)?\\s+([^\\n·•]+?))?(?=\\n|$|\\s{2,})`,
+              'i'
+            );
+            const m = text.match(re);
+            if (m) return { pct: parseInt(m[1], 10), reset: m[2] ? m[2].trim() : null };
+          }
+          return { pct: null, reset: null };
+        };
 
-        const allModelsMatch =
-          text.match(/Alle Modelle[\s\S]{0,200}?(\d+)\s*%/i) ||
-          text.match(/All models[\s\S]{0,200}?(\d+)\s*%/i);
-        const weekly_all_models_pct = allModelsMatch ? parseInt(allModelsMatch[1], 10) : null;
+        // Session limit — labeled "5-Stunden-Limit" in the new panel, but
+        // older claude.ai builds used "Aktuelle Sitzung" / "Current session".
+        const session = extractPctAndReset([
+          '5-Stunden-Limit',
+          '5-hour limit',
+          'Aktuelle Sitzung',
+          'Current session'
+        ]);
+        const session_pct = session.pct;
+        const session_reset_in = session.reset;
 
-        const sonnetMatch =
-          text.match(/Nur Sonnet[\s\S]{0,200}?(\d+)\s*%/i) ||
-          text.match(/Sonnet only[\s\S]{0,200}?(\d+)\s*%/i);
-        const weekly_sonnet_pct = sonnetMatch ? parseInt(sonnetMatch[1], 10) : null;
+        const allModels = extractPctAndReset([
+          'Wöchentlich\\s*·\\s*alle Modelle',
+          'Weekly\\s*·\\s*all models',
+          'Alle Modelle',
+          'All models'
+        ]);
+        const weekly_all_models_pct = allModels.pct;
+        const weekly_all_models_reset_in = allModels.reset;
+
+        const sonnet = extractPctAndReset([
+          'Nur Sonnet',
+          'Sonnet only'
+        ]);
+        const weekly_sonnet_pct = sonnet.pct;
+        const weekly_sonnet_reset_in = sonnet.reset;
 
         // Additional usage block — three numbers we want:
         //   "31,35 € ausgegeben"  → spent_eur
@@ -419,8 +446,11 @@ async function autoSync() {
         return {
           plan_name,
           session_pct,
+          session_reset_in,
           weekly_all_models_pct,
+          weekly_all_models_reset_in,
           weekly_sonnet_pct,
+          weekly_sonnet_reset_in,
           spent_eur,
           spent_pct,
           monthly_limit_eur,

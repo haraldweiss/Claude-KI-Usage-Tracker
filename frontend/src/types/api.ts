@@ -39,8 +39,11 @@ export interface ClaudeAiSpend {
 export interface ClaudeAiUsageMeta {
   plan_name?: string | null;
   session_pct?: number | null;
+  session_reset_in?: string | null;
   weekly_all_models_pct?: number | null;
+  weekly_all_models_reset_in?: string | null;
   weekly_sonnet_pct?: number | null;
+  weekly_sonnet_reset_in?: string | null;
   spent_eur?: number | null;
   spent_pct?: number | null;
   monthly_limit_eur?: number | null;

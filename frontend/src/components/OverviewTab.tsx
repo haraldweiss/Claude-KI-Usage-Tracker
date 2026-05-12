@@ -41,6 +41,23 @@ function dayOfMonth(): number {
   return new Date().getDate();
 }
 
+/**
+ * Convert raw reset hint from claude.ai ("1T", "4h", "30m") into a German
+ * label like "Reset in 1 Tag" / "Reset in 4 Std.". Returns undefined for
+ * null/empty so the ProgressRow hides the hint row entirely.
+ */
+function formatResetHint(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const m = raw.match(/^(\d+)\s*([a-zA-Z])/);
+  if (!m) return `Reset in ${raw}`;
+  const n = parseInt(m[1], 10);
+  const unit = m[2].toLowerCase();
+  if (unit === 't' || unit === 'd') return `Reset in ${n} ${n === 1 ? 'Tag' : 'Tagen'}`;
+  if (unit === 'h') return `Reset in ${n} Std.`;
+  if (unit === 'm') return `Reset in ${n} Min.`;
+  return `Reset in ${raw}`;
+}
+
 interface ProgressProps {
   label: string;
   pct: number | null | undefined;
@@ -204,9 +221,9 @@ export default function OverviewTab(): React.ReactElement {
             Wochenlimits
           </div>
           <div className="mt-3 space-y-3">
-            <ProgressRow label="Alle Modelle" pct={meta?.weekly_all_models_pct} />
-            <ProgressRow label="Nur Sonnet" pct={meta?.weekly_sonnet_pct} />
-            <ProgressRow label="Aktuelle Sitzung" pct={meta?.session_pct} />
+            <ProgressRow label="Alle Modelle" pct={meta?.weekly_all_models_pct} hint={formatResetHint(meta?.weekly_all_models_reset_in)} />
+            <ProgressRow label="Nur Sonnet" pct={meta?.weekly_sonnet_pct} hint={formatResetHint(meta?.weekly_sonnet_reset_in)} />
+            <ProgressRow label="Aktuelle Sitzung" pct={meta?.session_pct} hint={formatResetHint(meta?.session_reset_in)} />
           </div>
           {limitWarning && (
             <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">

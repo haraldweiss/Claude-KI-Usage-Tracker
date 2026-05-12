@@ -436,7 +436,6 @@ async function autoSync() {
       throw new Error('Scrape returned no result');
     }
     if (data.spent_eur == null && data.weekly_all_models_pct == null) {
-      console.log('Auto-sync: page returned no usage figures, skipping POST');
       return { skipped: true, reason: 'no_data' };
     }
 
@@ -485,7 +484,7 @@ async function autoSync() {
       last_auto_sync_data: data
     });
     updateBadge();
-    console.log('Auto-sync ok:', data);
+    console.log('Auto-sync ok');
     return { success: true, data };
   } catch (error) {
     console.error('Auto-sync error:', error);
@@ -543,7 +542,6 @@ async function consoleSync() {
       } else {
         reason = 'unbekannt';
       }
-      console.log('Console-sync skipped:', reason, diag);
       return { skipped: true, reason };
     }
 
@@ -830,7 +828,6 @@ async function claudeCodeSync() {
 
     const data = injection?.result;
     if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
-      console.log('Claude-code-sync: no rows scraped, skipping');
       return { skipped: true, reason: 'no_rows' };
     }
 

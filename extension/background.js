@@ -535,7 +535,7 @@ async function consoleSync() {
         reason = 'keine Tabelle gefunden';
       } else if (!diag.candidate_headers) {
         const seen = (diag.all_headers || []).map((h) => `[${h.join(' | ')}]`).join(' / ');
-        reason = `keine Cost-Spalte. Headers: ${seen || '(leer)'}`;
+        reason = `keine Kosten-Spalte. Headers: ${seen || '(leer)'}`;
       } else if (diag.body_row_count === 0) {
         reason = 'Tabelle leer (Zeilen rendern noch?)';
       } else if (diag.rows_skipped_no_cost > 0) {
@@ -634,16 +634,12 @@ function scrapeConsoleKeysTable() {
   const tables = realTables.length > 0 ? realTables : ariaTables;
   diag.tables_seen = tables.length;
 
-  // Lenient match: lowercase + word-boundary contains. Handles "Cost",
-  // "Cost (USD)", "Cost ▲", "Cost  ⓘ", "MTD Cost", etc. Strict match for
-  // 'key' / 'workspace' would also fail with sort-indicator suffixes — same
-  // treatment.
-  const matchHeader = (headers, needle, opts = {}) => {
-    const re = opts.exact
-      ? new RegExp(`^${needle}\\b`)
-      : new RegExp(`\\b${needle}\\b`);
-    return headers.findIndex((h) => re.test(h));
-  };
+  // Lenient match: lowercase substring against a list of language variants.
+  // Handles English ("Cost", "Cost (USD)") and German ("Kosten",
+  // "Schlüssel", "Arbeitsbereich", "Zuletzt verwendet am"), incl. sort
+  // indicators and unit suffixes.
+  const matchAny = (headers, needles) =>
+    headers.findIndex((h) => needles.some((n) => h.includes(n)));
 
   for (const table of tables) {
     // Real <table>: headers from thead. ARIA: role="columnheader".
@@ -653,13 +649,13 @@ function scrapeConsoleKeysTable() {
     const headers = Array.from(headerEls).map((h) => h.textContent.trim().toLowerCase());
     diag.all_headers.push(headers);
 
-    const costIdx = matchHeader(headers, 'cost');
+    const costIdx = matchAny(headers, ['cost', 'kosten']);
     if (costIdx === -1) continue;
     diag.candidate_headers = headers;
 
-    const keyIdx = matchHeader(headers, 'key');
-    const workspaceIdx = matchHeader(headers, 'workspace');
-    const lastUsedIdx = headers.findIndex((h) => /\blast used\b/.test(h));
+    const keyIdx = matchAny(headers, ['key', 'schlüssel', 'schluessel']);
+    const workspaceIdx = matchAny(headers, ['workspace', 'arbeitsbereich']);
+    const lastUsedIdx = matchAny(headers, ['last used', 'zuletzt verwendet']);
 
     const rows = realTables.length > 0
       ? Array.from(table.querySelectorAll('tbody tr'))
@@ -762,29 +758,35 @@ async function claudeCodeSync() {
       func: () => {
         const text = document.body.innerText || '';
 
-        // Top-level metrics — labeled exactly like in the screenshot.
-        // English labels are the live ones; we don't expect German here.
-        const linesMatch = text.match(/Lines of code accepted\s*\n+\s*([\d.,]+)/i);
+        // Top-level metrics — labels exist in English and German variants.
+        const linesMatch = text.match(/(?:Lines of code accepted|Akzeptierte Codezeilen|Zeilen Code akzeptiert)\s*\n+\s*([\d.,]+)/i);
         const total_lines_accepted = linesMatch
           ? parseInt(linesMatch[1].replace(/[.,]/g, ''), 10) || null
           : null;
 
-        const acceptMatch = text.match(/Suggestion accept rate\s*\n+\s*([\d.,]+)\s*%/i);
+        const acceptMatch = text.match(/(?:Suggestion accept rate|Akzeptanzrate|Vorschlags?-?Akzeptanzrate)\s*\n+\s*([\d.,]+)\s*%/i);
         const accept_rate_pct = acceptMatch
           ? parseFloat(acceptMatch[1].replace(',', '.'))
           : null;
 
-        // Team table — has a "Spend this month" + "Lines this month" header.
-        // Walk every <table> on the page and pick the one whose <thead>
-        // includes both columns.
+        // Team table — find the table that has a spend column. We accept
+        // English ("Spend this month") and German ("Ausgaben diesen Monat").
         const tables = Array.from(document.querySelectorAll('table'));
+        const all_headers = [];
         const rows = [];
         for (const table of tables) {
           const headers = Array.from(table.querySelectorAll('thead th, thead td'))
             .map((h) => h.textContent.trim().toLowerCase());
-          const memberIdx = headers.findIndex((h) => h === 'members' || h === 'member');
-          const spendIdx = headers.findIndex((h) => h.startsWith('spend'));
-          const linesIdx = headers.findIndex((h) => h.startsWith('lines'));
+          all_headers.push(headers);
+          const memberIdx = headers.findIndex((h) =>
+            ['members', 'member', 'mitglieder', 'mitglied', 'name'].some((n) => h.includes(n))
+          );
+          const spendIdx = headers.findIndex((h) =>
+            h.startsWith('spend') || h.startsWith('ausgaben') || h.includes('kosten')
+          );
+          const linesIdx = headers.findIndex((h) =>
+            h.startsWith('lines') || h.startsWith('zeilen')
+          );
           if (spendIdx === -1) continue;
 
           for (const tr of table.querySelectorAll('tbody tr')) {
@@ -824,14 +826,18 @@ async function claudeCodeSync() {
           if (rows.length > 0) break;
         }
 
-        return { total_lines_accepted, accept_rate_pct, rows };
+        return { total_lines_accepted, accept_rate_pct, rows, all_headers, tables_seen: tables.length };
       }
     });
 
     const data = injection?.result;
     if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
-      console.log('Claude-code-sync: no rows scraped, skipping');
-      return { skipped: true, reason: 'no_rows' };
+      const seen = (data?.all_headers || []).map((h) => `[${h.join(' | ')}]`).join(' / ');
+      const reason = data?.tables_seen === 0
+        ? 'keine Tabelle'
+        : `keine passenden Spalten. Headers: ${seen || '(leer)'}`;
+      console.log('Claude-code-sync skipped:', reason, data);
+      return { skipped: true, reason };
     }
 
     const apiBase = await getApiBase();

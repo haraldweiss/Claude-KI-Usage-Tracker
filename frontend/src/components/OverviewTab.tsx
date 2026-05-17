@@ -2,6 +2,7 @@
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
 import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
+import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
 import { CombinedSpendBreakdown, PlanPricingRow, SpendingTotal } from '../types/api';
 
@@ -280,6 +281,9 @@ export default function OverviewTab(): React.ReactElement {
           )}
         </p>
       </div>
+
+      {/* Local LLM usage (provider-service) */}
+      <LocalUsageCard />
 
       {/* Trend over months */}
       {allTime && allTime.claude_ai.months.length > 1 && (

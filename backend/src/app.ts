@@ -7,6 +7,7 @@ import bodyParser from 'body-parser';
 import usageRoutes from './routes/usage.js';
 import pricingRoutes from './routes/pricing.js';
 import recommendationRoutes from './routes/recommendation.js';
+import localUsageRoutes from './routes/localUsage.js';
 import authRouter from './routes/auth.js';
 import accountRouter from './routes/account.js';
 import adminRouter from './routes/admin.js';
@@ -75,6 +76,7 @@ export function createApp(): Express {
   app.use('/api/usage', usageRoutes);
   app.use('/api/pricing', pricingRoutes);
   app.use('/api/recommend', recommendationRoutes);
+  app.use('/api/local-usage', localUsageRoutes);
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok' });

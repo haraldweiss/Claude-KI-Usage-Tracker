@@ -24,6 +24,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await runQuery('DELETE FROM provider_service_events');
+  await runQuery('DELETE FROM provider_service_user_ids');
   await runQuery('DELETE FROM user_provider_service_config');
 });
 
@@ -102,5 +103,60 @@ describe('localUsageRepo', () => {
     const cfg = await getProviderServiceConfig(101);
     expect(cfg?.last_sync_at).toBe('2026-05-01T12:00:00');
     expect(cfg?.last_sync_error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sub-A.1: provider_service_user_ids CRUD
+// ---------------------------------------------------------------------------
+
+const {
+  addProviderUserId,
+  listProviderUserIds,
+  getProviderUserIdRow,
+  removeProviderUserId,
+  setProviderUserIdEnabled,
+  updateProviderUserIdLabel,
+} = await import('../../data/localUsageRepo.js');
+
+describe('provider_service_user_ids CRUD', () => {
+  it('addProviderUserId returns the new row', async () => {
+    const row = await addProviderUserId(101, 'uuid-A', 'Bewerbungstracker');
+    expect(row.provider_user_id).toBe('uuid-A');
+    expect(row.label).toBe('Bewerbungstracker');
+    expect(row.enabled).toBe(1);
+  });
+
+  it('addProviderUserId throws on duplicate (user_id, provider_user_id)', async () => {
+    await addProviderUserId(101, 'dup');
+    await expect(addProviderUserId(101, 'dup')).rejects.toThrow();
+  });
+
+  it('listProviderUserIds is user-scoped', async () => {
+    await addProviderUserId(101, 'a');
+    await addProviderUserId(102, 'b');
+    const list101 = await listProviderUserIds(101);
+    expect(list101.map((r) => r.provider_user_id)).toEqual(['a']);
+  });
+
+  it('getProviderUserIdRow returns null for foreign user_id', async () => {
+    const row = await addProviderUserId(101, 'x');
+    const stolen = await getProviderUserIdRow(row.id, 102);
+    expect(stolen).toBeNull();
+  });
+
+  it('removeProviderUserId scopes by user_id', async () => {
+    const row = await addProviderUserId(101, 'y');
+    expect(await removeProviderUserId(row.id, 102)).toBe(false);
+    expect(await removeProviderUserId(row.id, 101)).toBe(true);
+  });
+
+  it('setProviderUserIdEnabled and updateProviderUserIdLabel persist', async () => {
+    const row = await addProviderUserId(101, 'z', 'old');
+    await setProviderUserIdEnabled(row.id, 101, false);
+    await updateProviderUserIdLabel(row.id, 101, 'new');
+    const fresh = await getProviderUserIdRow(row.id, 101);
+    expect(fresh?.enabled).toBe(0);
+    expect(fresh?.label).toBe('new');
   });
 });

@@ -51,6 +51,17 @@ export interface SyncStatusUpdate {
   last_sync_error?: string | null;
 }
 
+export interface ProviderUserIdRow {
+  id: number;
+  user_id: number;
+  provider_user_id: string;
+  label: string | null;
+  enabled: number;
+  last_sync_at: string | null;
+  last_sync_cursor: string | null;
+  last_sync_error: string | null;
+}
+
 export async function upsertProviderServiceConfig(
   userId: number, input: ProviderServiceConfigInput,
 ): Promise<void> {
@@ -187,4 +198,75 @@ export async function getLocalUsageSummary(
     avgTokensPerCall,
     topModels,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sub-A.1: per-provider_user_id CRUD on provider_service_user_ids
+// ---------------------------------------------------------------------------
+
+export async function addProviderUserId(
+  userId: number, providerUserId: string, label: string | null = null,
+): Promise<ProviderUserIdRow> {
+  const now = new Date().toISOString();
+  const res = await runQuery(
+    `INSERT INTO provider_service_user_ids
+       (user_id, provider_user_id, label, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, 1, ?, ?)`,
+    [userId, providerUserId, label, now, now],
+  );
+  const row = await getQuery<ProviderUserIdRow>(
+    'SELECT * FROM provider_service_user_ids WHERE id = ?',
+    [res.lastID],
+  );
+  if (!row) throw new Error('insert failed');
+  return row;
+}
+
+export async function listProviderUserIds(
+  userId: number,
+): Promise<ProviderUserIdRow[]> {
+  return allQuery<ProviderUserIdRow>(
+    'SELECT * FROM provider_service_user_ids WHERE user_id = ? ORDER BY id ASC',
+    [userId],
+  );
+}
+
+export async function getProviderUserIdRow(
+  rowId: number, userId: number,
+): Promise<ProviderUserIdRow | null> {
+  const row = await getQuery<ProviderUserIdRow>(
+    'SELECT * FROM provider_service_user_ids WHERE id = ? AND user_id = ?',
+    [rowId, userId],
+  );
+  return row ?? null;
+}
+
+export async function removeProviderUserId(
+  rowId: number, userId: number,
+): Promise<boolean> {
+  const res = await runQuery(
+    'DELETE FROM provider_service_user_ids WHERE id = ? AND user_id = ?',
+    [rowId, userId],
+  );
+  return res.changes > 0;
+}
+
+export async function setProviderUserIdEnabled(
+  rowId: number, userId: number, enabled: boolean,
+): Promise<boolean> {
+  const res = await runQuery(
+    'UPDATE provider_service_user_ids SET enabled = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+    [enabled ? 1 : 0, new Date().toISOString(), rowId, userId],
+  );
+  return res.changes > 0;
+}
+
+export async function updateProviderUserIdLabel(
+  rowId: number, userId: number, label: string | null,
+): Promise<boolean> {
+  const res = await runQuery(
+    'UPDATE provider_service_user_ids SET label = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+    [label, new Date().toISOString(), rowId, userId],
+  );
+  return res.changes > 0;
 }

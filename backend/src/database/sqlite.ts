@@ -297,6 +297,64 @@ export function initDatabase(): Promise<void> {
           });
           const { seedInitialUser } = await import('./migrations/seedInitialUser.js');
           await seedInitialUser();
+
+          // Provider-Service integration tables (Sub-project A: local LLM tracking).
+          // 1:0..1 with users — each tracker user can configure one ai-provider-service
+          // endpoint they want to pull usage events from.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS user_provider_service_config (
+                user_id            INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                service_url        TEXT NOT NULL,
+                service_token_enc  TEXT NOT NULL,
+                provider_user_id   TEXT NOT NULL,
+                last_sync_at       TEXT,
+                last_sync_cursor   TEXT,
+                last_sync_error    TEXT,
+                enabled            INTEGER NOT NULL DEFAULT 1,
+                created_at         TEXT NOT NULL,
+                updated_at         TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          // Mirror of /usage/events from the provider-service. UNIQUE makes
+          // INSERT OR IGNORE idempotent — even if the cursor is wrong we never
+          // double-count.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS provider_service_events (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                remote_event_id   INTEGER NOT NULL,
+                remote_created_at TEXT NOT NULL,
+                provider_id       TEXT NOT NULL,
+                model             TEXT NOT NULL,
+                input_tokens      INTEGER,
+                output_tokens     INTEGER,
+                cost_usd          REAL,
+                origin_app        TEXT,
+                status            TEXT NOT NULL,
+                error_message     TEXT,
+                ingested_at       TEXT NOT NULL,
+                UNIQUE (user_id, remote_event_id)
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_pse_user_created ON provider_service_events(user_id, remote_created_at)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_pse_provider ON provider_service_events(user_id, provider_id)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

@@ -95,7 +95,8 @@ describe('syncProviderServiceEvents', () => {
   it('is idempotent — re-sync with same events inserts zero new', async () => {
     await insertEventIfNew(201, {
       remote_event_id: 1, remote_created_at: '2026-05-01T12:00:00',
-      provider_id: 'ollama', model: 'm', input_tokens: 1, output_tokens: 1,
+      provider_id: 'ollama', model: 'm', provider_user_id: 'pu',
+      input_tokens: 1, output_tokens: 1,
       cost_usd: 0, origin_app: null, status: 'success', error_message: null,
     });
     fetchMock.mockResolvedValueOnce({

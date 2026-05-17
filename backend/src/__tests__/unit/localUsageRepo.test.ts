@@ -11,6 +11,7 @@ const {
   insertEventIfNew,
   getLocalUsageSummary,
   updateSyncStatus,
+  addProviderUserId,
 } = await import('../../data/localUsageRepo.js');
 
 beforeAll(async () => {
@@ -60,7 +61,8 @@ describe('localUsageRepo', () => {
   it('insertEventIfNew is idempotent on (user_id, remote_event_id)', async () => {
     const ev = {
       remote_event_id: 42, remote_created_at: '2026-05-01T12:00:00',
-      provider_id: 'ollama', model: 'm', input_tokens: 10, output_tokens: 5,
+      provider_id: 'ollama', model: 'm', provider_user_id: 'pu',
+      input_tokens: 10, output_tokens: 5,
       cost_usd: 0, origin_app: null, status: 'success', error_message: null,
     };
     expect(await insertEventIfNew(101, ev)).toBe(true);
@@ -68,27 +70,40 @@ describe('localUsageRepo', () => {
     expect(await insertEventIfNew(101, { ...ev, remote_event_id: 43 })).toBe(true);
   });
 
-  it('getLocalUsageSummary aggregates tokens and counts by period', async () => {
+  it('getLocalUsageSummary returns total + perSource with origin_app and user: fallback buckets', async () => {
     const now = new Date();
     const inMonth = new Date(now.getFullYear(), now.getMonth(), 15, 12).toISOString();
+    // Event with origin_app set → bucket 'bewerbungstracker'
     await insertEventIfNew(101, {
       remote_event_id: 1, remote_created_at: inMonth,
-      provider_id: 'ollama', model: 'llama3.1:8b',
-      input_tokens: 100, output_tokens: 50,
-      cost_usd: 0, origin_app: null, status: 'success', error_message: null,
+      provider_id: 'ollama', model: 'llama3.1:8b', provider_user_id: 'uuid-a',
+      input_tokens: 100, output_tokens: 50, cost_usd: 0,
+      origin_app: 'bewerbungstracker', status: 'success', error_message: null,
     });
+    // Event WITHOUT origin_app → bucket 'user:wolfini_de_web'
     await insertEventIfNew(101, {
       remote_event_id: 2, remote_created_at: inMonth,
-      provider_id: 'ollama', model: 'llama3.1:8b',
-      input_tokens: 200, output_tokens: 100,
-      cost_usd: 0, origin_app: null, status: 'success', error_message: null,
+      provider_id: 'ollama', model: 'llama3.1:8b', provider_user_id: 'wolfini_de_web',
+      input_tokens: 200, output_tokens: 100, cost_usd: 0,
+      origin_app: null, status: 'success', error_message: null,
     });
+    // Label for the fallback id
+    await addProviderUserId(101, 'wolfini_de_web', 'WordPress');
+
     const s = await getLocalUsageSummary(101, 'month');
-    expect(s.calls).toBe(2);
-    expect(s.inputTokens).toBe(300);
-    expect(s.outputTokens).toBe(150);
-    expect(s.totalTokens).toBe(450);
-    expect(s.topModels[0]).toEqual({ model: 'llama3.1:8b', calls: 2 });
+    expect(s.total.calls).toBe(2);
+    expect(s.total.totalTokens).toBe(450);
+    expect(s.total.topModels[0]).toEqual({ model: 'llama3.1:8b', calls: 2 });
+
+    expect(s.perSource).toHaveLength(2);
+    // perSource ordered by totalTokens DESC: wolfini_de_web (300) before bewerbungstracker (150)
+    expect(s.perSource[0].source).toBe('user:wolfini_de_web');
+    expect(s.perSource[0].label).toBe('WordPress');
+    expect(s.perSource[0].totalTokens).toBe(300);
+    expect(s.perSource[0].topModel).toEqual({ model: 'llama3.1:8b', calls: 1 });
+    expect(s.perSource[1].source).toBe('bewerbungstracker');
+    expect(s.perSource[1].label).toBeNull();
+    expect(s.perSource[1].totalTokens).toBe(150);
   });
 
   it('updateSyncStatus clears error on success', async () => {
@@ -111,7 +126,6 @@ describe('localUsageRepo', () => {
 // ---------------------------------------------------------------------------
 
 const {
-  addProviderUserId,
   listProviderUserIds,
   getProviderUserIdRow,
   removeProviderUserId,

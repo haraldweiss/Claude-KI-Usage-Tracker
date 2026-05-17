@@ -26,6 +26,7 @@ export interface RemoteEvent {
   remote_created_at: string;
   provider_id: string;
   model: string;
+  provider_user_id: string;
   input_tokens: number | null;
   output_tokens: number | null;
   cost_usd: number | null;
@@ -34,14 +35,28 @@ export interface RemoteEvent {
   error_message: string | null;
 }
 
-export interface LocalUsageSummary {
-  period: 'day' | 'week' | 'month';
+export interface SourceSummary {
+  source: string;          // origin_app value OR 'user:<provider_user_id>' fallback
+  label: string | null;    // for 'user:...' sources, the label from provider_service_user_ids
   calls: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
   avgTokensPerCall: number;
-  topModels: Array<{ model: string; calls: number }>;
+  topModel: { model: string; calls: number } | null;
+}
+
+export interface LocalUsageSummary {
+  period: 'day' | 'week' | 'month';
+  total: {
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    avgTokensPerCall: number;
+    topModels: Array<{ model: string; calls: number }>;
+  };
+  perSource: SourceSummary[];
 }
 
 export interface SyncStatusUpdate {
@@ -128,11 +143,11 @@ export async function insertEventIfNew(
 ): Promise<boolean> {
   const result = await runQuery(
     `INSERT OR IGNORE INTO provider_service_events
-      (user_id, remote_event_id, remote_created_at, provider_id, model,
+      (user_id, remote_event_id, remote_created_at, provider_id, model, provider_user_id,
        input_tokens, output_tokens, cost_usd, origin_app, status, error_message, ingested_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      userId, ev.remote_event_id, ev.remote_created_at, ev.provider_id, ev.model,
+      userId, ev.remote_event_id, ev.remote_created_at, ev.provider_id, ev.model, ev.provider_user_id,
       ev.input_tokens, ev.output_tokens, ev.cost_usd, ev.origin_app, ev.status,
       ev.error_message, new Date().toISOString(),
     ],
@@ -162,6 +177,7 @@ export async function getLocalUsageSummary(
 ): Promise<LocalUsageSummary> {
   const since = periodSinceISO(period);
 
+  // 1. Total aggregate
   const agg = await getQuery<AggRow>(
     `SELECT
        COUNT(*) AS calls,
@@ -171,32 +187,81 @@ export async function getLocalUsageSummary(
      WHERE user_id = ? AND remote_created_at >= ? AND status = 'success'`,
     [userId, since],
   );
-
   const calls = agg?.calls ?? 0;
   const inputTokens = agg?.inputTokens ?? 0;
   const outputTokens = agg?.outputTokens ?? 0;
 
+  // 2. Top-3 overall models
   const topModels = await allQuery<{ model: string; calls: number }>(
     `SELECT model, COUNT(*) AS calls
      FROM provider_service_events
      WHERE user_id = ? AND remote_created_at >= ? AND status = 'success'
-     GROUP BY model
-     ORDER BY calls DESC
-     LIMIT 3`,
+     GROUP BY model ORDER BY calls DESC LIMIT 3`,
     [userId, since],
   );
 
-  const totalTokens = inputTokens + outputTokens;
-  const avgTokensPerCall = calls > 0 ? Math.round(totalTokens / calls) : 0;
+  // 3. Per-source aggregation. Source key: origin_app OR 'user:<provider_user_id>' fallback.
+  const sourceRows = await allQuery<{
+    source: string;
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+  }>(
+    `SELECT
+       COALESCE(origin_app, 'user:' || provider_user_id) AS source,
+       COUNT(*) AS calls,
+       COALESCE(SUM(input_tokens), 0) AS inputTokens,
+       COALESCE(SUM(output_tokens), 0) AS outputTokens
+     FROM provider_service_events
+     WHERE user_id = ? AND remote_created_at >= ? AND status = 'success'
+     GROUP BY COALESCE(origin_app, 'user:' || provider_user_id)
+     ORDER BY (COALESCE(SUM(input_tokens),0) + COALESCE(SUM(output_tokens),0)) DESC`,
+    [userId, since],
+  );
 
+  // 4. Label lookup for 'user:...' sources (resolve to provider_service_user_ids.label)
+  const labelLookup = await allQuery<{ provider_user_id: string; label: string | null }>(
+    'SELECT provider_user_id, label FROM provider_service_user_ids WHERE user_id = ?',
+    [userId],
+  );
+  const labelMap = new Map(labelLookup.map((r) => [r.provider_user_id, r.label]));
+
+  // 5. For each source, fetch its top model (single query per source; N is small)
+  const perSource: SourceSummary[] = await Promise.all(
+    sourceRows.map(async (s) => {
+      const isUserFallback = s.source.startsWith('user:');
+      const providerUserId = isUserFallback ? s.source.slice(5) : null;
+      const top = await getQuery<{ model: string; calls: number }>(
+        `SELECT model, COUNT(*) AS calls
+         FROM provider_service_events
+         WHERE user_id = ? AND remote_created_at >= ? AND status = 'success'
+           AND COALESCE(origin_app, 'user:' || provider_user_id) = ?
+         GROUP BY model ORDER BY calls DESC LIMIT 1`,
+        [userId, since, s.source],
+      );
+      const tot = s.inputTokens + s.outputTokens;
+      return {
+        source: s.source,
+        label: providerUserId ? (labelMap.get(providerUserId) ?? null) : null,
+        calls: s.calls,
+        inputTokens: s.inputTokens,
+        outputTokens: s.outputTokens,
+        totalTokens: tot,
+        avgTokensPerCall: s.calls > 0 ? Math.round(tot / s.calls) : 0,
+        topModel: top ?? null,
+      };
+    }),
+  );
+
+  const totalTokens = inputTokens + outputTokens;
   return {
     period,
-    calls,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    avgTokensPerCall,
-    topModels,
+    total: {
+      calls, inputTokens, outputTokens, totalTokens,
+      avgTokensPerCall: calls > 0 ? Math.round(totalTokens / calls) : 0,
+      topModels,
+    },
+    perSource,
   };
 }
 

@@ -355,6 +355,65 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // Sub-A.1: provider_user_id on events (additive). Used by the multi-source
+          // card to fall back from origin_app to "user:<provider_user_id>" when the
+          // upstream app does not set the X-Origin-App header. Defensive on existing
+          // production rows: nullable.
+          await addMissingColumns('provider_service_events', [
+            { name: 'provider_user_id', ddl: 'TEXT' },
+          ]);
+
+          // Sub-A.1: 1:N — multiple provider_user_ids per tracker-user. Replaces the
+          // single column user_provider_service_config.provider_user_id (kept for one
+          // release as rollback safety net). Each row tracks its own sync cursor so a
+          // failing/slow ID doesn't poison another ID's incremental state.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS provider_service_user_ids (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider_user_id  TEXT NOT NULL,
+                label             TEXT,
+                enabled           INTEGER NOT NULL DEFAULT 1,
+                last_sync_at      TEXT,
+                last_sync_cursor  TEXT,
+                last_sync_error   TEXT,
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL,
+                UNIQUE (user_id, provider_user_id)
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_psuid_user_enabled ON provider_service_user_ids(user_id, enabled)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+
+          // Migration: copy existing provider_user_id from user_provider_service_config
+          // into the new table. Idempotent via NOT EXISTS so reruns are safe.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `INSERT INTO provider_service_user_ids
+                 (user_id, provider_user_id, label, enabled, last_sync_at, last_sync_cursor, last_sync_error, created_at, updated_at)
+               SELECT
+                 upsc.user_id, upsc.provider_user_id, NULL, upsc.enabled,
+                 upsc.last_sync_at, upsc.last_sync_cursor, upsc.last_sync_error,
+                 upsc.created_at, upsc.updated_at
+               FROM user_provider_service_config upsc
+               WHERE upsc.provider_user_id IS NOT NULL
+                 AND upsc.provider_user_id != ''
+                 AND NOT EXISTS (
+                   SELECT 1 FROM provider_service_user_ids psuid
+                   WHERE psuid.user_id = upsc.user_id
+                     AND psuid.provider_user_id = upsc.provider_user_id
+                 )`,
+              (mErr: Error | null) => (mErr ? rej(mErr) : res())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

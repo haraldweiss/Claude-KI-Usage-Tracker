@@ -34,7 +34,7 @@ const API_BASE = '/api';
  * - Redirects to /login on 401, unless the request itself is an /auth/ call
  *   (those handle their own auth flow and must not loop)
  */
-async function apiCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiCall<T>(path: string, init: RequestInit = {}): Promise<T> {
   const isInitialAuthRequest = path.startsWith('/auth/request');
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,

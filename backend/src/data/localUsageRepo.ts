@@ -200,7 +200,9 @@ export async function getLocalUsageSummary(
     [userId, since],
   );
 
-  // 3. Per-source aggregation. Source key: origin_app OR 'user:<provider_user_id>' fallback.
+  // 3. Per-source aggregation. Source key: origin_app OR 'user:<provider_user_id>',
+  // 'unknown' as last-resort fallback for legacy rows where both are NULL.
+  // SQLite's '||' on NULL returns NULL, so the COALESCE chain catches that case.
   const sourceRows = await allQuery<{
     source: string;
     calls: number;
@@ -208,13 +210,13 @@ export async function getLocalUsageSummary(
     outputTokens: number;
   }>(
     `SELECT
-       COALESCE(origin_app, 'user:' || provider_user_id) AS source,
+       COALESCE(origin_app, 'user:' || provider_user_id, 'unknown') AS source,
        COUNT(*) AS calls,
        COALESCE(SUM(input_tokens), 0) AS inputTokens,
        COALESCE(SUM(output_tokens), 0) AS outputTokens
      FROM provider_service_events
      WHERE user_id = ? AND remote_created_at >= ? AND status = 'success'
-     GROUP BY COALESCE(origin_app, 'user:' || provider_user_id)
+     GROUP BY COALESCE(origin_app, 'user:' || provider_user_id, 'unknown')
      ORDER BY (COALESCE(SUM(input_tokens),0) + COALESCE(SUM(output_tokens),0)) DESC`,
     [userId, since],
   );
@@ -229,19 +231,20 @@ export async function getLocalUsageSummary(
   // 5. For each source, fetch its top model (single query per source; N is small)
   const perSource: SourceSummary[] = await Promise.all(
     sourceRows.map(async (s) => {
-      const isUserFallback = s.source.startsWith('user:');
-      const providerUserId = isUserFallback ? s.source.slice(5) : null;
+      const safeSource = s.source ?? 'unknown';
+      const isUserFallback = safeSource.startsWith('user:');
+      const providerUserId = isUserFallback ? safeSource.slice(5) : null;
       const top = await getQuery<{ model: string; calls: number }>(
         `SELECT model, COUNT(*) AS calls
          FROM provider_service_events
          WHERE user_id = ? AND remote_created_at >= ? AND status = 'success'
-           AND COALESCE(origin_app, 'user:' || provider_user_id) = ?
+           AND COALESCE(origin_app, 'user:' || provider_user_id, 'unknown') = ?
          GROUP BY model ORDER BY calls DESC LIMIT 1`,
-        [userId, since, s.source],
+        [userId, since, safeSource],
       );
       const tot = s.inputTokens + s.outputTokens;
       return {
-        source: s.source,
+        source: safeSource,
         label: providerUserId ? (labelMap.get(providerUserId) ?? null) : null,
         calls: s.calls,
         inputTokens: s.inputTokens,

@@ -70,6 +70,25 @@ describe('localUsageRepo', () => {
     expect(await insertEventIfNew(101, { ...ev, remote_event_id: 43 })).toBe(true);
   });
 
+  it('getLocalUsageSummary buckets legacy NULL provider_user_id rows into "unknown"', async () => {
+    const now = new Date();
+    const inMonth = new Date(now.getFullYear(), now.getMonth(), 15, 12).toISOString();
+    // Simulate a pre-Sub-A.1 event: provider_user_id never written + origin_app NULL.
+    // insertEventIfNew now requires provider_user_id; use raw SQL for the legacy shape.
+    await runQuery(
+      `INSERT INTO provider_service_events
+        (user_id, remote_event_id, remote_created_at, provider_id, model,
+         input_tokens, output_tokens, cost_usd, origin_app, status, error_message, ingested_at)
+       VALUES (101, 99, ?, 'ollama', 'm', 10, 5, 0, NULL, 'success', NULL, ?)`,
+      [inMonth, inMonth],
+    );
+    const s = await getLocalUsageSummary(101, 'month');
+    expect(s.total.calls).toBe(1);
+    expect(s.perSource).toHaveLength(1);
+    expect(s.perSource[0].source).toBe('unknown');
+    expect(s.perSource[0].label).toBeNull();
+  });
+
   it('getLocalUsageSummary returns total + perSource with origin_app and user: fallback buckets', async () => {
     const now = new Date();
     const inMonth = new Date(now.getFullYear(), now.getMonth(), 15, 12).toISOString();

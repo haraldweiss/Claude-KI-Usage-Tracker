@@ -160,3 +160,47 @@ describe('provider_service_user_ids CRUD', () => {
     expect(fresh?.label).toBe('new');
   });
 });
+
+const {
+  listAllActiveProviderUserIds,
+  updateProviderUserIdSyncStatus,
+} = await import('../../data/localUsageRepo.js');
+
+describe('listAllActiveProviderUserIds', () => {
+  it('filters by ID-enabled AND master-enabled', async () => {
+    // user 101: master enabled, one row enabled, one disabled
+    await upsertProviderServiceConfig(101, {
+      service_url: 'x', service_token_enc: 'e', provider_user_id: 'unused', enabled: 1,
+    });
+    await addProviderUserId(101, 'active-1');
+    const r2 = await addProviderUserId(101, 'disabled-2');
+    await setProviderUserIdEnabled(r2.id, 101, false);
+
+    // user 102: master disabled but ID enabled
+    await upsertProviderServiceConfig(102, {
+      service_url: 'x', service_token_enc: 'e', provider_user_id: 'unused', enabled: 0,
+    });
+    await addProviderUserId(102, 'master-off-3');
+
+    const entries = await listAllActiveProviderUserIds();
+    const ids = entries.map((e) => e.row.provider_user_id).sort();
+    expect(ids).toEqual(['active-1']);
+  });
+});
+
+describe('updateProviderUserIdSyncStatus', () => {
+  it('writes cursor + clears error', async () => {
+    await upsertProviderServiceConfig(101, {
+      service_url: 'x', service_token_enc: 'e', provider_user_id: 'legacy', enabled: 1,
+    });
+    const row = await addProviderUserId(101, 'sync-1');
+    await updateProviderUserIdSyncStatus(row.id, {
+      last_sync_at: '2026-05-01T00:00:00',
+      last_sync_cursor: '2026-05-01T00:00:00',
+      last_sync_error: null,
+    });
+    const fresh = await getProviderUserIdRow(row.id, 101);
+    expect(fresh?.last_sync_cursor).toBe('2026-05-01T00:00:00');
+    expect(fresh?.last_sync_error).toBeNull();
+  });
+});

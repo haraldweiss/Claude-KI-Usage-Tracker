@@ -270,3 +270,56 @@ export async function updateProviderUserIdLabel(
   );
   return res.changes > 0;
 }
+
+export interface ActiveProviderUserIdEntry {
+  user_id: number;
+  row: ProviderUserIdRow;
+}
+
+export async function listAllActiveProviderUserIds(): Promise<ActiveProviderUserIdEntry[]> {
+  // Joins with user_provider_service_config so master-disabled entries are skipped.
+  const rows = await allQuery<ProviderUserIdRow & { master_enabled: number }>(
+    `SELECT psuid.*, upsc.enabled AS master_enabled
+       FROM provider_service_user_ids psuid
+       JOIN user_provider_service_config upsc
+         ON upsc.user_id = psuid.user_id
+      WHERE psuid.enabled = 1 AND upsc.enabled = 1`,
+  );
+  return rows.map((r) => ({
+    user_id: r.user_id,
+    row: {
+      id: r.id,
+      user_id: r.user_id,
+      provider_user_id: r.provider_user_id,
+      label: r.label,
+      enabled: r.enabled,
+      last_sync_at: r.last_sync_at,
+      last_sync_cursor: r.last_sync_cursor,
+      last_sync_error: r.last_sync_error,
+    },
+  }));
+}
+
+export async function updateProviderUserIdSyncStatus(
+  rowId: number, update: SyncStatusUpdate,
+): Promise<void> {
+  const sets: string[] = ['updated_at = ?'];
+  const params: unknown[] = [new Date().toISOString()];
+  if (update.last_sync_at !== undefined) {
+    sets.push('last_sync_at = ?');
+    params.push(update.last_sync_at);
+  }
+  if (update.last_sync_cursor !== undefined) {
+    sets.push('last_sync_cursor = ?');
+    params.push(update.last_sync_cursor);
+  }
+  if (update.last_sync_error !== undefined) {
+    sets.push('last_sync_error = ?');
+    params.push(update.last_sync_error);
+  }
+  params.push(rowId);
+  await runQuery(
+    `UPDATE provider_service_user_ids SET ${sets.join(', ')} WHERE id = ?`,
+    params,
+  );
+}

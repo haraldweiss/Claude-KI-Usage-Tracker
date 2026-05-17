@@ -38,7 +38,6 @@ beforeEach(async () => {
   await upsertProviderServiceConfig(201, {
     service_url: 'http://test-service:8767',
     service_token_enc: encryptSecret('test-token'),
-    provider_user_id: 'pu',
     enabled: 1,
   });
   fetchMock = jest.fn();

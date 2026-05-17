@@ -67,16 +67,11 @@ export async function putConfig(req: Request, res: Response): Promise<void> {
   const body = (req.body ?? {}) as {
     service_url?: unknown;
     service_token?: unknown;
-    provider_user_id?: unknown;
     enabled?: unknown;
   };
 
   if (typeof body.service_url !== 'string' || !body.service_url.trim()) {
     res.status(400).json({ error: 'service_url required' });
-    return;
-  }
-  if (typeof body.provider_user_id !== 'string' || !body.provider_user_id.trim()) {
-    res.status(400).json({ error: 'provider_user_id required' });
     return;
   }
 
@@ -94,7 +89,6 @@ export async function putConfig(req: Request, res: Response): Promise<void> {
   await upsertProviderServiceConfig(userId, {
     service_url: body.service_url.trim(),
     service_token_enc: tokenEnc,
-    provider_user_id: body.provider_user_id.trim(),
     enabled: body.enabled === false ? 0 : 1,
   });
 

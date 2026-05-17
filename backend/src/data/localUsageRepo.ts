@@ -18,7 +18,6 @@ export interface ProviderServiceConfigRow {
 export interface ProviderServiceConfigInput {
   service_url: string;
   service_token_enc: string;
-  provider_user_id: string;
   enabled: number;
 }
 
@@ -66,18 +65,19 @@ export async function upsertProviderServiceConfig(
   userId: number, input: ProviderServiceConfigInput,
 ): Promise<void> {
   const now = new Date().toISOString();
+  // Sub-A.1: provider_user_id column kept on user_provider_service_config for one
+  // release as rollback safety net. New writes leave it empty; the legacy value of
+  // pre-existing rows stays untouched via the omitted UPDATE clause.
   await runQuery(
     `INSERT INTO user_provider_service_config
       (user_id, service_url, service_token_enc, provider_user_id, enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, '', ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        service_url = excluded.service_url,
        service_token_enc = excluded.service_token_enc,
-       provider_user_id = excluded.provider_user_id,
        enabled = excluded.enabled,
        updated_at = excluded.updated_at`,
-    [userId, input.service_url, input.service_token_enc, input.provider_user_id,
-     input.enabled, now, now],
+    [userId, input.service_url, input.service_token_enc, input.enabled, now, now],
   );
 }
 

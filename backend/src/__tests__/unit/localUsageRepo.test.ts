@@ -32,14 +32,14 @@ describe('localUsageRepo', () => {
   it('upsertProviderServiceConfig inserts new and updates existing', async () => {
     await upsertProviderServiceConfig(101, {
       service_url: 'http://x', service_token_enc: 'enc1',
-      provider_user_id: 'p1', enabled: 1,
+      enabled: 1,
     });
     let cfg = await getProviderServiceConfig(101);
     expect(cfg?.service_url).toBe('http://x');
 
     await upsertProviderServiceConfig(101, {
       service_url: 'http://y', service_token_enc: 'enc2',
-      provider_user_id: 'p1', enabled: 1,
+      enabled: 1,
     });
     cfg = await getProviderServiceConfig(101);
     expect(cfg?.service_url).toBe('http://y');
@@ -48,10 +48,10 @@ describe('localUsageRepo', () => {
 
   it('listUsersWithProviderServiceConfig returns enabled users only', async () => {
     await upsertProviderServiceConfig(101, {
-      service_url: 'x', service_token_enc: 'e', provider_user_id: 'p', enabled: 1,
+      service_url: 'x', service_token_enc: 'e', enabled: 1,
     });
     await upsertProviderServiceConfig(102, {
-      service_url: 'x', service_token_enc: 'e', provider_user_id: 'p', enabled: 0,
+      service_url: 'x', service_token_enc: 'e', enabled: 0,
     });
     const ids = (await listUsersWithProviderServiceConfig()).map((u) => u.user_id);
     expect(ids).toEqual([101]);
@@ -93,7 +93,7 @@ describe('localUsageRepo', () => {
 
   it('updateSyncStatus clears error on success', async () => {
     await upsertProviderServiceConfig(101, {
-      service_url: 'x', service_token_enc: 'e', provider_user_id: 'p', enabled: 1,
+      service_url: 'x', service_token_enc: 'e', enabled: 1,
     });
     await updateSyncStatus(101, {
       last_sync_at: '2026-05-01T12:00:00',
@@ -170,7 +170,7 @@ describe('listAllActiveProviderUserIds', () => {
   it('filters by ID-enabled AND master-enabled', async () => {
     // user 101: master enabled, one row enabled, one disabled
     await upsertProviderServiceConfig(101, {
-      service_url: 'x', service_token_enc: 'e', provider_user_id: 'unused', enabled: 1,
+      service_url: 'x', service_token_enc: 'e', enabled: 1,
     });
     await addProviderUserId(101, 'active-1');
     const r2 = await addProviderUserId(101, 'disabled-2');
@@ -178,7 +178,7 @@ describe('listAllActiveProviderUserIds', () => {
 
     // user 102: master disabled but ID enabled
     await upsertProviderServiceConfig(102, {
-      service_url: 'x', service_token_enc: 'e', provider_user_id: 'unused', enabled: 0,
+      service_url: 'x', service_token_enc: 'e', enabled: 0,
     });
     await addProviderUserId(102, 'master-off-3');
 
@@ -191,7 +191,7 @@ describe('listAllActiveProviderUserIds', () => {
 describe('updateProviderUserIdSyncStatus', () => {
   it('writes cursor + clears error', async () => {
     await upsertProviderServiceConfig(101, {
-      service_url: 'x', service_token_enc: 'e', provider_user_id: 'legacy', enabled: 1,
+      service_url: 'x', service_token_enc: 'e', enabled: 1,
     });
     const row = await addProviderUserId(101, 'sync-1');
     await updateProviderUserIdSyncStatus(row.id, {

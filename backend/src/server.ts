@@ -17,7 +17,7 @@ import {
   scheduleExchangeRateRefresh
 } from './services/exchangeRateService.js';
 import { syncProviderServiceEvents } from './services/providerServiceSyncService.js';
-import { listUsersWithProviderServiceConfig } from './data/localUsageRepo.js';
+import { listAllActiveProviderUserIds } from './data/localUsageRepo.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -83,20 +83,24 @@ async function start(): Promise<void> {
     console.log('Hourly cleanup scheduled for expired sessions and magic-link tokens');
 
     // Pull usage events from each configured ai-provider-service every 15 min.
-    // Logging-only failures keep the tick alive across users.
+    // Iterates per tracker-user; sync internally fans out across that user's
+    // provider_user_ids. Per-id failures are logged but do not abort the loop.
     async function runProviderServiceSyncTick(): Promise<void> {
-      const users = await listUsersWithProviderServiceConfig();
-      for (const u of users) {
+      const active = await listAllActiveProviderUserIds();
+      const userIds = Array.from(new Set(active.map((a) => a.user_id)));
+      for (const uid of userIds) {
         try {
-          const r = await syncProviderServiceEvents(u.user_id);
-          if (r.newEvents > 0) {
-            console.log(`[provider-service-sync] user=${u.user_id} new=${r.newEvents}`);
-          }
-          if (!r.ok) {
-            console.warn(`[provider-service-sync] user=${u.user_id} error=${r.error}`);
+          const r = await syncProviderServiceEvents(uid);
+          for (const p of r.perId) {
+            if (p.newEvents > 0) {
+              console.log(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} new=${p.newEvents}`);
+            }
+            if (!p.ok) {
+              console.warn(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} error=${p.error}`);
+            }
           }
         } catch (err) {
-          console.error('[provider-service-sync] unexpected', u.user_id, err);
+          console.error('[provider-service-sync] unexpected', uid, err);
         }
       }
     }

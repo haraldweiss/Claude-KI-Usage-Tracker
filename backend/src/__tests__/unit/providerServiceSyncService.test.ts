@@ -8,8 +8,9 @@ process.env.SECRETS_KEY = Buffer.alloc(32, 7).toString('base64');
 const { initDatabase, runQuery } = await import('../../database/sqlite.js');
 const {
   upsertProviderServiceConfig,
-  getProviderServiceConfig,
   insertEventIfNew,
+  addProviderUserId,
+  listProviderUserIds,
 } = await import('../../data/localUsageRepo.js');
 const { encryptSecret } = await import('../../utils/secretCrypto.js');
 const { syncProviderServiceEvents } = await import(
@@ -40,12 +41,16 @@ beforeEach(async () => {
     service_token_enc: encryptSecret('test-token'),
     enabled: 1,
   });
+  // Add one provider_user_id ('pu') to mirror Sub-A's single-ID setup so existing
+  // assertions about cursor/error still make sense.
+  await addProviderUserId(201, 'pu');
   fetchMock = jest.fn();
   (globalThis as unknown as { fetch: jest.Mock }).fetch = fetchMock;
 });
 
 afterEach(async () => {
   await runQuery('DELETE FROM provider_service_events');
+  await runQuery('DELETE FROM provider_service_user_ids');
   await runQuery('DELETE FROM user_provider_service_config');
   jest.resetAllMocks();
 });
@@ -63,10 +68,12 @@ describe('syncProviderServiceEvents', () => {
     const result = await syncProviderServiceEvents(201);
     expect(result.ok).toBe(true);
     expect(result.newEvents).toBe(1);
+    expect(result.perId).toHaveLength(1);
+    expect(result.perId[0].providerUserId).toBe('pu');
 
-    const cfg = await getProviderServiceConfig(201);
-    expect(cfg?.last_sync_cursor).toBe('2026-05-01T12:00:00');
-    expect(cfg?.last_sync_error).toBeNull();
+    const ids = await listProviderUserIds(201);
+    expect(ids[0].last_sync_cursor).toBe('2026-05-01T12:00:00');
+    expect(ids[0].last_sync_error).toBeNull();
   });
 
   it('paginates while has_more is true', async () => {
@@ -115,13 +122,13 @@ describe('syncProviderServiceEvents', () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
     const result = await syncProviderServiceEvents(201);
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/401/);
+    expect(result.perId[0].error).toMatch(/401/);
 
-    const cfg = await getProviderServiceConfig(201);
-    expect(cfg?.last_sync_error).toMatch(/401/);
+    const ids = await listProviderUserIds(201);
+    expect(ids[0].last_sync_error).toMatch(/401/);
   });
 
-  it('returns ok with 0 events when disabled', async () => {
+  it('returns ok with 0 events when master disabled', async () => {
     await runQuery(
       'UPDATE user_provider_service_config SET enabled = 0 WHERE user_id = ?',
       [201],
@@ -129,7 +136,29 @@ describe('syncProviderServiceEvents', () => {
     const result = await syncProviderServiceEvents(201);
     expect(result.ok).toBe(true);
     expect(result.newEvents).toBe(0);
+    expect(result.perId).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('iterates over multiple active ids — one ok, one 401', async () => {
+    await addProviderUserId(201, 'pu-2');
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          events: [makeEvent(1, '2026-05-01T12:00:00')],
+          count: 1, next_since: '2026-05-01T12:00:00', has_more: false,
+        }),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
+
+    const result = await syncProviderServiceEvents(201);
+    expect(result.ok).toBe(false);
+    expect(result.newEvents).toBe(1);
+    expect(result.perId).toHaveLength(2);
+    expect(result.perId[0].ok).toBe(true);
+    expect(result.perId[1].ok).toBe(false);
+    expect(result.perId[1].error).toMatch(/401/);
   });
 
   it('sends bearer token and user_id in request', async () => {

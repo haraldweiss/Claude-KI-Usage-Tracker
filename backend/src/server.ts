@@ -16,6 +16,8 @@ import {
   refreshExchangeRate,
   scheduleExchangeRateRefresh
 } from './services/exchangeRateService.js';
+import { syncProviderServiceEvents } from './services/providerServiceSyncService.js';
+import { listUsersWithProviderServiceConfig } from './data/localUsageRepo.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -79,6 +81,31 @@ async function start(): Promise<void> {
       }
     });
     console.log('Hourly cleanup scheduled for expired sessions and magic-link tokens');
+
+    // Pull usage events from each configured ai-provider-service every 15 min.
+    // Logging-only failures keep the tick alive across users.
+    async function runProviderServiceSyncTick(): Promise<void> {
+      const users = await listUsersWithProviderServiceConfig();
+      for (const u of users) {
+        try {
+          const r = await syncProviderServiceEvents(u.user_id);
+          if (r.newEvents > 0) {
+            console.log(`[provider-service-sync] user=${u.user_id} new=${r.newEvents}`);
+          }
+          if (!r.ok) {
+            console.warn(`[provider-service-sync] user=${u.user_id} error=${r.error}`);
+          }
+        } catch (err) {
+          console.error('[provider-service-sync] unexpected', u.user_id, err);
+        }
+      }
+    }
+    cron.schedule('*/15 * * * *', () => {
+      void runProviderServiceSyncTick();
+    });
+    // Kick off one tick on startup so the dashboard has data without waiting.
+    void runProviderServiceSyncTick();
+    console.log('Provider-service sync scheduled every 15 minutes');
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);

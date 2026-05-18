@@ -16,9 +16,17 @@ export async function getCurated(_req: Request, res: Response): Promise<void> {
   const sections = await Promise.all(
     spec.sections.map(async (s) => {
       const cards = await Promise.all(
-        s.models.map((repo) =>
-          fetchModelMetadata(repo, s.default_quant).catch(() => null),
-        ),
+        s.models.map(async (m): Promise<ModelCard | null> => {
+          const card = await fetchModelMetadata(m.repo, s.default_quant).catch(() => null);
+          if (!card) return null;
+          // Merge curated meta into the HF-derived card.
+          return {
+            ...card,
+            pros: m.pros,
+            cons: m.cons,
+            setup_note: m.setup_note,
+          };
+        }),
       );
       return {
         key: s.key,

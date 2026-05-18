@@ -73,6 +73,28 @@ export default function ModelCard({
           {card.description}
         </p>
       )}
+      {(card.pros?.length || card.cons?.length || card.setup_note) && (
+        <div className="mt-2 space-y-1">
+          {card.pros?.map((p, i) => (
+            <div key={`p${i}`} className="text-xs text-green-800 flex gap-1">
+              <span aria-hidden>✅</span>
+              <span>{p}</span>
+            </div>
+          ))}
+          {card.cons?.map((c, i) => (
+            <div key={`c${i}`} className="text-xs text-amber-800 flex gap-1">
+              <span aria-hidden>⚠️</span>
+              <span>{c}</span>
+            </div>
+          ))}
+          {card.setup_note && (
+            <div className="text-xs text-blue-900 flex gap-1 bg-blue-50 border border-blue-200 rounded px-2 py-1 mt-1">
+              <span aria-hidden>🔧</span>
+              <span>{card.setup_note}</span>
+            </div>
+          )}
+        </div>
+      )}
       <div className="mt-3 flex items-center gap-2">
         <code className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 break-all font-mono">
           {card.ollama_command}

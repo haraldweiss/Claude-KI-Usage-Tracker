@@ -12,6 +12,10 @@ export interface ModelCard {
   description: string;
   default_quant: string;
   ollama_command: string;
+  // Curated meta (only on curated models, not on search results):
+  pros?: string[];
+  cons?: string[];
+  setup_note?: string;
   stale?: boolean;
 }
 

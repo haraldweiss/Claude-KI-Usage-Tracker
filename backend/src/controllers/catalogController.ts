@@ -2,40 +2,17 @@
 // © 2026 Harald Weiss
 // HTTP handlers for /api/catalog/*. Auth via requireUser (router-level).
 import type { Request, Response } from 'express';
-import { readFile } from 'fs/promises';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import {
   fetchModelMetadata,
   searchModels,
   type ModelCard,
 } from '../services/catalogService.js';
+import { CURATED_MODELS } from '../data/curatedModels.js';
 import { getProviderServiceConfig } from '../data/localUsageRepo.js';
 import { decryptSecret } from '../utils/secretCrypto.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CURATED_PATH = join(__dirname, '../data/curated-models.json');
-
-interface CuratedSpec {
-  sections: Array<{
-    key: string;
-    label: string;
-    default_quant: string;
-    models: string[];
-  }>;
-}
-
-let curatedSpecCache: CuratedSpec | null = null;
-
-async function loadCuratedSpec(): Promise<CuratedSpec> {
-  if (curatedSpecCache) return curatedSpecCache;
-  const txt = await readFile(CURATED_PATH, 'utf-8');
-  curatedSpecCache = JSON.parse(txt) as CuratedSpec;
-  return curatedSpecCache;
-}
-
 export async function getCurated(_req: Request, res: Response): Promise<void> {
-  const spec = await loadCuratedSpec();
+  const spec = CURATED_MODELS;
   const sections = await Promise.all(
     spec.sections.map(async (s) => {
       const cards = await Promise.all(

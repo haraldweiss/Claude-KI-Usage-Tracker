@@ -12,6 +12,10 @@ import { getCachedCard, getOldestFetchedAt } from '../data/catalogCacheRepo.js';
 import { listLatestUploads } from '../data/latestUploadsRepo.js';
 import { getProviderServiceConfig } from '../data/localUsageRepo.js';
 import { decryptSecret } from '../utils/secretCrypto.js';
+import {
+  generateBatchProsCons,
+  isProsConsEnabled,
+} from '../services/catalogProsConsService.js';
 
 export async function getCurated(_req: Request, res: Response): Promise<void> {
   const spec = CURATED_MODELS;
@@ -77,7 +81,29 @@ export async function getSearch(req: Request, res: Response): Promise<void> {
   const limit = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 50, 50));
   try {
     const r = await searchModels(q, limit);
-    res.json(r);
+
+    // B.3: First, replace cards that already have cached pros/cons (from earlier visits).
+    const merged = await Promise.all(
+      r.results.map(async (card): Promise<ModelCard> => {
+        const cached = await getCachedCard(card.repo);
+        if (cached?.card.pros && cached.card.pros.length > 0) {
+          return { ...card, pros: cached.card.pros, cons: cached.card.cons };
+        }
+        return card;
+      }),
+    );
+    res.json({ results: merged });
+
+    // Fire-and-forget: generate pros/cons for the top-10 results that don't yet
+    // have them. Next time the same model is searched, it'll come back with pros.
+    if (isProsConsEnabled()) {
+      const top = merged.slice(0, 10).filter((c) => !c.pros || c.pros.length === 0);
+      if (top.length > 0) {
+        void generateBatchProsCons(top).catch((err) =>
+          console.error('[catalog-pros] search async error', (err as Error).message),
+        );
+      }
+    }
   } catch (e) {
     res.status(502).json({ error: 'hf_unreachable', detail: (e as Error).message });
   }

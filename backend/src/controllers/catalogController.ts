@@ -9,12 +9,15 @@ import {
 } from '../services/catalogService.js';
 import { CURATED_MODELS } from '../data/curatedModels.js';
 import { getCachedCard, getOldestFetchedAt } from '../data/catalogCacheRepo.js';
+import { listLatestUploads } from '../data/latestUploadsRepo.js';
 import { getProviderServiceConfig } from '../data/localUsageRepo.js';
 import { decryptSecret } from '../utils/secretCrypto.js';
 
 export async function getCurated(_req: Request, res: Response): Promise<void> {
   const spec = CURATED_MODELS;
-  const sections = await Promise.all(
+
+  // 3 static sections (unchanged)
+  const staticSections = await Promise.all(
     spec.sections.map(async (s) => {
       const cards = await Promise.all(
         s.models.map(async (m): Promise<ModelCard | null> => {
@@ -44,8 +47,24 @@ export async function getCurated(_req: Request, res: Response): Promise<void> {
       };
     }),
   );
+
+  // 4th dynamic section: latest uploads (Sub-B.2)
+  const latestRows = await listLatestUploads();
+  const latestCards = await Promise.all(latestRows.map(async (r): Promise<ModelCard | null> => {
+    const cached = await getCachedCard(r.repo);
+    if (cached) return cached.card;
+    // Cold-start fallback — unlikely once cron has run, but graceful
+    return fetchModelMetadata(r.repo, 'Q4_K_M').catch(() => null);
+  }));
+  const latestSection = {
+    key: 'latest',
+    label: 'Frisch hochgeladen',
+    default_quant: 'Q4_K_M',
+    models: latestCards.filter((c): c is ModelCard => c !== null),
+  };
+
   const oldest = await getOldestFetchedAt();
-  res.json({ sections, fetched_at: oldest });
+  res.json({ sections: [...staticSections, latestSection], fetched_at: oldest });
 }
 
 export async function getSearch(req: Request, res: Response): Promise<void> {

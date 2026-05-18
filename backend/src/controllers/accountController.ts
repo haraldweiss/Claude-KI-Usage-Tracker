@@ -3,6 +3,7 @@
 import type { Request, Response } from 'express';
 import { runQuery, getQuery } from '../database/sqlite.js';
 import { createApiToken, getActiveApiToken, revokeApiToken } from '../services/authService.js';
+import { recordImmediatePlanChange } from '../services/planScheduleService.js';
 import type { User } from '../types/index.js';
 
 export async function getAccount(req: Request, res: Response): Promise<void> {
@@ -29,6 +30,10 @@ export async function patchAccount(req: Request, res: Response): Promise<void> {
   if (updates.length === 0) { res.status(400).json({ error: 'nothing to update' }); return; }
   values.push(u.id);
   await runQuery(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+  // Append history entry if plan_name was provided and actually changed.
+  if (typeof plan_name === 'string' && plan_name.length > 0) {
+    await recordImmediatePlanChange(u.id, plan_name);
+  }
   const updated = await getQuery<User>('SELECT * FROM users WHERE id = ?', [u.id]);
   res.json(updated);
 }

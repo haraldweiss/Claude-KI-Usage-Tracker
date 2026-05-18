@@ -171,3 +171,27 @@ export function __clearCacheForTest(opts?: { keepStale?: boolean }): void {
   }
   cache.clear();
 }
+
+// ---------------------------------------------------------------------------
+// Sub-B.2: Latest uploads by author (Bartowski / MaziyarPanahi)
+// ---------------------------------------------------------------------------
+
+export interface HfModelDto {
+  id?: string;            // e.g. "bartowski/X-GGUF"
+  modelId?: string;       // sometimes used instead of id
+  lastModified?: string;  // ISO 8601
+}
+
+export async function fetchLatestUploads(
+  author: string, limit: number = 15,
+): Promise<HfModelDto[]> {
+  const url = new URL('https://huggingface.co/api/models');
+  url.searchParams.set('author', author);
+  url.searchParams.set('library', 'gguf');
+  url.searchParams.set('sort', 'lastModified');
+  url.searchParams.set('direction', '-1');
+  url.searchParams.set('limit', String(limit));
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  if (!res.ok) throw new Error(`HF ${res.status}`);
+  return (await res.json()) as HfModelDto[];
+}

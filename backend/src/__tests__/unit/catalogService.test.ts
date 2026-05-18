@@ -117,3 +117,30 @@ describe('searchModels', () => {
     expect(r.results[0].repo).toBe('bartowski/A-GGUF');
   });
 });
+
+const { fetchLatestUploads } = await import('../../services/catalogService.js');
+
+describe('fetchLatestUploads', () => {
+  it('queries HF with author + sort=lastModified', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        { id: 'bartowski/A-GGUF', lastModified: '2026-05-17T10:00:00' },
+        { id: 'bartowski/B-GGUF', lastModified: '2026-05-16T10:00:00' },
+      ],
+    });
+    const r = await fetchLatestUploads('bartowski', 10);
+    expect(r).toHaveLength(2);
+    expect(r[0]?.id).toBe('bartowski/A-GGUF');
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('author=bartowski');
+    expect(String(url)).toContain('sort=lastModified');
+    expect(String(url)).toContain('direction=-1');
+    expect(String(url)).toContain('limit=10');
+  });
+
+  it('throws on HF error', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+    await expect(fetchLatestUploads('bartowski')).rejects.toThrow(/HF 500/);
+  });
+});

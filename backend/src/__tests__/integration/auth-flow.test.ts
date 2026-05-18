@@ -31,9 +31,12 @@ describe('magic-link auth flow', () => {
     expect(tokenMatch).toBeTruthy();
     const token = tokenMatch![1];
 
-    // 2. Consume token
+    // 2. Consume token. Controller returns 200 + HTML page with JS redirect
+    // (see 8e5c32a — chosen over 302 because some browsers don't carry the
+    // set-cookie through cross-path redirects reliably).
     const verifyRes = await request(app).post('/api/auth/verify').send({ token });
-    expect(verifyRes.status).toBe(302);  // redirect
+    expect(verifyRes.status).toBe(200);
+    expect(verifyRes.text).toContain('window.location.href');
     const cookieHeader = verifyRes.headers['set-cookie'];
     expect(cookieHeader).toBeTruthy();
     const cookie = (cookieHeader as unknown as string[])[0];

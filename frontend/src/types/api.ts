@@ -205,3 +205,20 @@ export interface AdminStats {
   active_last_7d: number;
   total_records: number;
 }
+
+export interface PlanHistoryRow {
+  id: number;
+  user_id: number;
+  plan_name: string;
+  effective_from: string;
+  created_at: string;
+  source: 'manual' | 'seed' | 'scheduled';
+  note: string | null;
+}
+
+export interface PendingPlanChange {
+  id: number;
+  plan_name: string;
+  effective_from: string;
+  note: string | null;
+}

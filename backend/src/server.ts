@@ -18,6 +18,7 @@ import {
 } from './services/exchangeRateService.js';
 import { syncProviderServiceEvents } from './services/providerServiceSyncService.js';
 import { listAllActiveProviderUserIds } from './data/localUsageRepo.js';
+import { applyDuePlanChanges } from './services/planScheduleService.js';
 import {
   refreshCuratedHfCache,
   isCacheEmpty,
@@ -49,6 +50,20 @@ async function start(): Promise<void> {
 
     // Schedule daily pricing check (model prices via LiteLLM)
     schedulePricingCheck(cron);
+
+    // Plan-schedule cron: flip users.plan_name when a scheduled change is due.
+    cron.schedule('5 0 * * *', async () => {
+      try {
+        const synced = await applyDuePlanChanges();
+        if (synced > 0) console.log(`[planSchedule] ${synced} user(s) synced`);
+      } catch (err) {
+        console.error('Scheduled plan-change apply failed:', err);
+      }
+    });
+    // Run once at startup in case the server was down during the cron tick.
+    applyDuePlanChanges().catch((err) =>
+      console.error('Startup plan-schedule apply failed:', (err as Error).message)
+    );
 
     // Schedule daily refresh of plan subscription pricing (best-effort)
     schedulePlanPricingRefresh(cron);

@@ -20,7 +20,9 @@ import {
   CurrentUser,
   ApiTokenInfo,
   AdminUserRow,
-  AdminStats
+  AdminStats,
+  PlanHistoryRow,
+  PendingPlanChange
 } from '../types/api';
 
 // Use relative path for API calls — works both locally and on production VPS
@@ -264,3 +266,32 @@ export const adminDeleteUser = (id: number) =>
 
 /** Return aggregate admin stats. */
 export const adminStats = () => apiCall<AdminStats>('/admin/stats');
+
+// ---------------------------------------------------------------------------
+// Plan-schedule endpoints
+// ---------------------------------------------------------------------------
+
+/** Return the current user's plan-change history, DESC by effective_from. */
+export const getPlanHistory = (limit?: number) =>
+  apiCall<PlanHistoryRow[]>(
+    `/account/plan-history${limit ? `?limit=${limit}` : ''}`
+  );
+
+/** Return the user's next pending plan change, or null. */
+export const getPlanPending = () =>
+  apiCall<PendingPlanChange | null>('/account/plan-pending');
+
+/** Schedule a future plan change. Throws 400 on validation errors. */
+export const postPlanSchedule = (body: {
+  plan_name: string;
+  effective_from: string;
+  note?: string;
+}) =>
+  apiCall<{ id: number }>('/account/plan-schedule', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** Cancel all pending scheduled plan changes for the current user. */
+export const deletePlanSchedule = () =>
+  apiCall<void>('/account/plan-schedule', { method: 'DELETE' });

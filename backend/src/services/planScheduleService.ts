@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
-import { getQuery } from '../database/sqlite.js';
+import { getQuery, allQuery } from '../database/sqlite.js';
+import type { PendingPlanChange, PlanHistoryRow } from '../types/index.js';
 
 /**
  * Authoritative source of "what plan is this user on right now".
@@ -16,4 +17,39 @@ export async function getCurrentPlan(userId: number): Promise<string | null> {
     [userId]
   );
   return row?.plan_name ?? null;
+}
+
+/**
+ * Next future plan change (effective_from strictly > today, UTC), or null.
+ * Tie-broken by id ASC so the earliest-inserted wins among same-date rows.
+ */
+export async function getPendingPlanChange(
+  userId: number
+): Promise<PendingPlanChange | null> {
+  const row = await getQuery<PendingPlanChange>(
+    `SELECT id, plan_name, effective_from, note
+       FROM plan_history
+      WHERE user_id = ? AND effective_from > date('now')
+      ORDER BY effective_from ASC, id ASC
+      LIMIT 1`,
+    [userId]
+  );
+  return row ?? null;
+}
+
+/**
+ * Full plan history for a user, DESC by effective_from (then id DESC).
+ * Pass `limit` to cap the number of rows returned.
+ */
+export async function getPlanHistory(
+  userId: number,
+  limit?: number
+): Promise<PlanHistoryRow[]> {
+  const sql =
+    `SELECT id, user_id, plan_name, effective_from, created_at, source, note
+       FROM plan_history
+      WHERE user_id = ?
+      ORDER BY effective_from DESC, id DESC` + (limit ? ' LIMIT ?' : '');
+  const params: unknown[] = limit ? [userId, limit] : [userId];
+  return allQuery<PlanHistoryRow>(sql, params);
 }

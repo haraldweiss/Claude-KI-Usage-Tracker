@@ -56,3 +56,61 @@ describe('getCurrentPlan', () => {
     expect(await getCurrentPlan(501)).toBe('Max (5x)');
   });
 });
+
+const { getPendingPlanChange, getPlanHistory } = await import('../../services/planScheduleService.js');
+
+describe('getPendingPlanChange', () => {
+  it('returns null when no future entry exists', async () => {
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source)
+       VALUES (501, 'Max (5x)', '2026-01-01', 'seed')`
+    );
+    expect(await getPendingPlanChange(501)).toBeNull();
+  });
+
+  it('ignores entries with effective_from = today', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source)
+       VALUES (501, 'Pro', ?, 'manual')`,
+      [today]
+    );
+    expect(await getPendingPlanChange(501)).toBeNull();
+  });
+
+  it('returns the nearest future entry', async () => {
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source) VALUES
+       (501, 'Pro',      '2099-06-01', 'scheduled'),
+       (501, 'Max (5x)', '2099-01-01', 'scheduled')`
+    );
+    const pending = await getPendingPlanChange(501);
+    expect(pending?.plan_name).toBe('Max (5x)');
+    expect(pending?.effective_from).toBe('2099-01-01');
+  });
+});
+
+describe('getPlanHistory', () => {
+  it('returns all entries DESC sorted by effective_from', async () => {
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source) VALUES
+       (501, 'Free',     '2025-01-01', 'seed'),
+       (501, 'Pro',      '2026-01-01', 'manual'),
+       (501, 'Max (5x)', '2026-03-01', 'manual')`
+    );
+    const hist = await getPlanHistory(501);
+    expect(hist.map(r => r.plan_name)).toEqual(['Max (5x)', 'Pro', 'Free']);
+  });
+
+  it('respects the limit parameter', async () => {
+    for (let i = 0; i < 10; i++) {
+      await runQuery(
+        `INSERT INTO plan_history (user_id, plan_name, effective_from, source)
+         VALUES (501, 'Pro', ?, 'manual')`,
+        [`2026-01-${String(i + 1).padStart(2, '0')}`]
+      );
+    }
+    const hist = await getPlanHistory(501, 3);
+    expect(hist).toHaveLength(3);
+  });
+});

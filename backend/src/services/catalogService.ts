@@ -44,9 +44,10 @@ function sizeFromRepo(repo: string): number | null {
   // Heuristic: pick the last "<n>B" pattern. Examples:
   // "Qwen2.5-Coder-7B-Instruct" → 7; "Llama-3.2-3B-Instruct" → 3.
   const matches = [...repo.matchAll(/(\d+(?:\.\d+)?)B/gi)];
-  if (matches.length === 0) return null;
-  const last = matches[matches.length - 1][1];
-  const n = parseFloat(last);
+  const last = matches[matches.length - 1];
+  const captured = last?.[1];
+  if (!captured) return null;
+  const n = parseFloat(captured);
   return Number.isFinite(n) ? n : null;
 }
 

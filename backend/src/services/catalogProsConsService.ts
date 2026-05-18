@@ -6,6 +6,44 @@
 // Karten ohne Pros/Cons werden vom Frontend einfach ohne diese Felder gerendert.
 import type { ModelCard } from './catalogService.js';
 
+export interface ProsCons {
+  pros: string[];
+  cons: string[];
+}
+
+// Tolerant gegenüber LLM-Output: probiert direkten JSON.parse, fällt
+// dann auf RegEx-Extraktion (z.B. wenn der LLM Markdown-Codeblöcke um das
+// JSON wrappt). Normalisiert auf exakt 3 Bullets je Liste (pad mit ""
+// oder truncate), trimmt Strings auf 80 Zeichen. Wirft bei strukturellen
+// Fehlern oder leerem Array.
+export function parseProsCons(content: string): ProsCons {
+  let json: unknown;
+  try {
+    json = JSON.parse(content);
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON object found in response');
+    try {
+      json = JSON.parse(match[0]);
+    } catch (e) {
+      throw new Error(`JSON parse failed: ${(e as Error).message}`);
+    }
+  }
+  const obj = json as { pros?: unknown; cons?: unknown };
+  if (!Array.isArray(obj.pros) || !Array.isArray(obj.cons)) {
+    throw new Error('Response missing pros[] or cons[] arrays');
+  }
+  const normalize = (arr: unknown[]): string[] => {
+    const strings = arr
+      .filter((x): x is string => typeof x === 'string')
+      .map((s) => s.trim().slice(0, 80));
+    if (strings.length === 0) throw new Error('Empty bullet array');
+    while (strings.length < 3) strings.push('');
+    return strings.slice(0, 3);
+  };
+  return { pros: normalize(obj.pros), cons: normalize(obj.cons) };
+}
+
 export function buildPrompt(card: ModelCard): string {
   const desc = card.description?.trim() || '—';
   return [

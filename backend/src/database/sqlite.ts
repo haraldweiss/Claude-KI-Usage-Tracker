@@ -320,6 +320,8 @@ export function initDatabase(): Promise<void> {
           });
           const { seedInitialUser } = await import('./migrations/seedInitialUser.js');
           await seedInitialUser();
+          const { seedPlanHistoryFromUsers } = await import('./migrations/seedPlanHistoryFromUsers.js');
+          await seedPlanHistoryFromUsers();
 
           // Provider-Service integration tables (Sub-project A: local LLM tracking).
           // 1:0..1 with users — each tracker user can configure one ai-provider-service

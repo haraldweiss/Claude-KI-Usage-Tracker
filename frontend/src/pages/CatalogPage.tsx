@@ -93,6 +93,22 @@ export default function CatalogPage(): React.ReactElement {
         />
       </div>
 
+      <div className="mb-4 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2">
+        💡 <strong>Hinweis:</strong> Nicht alle{' '}
+        <code className="font-mono">hf.co/…</code>-Pulls klappen sauber — wenn
+        Ollama "not compatible with llama.cpp" meldet, gibt es das Modell oft
+        auch direkt in der offiziellen{' '}
+        <a
+          href="https://ollama.com/library"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 underline"
+        >
+          Ollama-Library
+        </a>{' '}
+        (z.B. <code className="font-mono">ollama run deepseek-r1:8b</code>).
+      </div>
+
       {searchStale && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 text-xs p-2 rounded mb-3">
           Daten älter als 30 min — HF gerade nicht erreichbar.

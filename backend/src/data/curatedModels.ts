@@ -142,9 +142,10 @@ export const CURATED_MODELS: CuratedSpec = {
           cons: [
             'Etwas größer (8B vs 7B), entsprechend mehr RAM',
             'Ähnliche Latenz-Probleme mit langem <think>-Block',
+            '⚠️ Pull via hf.co/ schlägt in manchen Ollama-Versionen mit "not compatible with llama.cpp" fehl — Workaround unten',
           ],
           setup_note:
-            'Wenn du Reasoning UND vernünftige deutsche Sprachqualität willst, ist diese hier die bessere Wahl als die Qwen-Distill. Für reines Math/Logic ist Qwen-Distill schneller.',
+            'Wenn du Reasoning UND vernünftige deutsche Sprachqualität willst, ist diese hier die bessere Wahl als die Qwen-Distill. Falls der hf.co-Pull fehlschlägt: nimm die offizielle Ollama-Library-Version mit "ollama run deepseek-r1:8b" — funktioniert garantiert.',
         },
       ],
     },

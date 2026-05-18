@@ -414,6 +414,21 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // Sub-B.1: HF metadata cache. Filled daily by the catalogCacheRefresh cron
+          // (and once on startup if empty). Page-load reads from here instead of
+          // hitting the HF API for each curated model.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS catalog_hf_cache (
+                repo        TEXT PRIMARY KEY,
+                data_json   TEXT NOT NULL,
+                fetched_at  TEXT NOT NULL,
+                last_error  TEXT
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

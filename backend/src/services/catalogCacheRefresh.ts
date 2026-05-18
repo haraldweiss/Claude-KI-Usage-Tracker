@@ -4,6 +4,7 @@
 // Per-repo error handling: a failing repo doesn't stop the loop. The
 // existing DB row keeps its data_json and gets last_error stamped.
 import { fetchModelMetadata, fetchLatestUploads } from './catalogService.js';
+import type { ModelCard } from './catalogService.js';
 import { CURATED_MODELS } from '../data/curatedModels.js';
 import {
   upsertCardCache,
@@ -11,6 +12,10 @@ import {
   getCachedCard,
 } from '../data/catalogCacheRepo.js';
 import { replaceLatestUploads } from '../data/latestUploadsRepo.js';
+import {
+  generateBatchProsCons,
+  isProsConsEnabled,
+} from './catalogProsConsService.js';
 
 export interface RefreshSummary {
   refreshed: number;
@@ -118,6 +123,27 @@ export async function refreshLatestUploads(): Promise<RefreshSummary> {
 
   // 4. Atomic replacement of the index table.
   await replaceLatestUploads(top.map((m) => m.repo));
+
+  // 5. B.3: Generate pros/cons for cards that are missing them or are stale (> 30d).
+  //    Failures are non-fatal — they get logged but don't affect the summary.
+  if (isProsConsEnabled()) {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const cardsNeedingPros: ModelCard[] = [];
+    for (const m of top) {
+      const cached = await getCachedCard(m.repo);
+      if (!cached) continue;
+      const generatedAt = cached.card.auto_pros_generated_at ?? '';
+      if (!cached.card.pros || generatedAt < thirtyDaysAgo) {
+        cardsNeedingPros.push(cached.card);
+      }
+    }
+    if (cardsNeedingPros.length > 0) {
+      const r = await generateBatchProsCons(cardsNeedingPros);
+      console.log(
+        `[catalog-pros] latest: generated=${r.generated} failed=${r.failed} skipped=${r.skipped}`,
+      );
+    }
+  }
 
   return summary;
 }

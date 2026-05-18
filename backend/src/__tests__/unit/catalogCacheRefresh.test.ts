@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, jest } from '@j
 
 process.env.DATABASE_PATH = ':memory:';
 
-const { initDatabase, runQuery } = await import('../../database/sqlite.js');
+const { initDatabase, runQuery, allQuery } = await import('../../database/sqlite.js');
 const { __clearCacheForTest } = await import('../../services/catalogService.js');
 const { refreshCuratedHfCache, isCacheEmpty } = await import(
   '../../services/catalogCacheRefresh.js'
@@ -24,7 +24,10 @@ beforeEach(() => {
 
 afterEach(async () => {
   await runQuery('DELETE FROM catalog_hf_cache');
+  await runQuery('DELETE FROM catalog_latest_uploads');
   jest.resetAllMocks();
+  delete process.env.CATALOG_LLM_URL;
+  delete process.env.CATALOG_LLM_TOKEN;
 });
 
 function extractRepoFromUrl(url: string): string {
@@ -217,5 +220,78 @@ describe('refreshLatestUploads', () => {
     expect(r.refreshed).toBe(2);
     const rows = await listLatestUploads();
     expect(rows).toHaveLength(2);
+  });
+
+  it('triggers pros/cons generation when LLM is configured', async () => {
+    process.env.CATALOG_LLM_URL = 'http://pool.test';
+    process.env.CATALOG_LLM_TOKEN = 'tok';
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.includes('author=bartowski') && u.includes('sort=lastModified')) {
+        return {
+          ok: true,
+          json: async () => [{ id: 'bartowski/A-GGUF', lastModified: '2026-05-18T12:00:00' }],
+        };
+      }
+      if (u.includes('author=MaziyarPanahi') && u.includes('sort=lastModified')) {
+        return { ok: true, json: async () => [] };
+      }
+      if (u.includes('/v1/chat/completions')) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: '{"pros":["P1","P2","P3"],"cons":["C1","C2","C3"]}' } }],
+          }),
+        };
+      }
+      // HF metadata fetch (single repo)
+      return {
+        ok: true,
+        json: async () => ({
+          modelId: extractRepoFromUrl(u),
+          downloads: 100,
+          siblings: [{ rfilename: 'q4.gguf' }],
+        }),
+      };
+    });
+    await refreshLatestUploads();
+    const rows = await allQuery<{ data_json: string }>(
+      `SELECT data_json FROM catalog_hf_cache WHERE repo='bartowski/A-GGUF'`,
+    );
+    expect(rows).toHaveLength(1);
+    const card = JSON.parse(rows[0]!.data_json);
+    expect(card.pros).toEqual(['P1', 'P2', 'P3']);
+    expect(card.auto_pros_generated_at).toBeTruthy();
+  });
+
+  it('skips pros/cons generation when LLM is not configured', async () => {
+    // No CATALOG_LLM_* env vars set
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.includes('author=bartowski') && u.includes('sort=lastModified')) {
+        return {
+          ok: true,
+          json: async () => [{ id: 'bartowski/B-GGUF', lastModified: '2026-05-18T12:00:00' }],
+        };
+      }
+      if (u.includes('author=MaziyarPanahi') && u.includes('sort=lastModified')) {
+        return { ok: true, json: async () => [] };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          modelId: extractRepoFromUrl(u),
+          downloads: 100,
+          siblings: [{ rfilename: 'q4.gguf' }],
+        }),
+      };
+    });
+    await refreshLatestUploads();
+    const rows = await allQuery<{ data_json: string }>(
+      `SELECT data_json FROM catalog_hf_cache WHERE repo='bartowski/B-GGUF'`,
+    );
+    expect(rows).toHaveLength(1);
+    const card = JSON.parse(rows[0]!.data_json);
+    expect(card.pros).toBeUndefined();
   });
 });

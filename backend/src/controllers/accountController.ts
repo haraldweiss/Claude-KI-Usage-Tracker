@@ -3,7 +3,13 @@
 import type { Request, Response } from 'express';
 import { runQuery, getQuery } from '../database/sqlite.js';
 import { createApiToken, getActiveApiToken, revokeApiToken } from '../services/authService.js';
-import { recordImmediatePlanChange } from '../services/planScheduleService.js';
+import {
+  recordImmediatePlanChange,
+  getPlanHistory as svcGetPlanHistory,
+  getPendingPlanChange,
+  schedulePlanChange,
+  cancelPendingPlanChange,
+} from '../services/planScheduleService.js';
 import type { User } from '../types/index.js';
 
 export async function getAccount(req: Request, res: Response): Promise<void> {
@@ -62,5 +68,40 @@ export async function rotateToken(req: Request, res: Response): Promise<void> {
 export async function revokeToken(req: Request, res: Response): Promise<void> {
   const t = await getActiveApiToken(req.user!.id);
   if (t) await revokeApiToken(req.user!.id, t.id);
+  res.status(204).send();
+}
+
+export async function getPlanHistory(req: Request, res: Response): Promise<void> {
+  const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+  const hist = await svcGetPlanHistory(req.user!.id, limit);
+  res.json(hist);
+}
+
+export async function getPlanPending(req: Request, res: Response): Promise<void> {
+  const pending = await getPendingPlanChange(req.user!.id);
+  res.json(pending);
+}
+
+export async function postPlanSchedule(req: Request, res: Response): Promise<void> {
+  const { plan_name, effective_from, note } = req.body || {};
+  if (typeof plan_name !== 'string' || typeof effective_from !== 'string') {
+    res.status(400).json({ error: 'plan_name and effective_from required' });
+    return;
+  }
+  try {
+    const id = await schedulePlanChange(
+      req.user!.id,
+      plan_name,
+      effective_from,
+      typeof note === 'string' ? note.slice(0, 500) : undefined
+    );
+    res.status(201).json({ id });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+}
+
+export async function deletePlanSchedule(req: Request, res: Response): Promise<void> {
+  await cancelPendingPlanChange(req.user!.id);
   res.status(204).send();
 }

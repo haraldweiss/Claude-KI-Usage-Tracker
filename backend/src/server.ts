@@ -25,7 +25,13 @@ import {
   isCacheEmpty,
   evictStaleSearchCacheRows,
 } from './services/catalogCacheRefresh.js';
-import { isLatestUploadsEmpty } from './data/latestUploadsRepo.js';
+import { isLatestUploadsEmpty, listLatestUploads } from './data/latestUploadsRepo.js';
+import {
+  generateBatchProsCons,
+  isProsConsEnabled,
+} from './services/catalogProsConsService.js';
+import { getCachedCard } from './data/catalogCacheRepo.js';
+import type { ModelCard } from './services/catalogService.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -170,6 +176,24 @@ async function start(): Promise<void> {
           console.log('[catalog-cache] latest empty on startup — priming');
           const rl = await refreshLatestUploads();
           console.log(`[catalog-cache] primed latest=${rl.refreshed}/${rl.failed}`);
+        } else if (isProsConsEnabled()) {
+          // B.3 upgrade path: latest is already populated by B.2, but pros are
+          // missing on the existing rows because B.3 wasn't yet deployed when
+          // they were inserted. Backfill pros for any latest_upload that lacks
+          // them, so the user doesn't have to wait until the next 04:00 cron.
+          const latestRows = await listLatestUploads();
+          const missing: ModelCard[] = [];
+          for (const row of latestRows) {
+            const cached = await getCachedCard(row.repo);
+            if (cached && (!cached.card.pros || cached.card.pros.length === 0)) {
+              missing.push(cached.card);
+            }
+          }
+          if (missing.length > 0) {
+            console.log(`[catalog-pros] backfilling pros for ${missing.length} existing latest uploads`);
+            const r = await generateBatchProsCons(missing);
+            console.log(`[catalog-pros] backfill: generated=${r.generated} failed=${r.failed} skipped=${r.skipped}`);
+          }
         }
       })
       .catch((err) => console.error('[catalog-cache] prime error', err));

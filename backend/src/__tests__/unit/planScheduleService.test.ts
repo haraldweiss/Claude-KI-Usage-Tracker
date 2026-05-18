@@ -125,6 +125,18 @@ beforeAll(async () => {
 });
 
 describe('schedulePlanChange', () => {
+  it('rejects malformed date string', async () => {
+    await expect(
+      schedulePlanChange(501, 'Pro', 'not-a-date')
+    ).rejects.toThrow(/valid ISO date/);
+  });
+
+  it('rejects impossible date like 2026-13-01', async () => {
+    await expect(
+      schedulePlanChange(501, 'Pro', '2026-13-01')
+    ).rejects.toThrow(/valid ISO date/);
+  });
+
   it('rejects past date', async () => {
     await expect(
       schedulePlanChange(501, 'Pro', '2020-01-01')

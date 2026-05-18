@@ -60,6 +60,8 @@ export default function AccountSection(): React.ReactElement {
     try {
       await deletePlanSchedule();
       setPending(null);
+      const freshHistory = await getPlanHistory(5);
+      setHistory(freshHistory);
     } catch (err) {
       alert('Fehler: ' + (err as Error).message);
     }

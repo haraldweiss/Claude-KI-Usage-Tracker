@@ -64,6 +64,9 @@ export async function schedulePlanChange(
   effectiveFrom: string,
   note?: string
 ): Promise<number> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) || isNaN(Date.parse(effectiveFrom))) {
+    throw new Error('effective_from must be a valid ISO date (YYYY-MM-DD)');
+  }
   const today = new Date().toISOString().slice(0, 10);
   if (effectiveFrom < today) {
     throw new Error('effective_from must be today or later');

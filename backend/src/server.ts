@@ -18,6 +18,10 @@ import {
 } from './services/exchangeRateService.js';
 import { syncProviderServiceEvents } from './services/providerServiceSyncService.js';
 import { listAllActiveProviderUserIds } from './data/localUsageRepo.js';
+import {
+  refreshCuratedHfCache,
+  isCacheEmpty,
+} from './services/catalogCacheRefresh.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -110,6 +114,35 @@ async function start(): Promise<void> {
     // Kick off one tick on startup so the dashboard has data without waiting.
     void runProviderServiceSyncTick();
     console.log('Provider-service sync scheduled every 15 minutes');
+
+    // Sub-B.1: Daily refresh of HF metadata for curated catalog models at 04:00.
+    // Offset from the 02:00 pricing cron to avoid network spikes.
+    cron.schedule('0 4 * * *', async () => {
+      try {
+        console.log('[catalog-cache] starting daily refresh');
+        const r = await refreshCuratedHfCache();
+        console.log(`[catalog-cache] refreshed=${r.refreshed} failed=${r.failed}`);
+        for (const e of r.errors) {
+          console.warn(`[catalog-cache] ${e.repo}: ${e.error}`);
+        }
+      } catch (err) {
+        console.error('[catalog-cache] cron error', err);
+      }
+    });
+    console.log('Catalog HF cache refresh scheduled daily at 04:00');
+
+    // On startup: prime the cache if empty so the first page-load
+    // doesn't have to fall back to live HF for every model.
+    isCacheEmpty().then((empty) => {
+      if (empty) {
+        console.log('[catalog-cache] cache empty on startup — priming');
+        refreshCuratedHfCache()
+          .then((r) => console.log(
+            `[catalog-cache] primed: refreshed=${r.refreshed} failed=${r.failed}`,
+          ))
+          .catch((err) => console.error('[catalog-cache] prime error', err));
+      }
+    }).catch((err) => console.error('[catalog-cache] empty-check error', err));
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);

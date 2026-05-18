@@ -16,6 +16,7 @@ import {
   generateBatchProsCons,
   isProsConsEnabled,
 } from './catalogProsConsService.js';
+import { runQuery } from '../database/sqlite.js';
 
 export interface RefreshSummary {
   refreshed: number;
@@ -146,4 +147,25 @@ export async function refreshLatestUploads(): Promise<RefreshSummary> {
   }
 
   return summary;
+}
+
+// ---------------------------------------------------------------------------
+// B.3 Eviction: remove search-hit cache rows older than 90 days.
+// Curated repos and current latest_uploads are immune.
+// ---------------------------------------------------------------------------
+
+const EVICTION_AGE_DAYS = 90;
+
+export async function evictStaleSearchCacheRows(): Promise<{ evicted: number }> {
+  const curatedRepos = CURATED_MODELS.sections.flatMap((s) => s.models.map((m) => m.repo));
+  const cutoff = new Date(Date.now() - EVICTION_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const placeholders = curatedRepos.map(() => '?').join(',') || "''";
+  const r = await runQuery(
+    `DELETE FROM catalog_hf_cache
+       WHERE fetched_at < ?
+         AND repo NOT IN (${placeholders})
+         AND repo NOT IN (SELECT repo FROM catalog_latest_uploads)`,
+    [cutoff, ...curatedRepos],
+  );
+  return { evicted: r.changes ?? 0 };
 }

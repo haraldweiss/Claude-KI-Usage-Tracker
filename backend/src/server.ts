@@ -23,6 +23,7 @@ import {
   refreshCuratedHfCache,
   refreshLatestUploads,
   isCacheEmpty,
+  evictStaleSearchCacheRows,
 } from './services/catalogCacheRefresh.js';
 import { isLatestUploadsEmpty } from './data/latestUploadsRepo.js';
 import { createApp } from './app.js';
@@ -141,8 +142,11 @@ async function start(): Promise<void> {
         console.log(`[catalog-cache] curated refreshed=${r.refreshed} failed=${r.failed}`);
         const l = await refreshLatestUploads();
         console.log(`[catalog-cache] latest  refreshed=${l.refreshed} failed=${l.failed}`);
-        for (const e of [...r.errors, ...l.errors]) {
-          console.warn(`[catalog-cache] ${e.repo}: ${e.error}`);
+        // B.3: evict search-hit cache rows older than 90 days (curated/latest immune).
+        const e = await evictStaleSearchCacheRows();
+        console.log(`[catalog-cache] evicted ${e.evicted} stale search rows`);
+        for (const err of [...r.errors, ...l.errors]) {
+          console.warn(`[catalog-cache] ${err.repo}: ${err.error}`);
         }
       } catch (err) {
         console.error('[catalog-cache] cron error', err);

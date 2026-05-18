@@ -110,7 +110,7 @@ describe('isCacheEmpty', () => {
   });
 });
 
-const { refreshLatestUploads } = await import(
+const { refreshLatestUploads, evictStaleSearchCacheRows } = await import(
   '../../services/catalogCacheRefresh.js'
 );
 const { listLatestUploads } = await import('../../data/latestUploadsRepo.js');
@@ -262,6 +262,42 @@ describe('refreshLatestUploads', () => {
     const card = JSON.parse(rows[0]!.data_json);
     expect(card.pros).toEqual(['P1', 'P2', 'P3']);
     expect(card.auto_pros_generated_at).toBeTruthy();
+  });
+
+  it('evictStaleSearchCacheRows deletes only old rows that are NOT curated or in latest_uploads', async () => {
+    const old = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
+    const recent = new Date().toISOString();
+    const curatedRepo = 'bartowski/Qwen2.5-Coder-7B-Instruct-GGUF';
+
+    await runQuery(
+      `INSERT INTO catalog_hf_cache (repo, data_json, fetched_at) VALUES (?, ?, ?)`,
+      ['old/search-hit', '{}', old],
+    );
+    await runQuery(
+      `INSERT INTO catalog_hf_cache (repo, data_json, fetched_at) VALUES (?, ?, ?)`,
+      [curatedRepo, '{}', old],
+    );
+    await runQuery(
+      `INSERT INTO catalog_hf_cache (repo, data_json, fetched_at) VALUES (?, ?, ?)`,
+      ['old/in-latest', '{}', old],
+    );
+    await runQuery(
+      `INSERT INTO catalog_hf_cache (repo, data_json, fetched_at) VALUES (?, ?, ?)`,
+      ['recent/search-hit', '{}', recent],
+    );
+    await runQuery(
+      `INSERT INTO catalog_latest_uploads (position, repo, fetched_at) VALUES (?, ?, ?)`,
+      [1, 'old/in-latest', recent],
+    );
+
+    const r = await evictStaleSearchCacheRows();
+    expect(r.evicted).toBe(1);
+    const remaining = await allQuery<{ repo: string }>(`SELECT repo FROM catalog_hf_cache`);
+    const repos = remaining.map((x) => x.repo);
+    expect(repos).toContain(curatedRepo);
+    expect(repos).toContain('old/in-latest');
+    expect(repos).toContain('recent/search-hit');
+    expect(repos).not.toContain('old/search-hit');
   });
 
   it('skips pros/cons generation when LLM is not configured', async () => {

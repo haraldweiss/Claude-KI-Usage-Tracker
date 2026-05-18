@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 process.env.DATABASE_PATH = ':memory:';
-const { initDatabase, runQuery, getQuery } = await import('../../database/sqlite.js');
+const { initDatabase, runQuery, getQuery, allQuery } = await import('../../database/sqlite.js');
 const { getCurrentPlan } = await import('../../services/planScheduleService.js');
 
 beforeAll(async () => {
@@ -153,5 +153,39 @@ describe('schedulePlanChange', () => {
     await expect(
       schedulePlanChange(501, 'Pro', today)
     ).resolves.toBeGreaterThan(0);
+  });
+});
+
+const { cancelPendingPlanChange } = await import('../../services/planScheduleService.js');
+
+describe('cancelPendingPlanChange', () => {
+  it('deletes only future scheduled entries', async () => {
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source) VALUES
+       (501, 'Max (5x)', '2026-01-01', 'seed'),
+       (501, 'Pro',      '2026-06-01', 'manual'),
+       (501, 'Pro',      '2099-01-01', 'scheduled'),
+       (501, 'Free',     '2099-06-01', 'scheduled')`
+    );
+    const deleted = await cancelPendingPlanChange(501);
+    expect(deleted).toBe(2);
+    const remaining = await allQuery<{ source: string }>(
+      `SELECT source FROM plan_history WHERE user_id = 501`
+    );
+    expect(remaining.map(r => r.source).sort()).toEqual(['manual', 'seed']);
+  });
+
+  it('does not touch manual entries even if in the future', async () => {
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source) VALUES
+       (501, 'Pro', '2099-01-01', 'manual')`
+    );
+    await cancelPendingPlanChange(501);
+    const remaining = await allQuery(`SELECT * FROM plan_history WHERE user_id = 501`);
+    expect(remaining).toHaveLength(1);
+  });
+
+  it('is idempotent — no rows, no error', async () => {
+    await expect(cancelPendingPlanChange(501)).resolves.toBe(0);
   });
 });

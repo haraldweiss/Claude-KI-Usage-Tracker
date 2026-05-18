@@ -82,3 +82,20 @@ export async function schedulePlanChange(
   );
   return result.lastID;
 }
+
+/**
+ * Cancel all future plan changes for this user. Only deletes rows with
+ * source='scheduled' — manual and seed rows are preserved even if they
+ * happen to be future-dated (edge case, but explicit).
+ * Returns number of rows deleted.
+ */
+export async function cancelPendingPlanChange(userId: number): Promise<number> {
+  const result = await runQuery(
+    `DELETE FROM plan_history
+      WHERE user_id = ?
+        AND effective_from > date('now')
+        AND source = 'scheduled'`,
+    [userId]
+  );
+  return result.changes;
+}

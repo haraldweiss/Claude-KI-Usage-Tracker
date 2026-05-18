@@ -12,6 +12,18 @@ import {
 import ModelCard from '../components/ModelCard';
 import CatalogSection from '../components/CatalogSection';
 
+function relativeTime(iso: string): string {
+  const ts = new Date(iso).getTime();
+  if (!isFinite(ts)) return iso;
+  const diffMin = Math.round((Date.now() - ts) / 60_000);
+  if (diffMin < 1) return 'gerade eben';
+  if (diffMin < 60) return `vor ${diffMin} Min.`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `vor ${diffH} Std.`;
+  const diffD = Math.round(diffH / 24);
+  return `vor ${diffD} ${diffD === 1 ? 'Tag' : 'Tagen'}`;
+}
+
 export default function CatalogPage(): React.ReactElement {
   const [curated, setCurated] = useState<CuratedResponse | null>(null);
   const [installedNames, setInstalledNames] = useState<string[]>([]);
@@ -119,6 +131,12 @@ export default function CatalogPage(): React.ReactElement {
         </>
       ) : (
         <div className="text-sm text-gray-500">Lade Katalog…</div>
+      )}
+
+      {curated?.fetched_at && (
+        <div className="mt-8 text-xs text-gray-400 text-right">
+          Daten von Hugging Face — letzte Aktualisierung: {relativeTime(curated.fetched_at)}
+        </div>
       )}
     </div>
   );

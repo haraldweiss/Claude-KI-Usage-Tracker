@@ -27,6 +27,7 @@ export interface CuratedSection {
 
 export interface CuratedResponse {
   sections: CuratedSection[];
+  fetched_at?: string | null;
 }
 
 export interface SearchResponse {

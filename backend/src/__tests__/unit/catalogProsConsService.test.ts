@@ -1,10 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeAll, beforeEach, afterEach } from '@jest/globals';
 
-const { buildPrompt, parseProsCons, callPrimaryLLM, callFallbackLLM } = await import(
-  '../../services/catalogProsConsService.js'
-);
+process.env.DATABASE_PATH = ':memory:';
+
+const { initDatabase, runQuery, allQuery } = await import('../../database/sqlite.js');
+const {
+  buildPrompt,
+  parseProsCons,
+  callPrimaryLLM,
+  callFallbackLLM,
+  generateAndCacheProsCons,
+  isProsConsEnabled,
+} = await import('../../services/catalogProsConsService.js');
+
+beforeAll(async () => {
+  await initDatabase();
+});
 
 let fetchMock: jest.Mock;
 
@@ -279,5 +291,123 @@ describe('callFallbackLLM', () => {
     const r = await callFallbackLLM(CARD as never);
     expect(r.pros).toEqual(['A', 'B', 'C']);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('isProsConsEnabled', () => {
+  afterEach(() => {
+    delete process.env.CATALOG_LLM_URL;
+    delete process.env.CATALOG_LLM_TOKEN;
+    delete process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY;
+  });
+  it('returns true if primary is configured', () => {
+    process.env.CATALOG_LLM_URL = 'x';
+    process.env.CATALOG_LLM_TOKEN = 'y';
+    expect(isProsConsEnabled()).toBe(true);
+  });
+  it('returns true if only fallback is configured', () => {
+    process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY = 'sk-ant-x';
+    expect(isProsConsEnabled()).toBe(true);
+  });
+  it('returns false if neither is configured', () => {
+    expect(isProsConsEnabled()).toBe(false);
+  });
+});
+
+describe('generateAndCacheProsCons', () => {
+  beforeEach(async () => {
+    fetchMock = jest.fn();
+    (globalThis as unknown as { fetch: jest.Mock }).fetch = fetchMock;
+    process.env.CATALOG_LLM_URL = 'http://pool.test';
+    process.env.CATALOG_LLM_TOKEN = 'tok';
+    process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY = 'sk-ant';
+    // Seed the card in cache so upsert can update pros/cons
+    await runQuery(
+      `INSERT OR REPLACE INTO catalog_hf_cache (repo, data_json, fetched_at, last_error) VALUES (?, ?, ?, NULL)`,
+      [CARD.repo, JSON.stringify(CARD), new Date().toISOString()],
+    );
+  });
+  afterEach(async () => {
+    delete process.env.CATALOG_LLM_URL;
+    delete process.env.CATALOG_LLM_TOKEN;
+    delete process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY;
+    jest.resetAllMocks();
+    await runQuery(`DELETE FROM catalog_hf_cache`);
+  });
+
+  it('primary succeeds: upserts pros/cons, no fallback call', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"pros":["P1","P2","P3"],"cons":["C1","C2","C3"]}' } }],
+      }),
+    });
+    const ok = await generateAndCacheProsCons(CARD as never);
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const rows = await allQuery<{ data_json: string }>(
+      `SELECT data_json FROM catalog_hf_cache WHERE repo=?`,
+      [CARD.repo],
+    );
+    const card = JSON.parse(rows[0]!.data_json);
+    expect(card.pros).toEqual(['P1', 'P2', 'P3']);
+    expect(card.cons).toEqual(['C1', 'C2', 'C3']);
+    expect(card.auto_pros_generated_at).toBeTruthy();
+  });
+
+  it('primary fails, fallback succeeds: upserts pros/cons', async () => {
+    // 1st call: primary returns 503 → callPrimaryLLM throws (HTTP errors do NOT
+    // trigger the parse-retry path). Wrapper falls through to fallback.
+    // 2nd call: fallback returns valid JSON → success.
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'pool down' })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: '{"pros":["F1","F2","F3"],"cons":["G1","G2","G3"]}' }],
+        }),
+      });
+    const ok = await generateAndCacheProsCons(CARD as never);
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const rows = await allQuery<{ data_json: string }>(
+      `SELECT data_json FROM catalog_hf_cache WHERE repo=?`,
+      [CARD.repo],
+    );
+    const card = JSON.parse(rows[0]!.data_json);
+    expect(card.pros).toEqual(['F1', 'F2', 'F3']);
+  });
+
+  it('both fail: records last_error with both messages, returns false', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => 'down' });
+    const ok = await generateAndCacheProsCons(CARD as never);
+    expect(ok).toBe(false);
+    const rows = await allQuery<{ last_error: string | null }>(
+      `SELECT last_error FROM catalog_hf_cache WHERE repo=?`,
+      [CARD.repo],
+    );
+    expect(rows[0]!.last_error).toMatch(/primary.*fallback/);
+  });
+
+  it('returns false if neither provider configured', async () => {
+    delete process.env.CATALOG_LLM_URL;
+    delete process.env.CATALOG_LLM_TOKEN;
+    delete process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY;
+    const ok = await generateAndCacheProsCons(CARD as never);
+    expect(ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('records last_error with only primary message when fallback unconfigured', async () => {
+    delete process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY;
+    fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => 'down' });
+    const ok = await generateAndCacheProsCons(CARD as never);
+    expect(ok).toBe(false);
+    const rows = await allQuery<{ last_error: string | null }>(
+      `SELECT last_error FROM catalog_hf_cache WHERE repo=?`,
+      [CARD.repo],
+    );
+    expect(rows[0]!.last_error).toMatch(/primary/);
+    expect(rows[0]!.last_error).not.toMatch(/fallback/);
   });
 });

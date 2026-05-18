@@ -5,6 +5,7 @@
 // vom /search-Endpoint asynchron aufgerufen. Failure ist nicht fatal —
 // Karten ohne Pros/Cons werden vom Frontend einfach ohne diese Felder gerendert.
 import type { ModelCard } from './catalogService.js';
+import { upsertCardCache, recordCacheError } from '../data/catalogCacheRepo.js';
 
 export interface ProsCons {
   pros: string[];
@@ -122,6 +123,65 @@ export async function callFallbackLLM(card: ModelCard): Promise<ProsCons> {
     content = await callAnthropicNative(key, model, STRICT_RETRY_PROMPT, userPrompt);
     return parseProsCons(content);
   }
+}
+
+function primaryConfigured(): boolean {
+  return !!(process.env.CATALOG_LLM_URL?.trim() && process.env.CATALOG_LLM_TOKEN?.trim());
+}
+
+function fallbackConfigured(): boolean {
+  return !!process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY?.trim();
+}
+
+export function isProsConsEnabled(): boolean {
+  return primaryConfigured() || fallbackConfigured();
+}
+
+// Versucht Pros/Cons für ein Modell zu generieren und in den Cache zu schreiben.
+// Probiert primär mistral-nemo via eigene Pool, fällt bei Failure auf
+// Claude Haiku 4.5 zurück (falls Fallback konfiguriert). Returns true bei
+// Erfolg, false bei Skip/Failure. Wirft NICHT — Failure-Modes werden via
+// last_error stamping in catalog_hf_cache geloggt.
+export async function generateAndCacheProsCons(card: ModelCard): Promise<boolean> {
+  if (!isProsConsEnabled()) return false;
+
+  let result: ProsCons | null = null;
+  let primaryErr: string | null = null;
+  let fallbackErr: string | null = null;
+
+  if (primaryConfigured()) {
+    try {
+      result = await callPrimaryLLM(card);
+    } catch (e) {
+      primaryErr = (e as Error).message;
+    }
+  }
+  if (!result && fallbackConfigured()) {
+    try {
+      result = await callFallbackLLM(card);
+    } catch (e) {
+      fallbackErr = (e as Error).message;
+    }
+  }
+
+  if (!result) {
+    const parts = [
+      primaryErr && `primary: ${primaryErr}`,
+      fallbackErr && `fallback: ${fallbackErr}`,
+    ].filter(Boolean) as string[];
+    const msg = parts.join(' | ') || 'no provider configured';
+    await recordCacheError(card.repo, msg);
+    return false;
+  }
+
+  const updated: ModelCard = {
+    ...card,
+    pros: result.pros,
+    cons: result.cons,
+    auto_pros_generated_at: new Date().toISOString(),
+  };
+  await upsertCardCache(card.repo, updated, null);
+  return true;
 }
 
 // Tolerant gegenüber LLM-Output: probiert direkten JSON.parse, fällt

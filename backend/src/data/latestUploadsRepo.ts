@@ -27,3 +27,14 @@ export async function listLatestUploads(): Promise<LatestUploadRow[]> {
     'SELECT position, repo, fetched_at FROM catalog_latest_uploads ORDER BY position ASC',
   );
 }
+
+// Used by startup-prime logic to detect the upgrade path: curated cache
+// already populated by an earlier deploy, but the new latest_uploads table
+// is still empty. Without this, the prime block would be skipped and the
+// 4th catalog section would stay empty until the next 04:00 cron tick.
+export async function isLatestUploadsEmpty(): Promise<boolean> {
+  const rows = await allQuery<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM catalog_latest_uploads',
+  );
+  return (rows[0]?.n ?? 0) === 0;
+}

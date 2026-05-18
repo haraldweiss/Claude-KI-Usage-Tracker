@@ -24,6 +24,7 @@ import {
   refreshLatestUploads,
   isCacheEmpty,
 } from './services/catalogCacheRefresh.js';
+import { isLatestUploadsEmpty } from './data/latestUploadsRepo.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -149,18 +150,25 @@ async function start(): Promise<void> {
     });
     console.log('Catalog HF cache refresh scheduled daily at 04:00');
 
-    // On startup: prime the cache if empty so the first page-load
-    // doesn't have to fall back to live HF for every model.
-    isCacheEmpty().then((empty) => {
-      if (empty) {
-        console.log('[catalog-cache] cache empty on startup — priming');
-        Promise.all([refreshCuratedHfCache(), refreshLatestUploads()])
-          .then(([rc, rl]) => console.log(
-            `[catalog-cache] primed: curated=${rc.refreshed}/${rc.failed} latest=${rl.refreshed}/${rl.failed}`,
-          ))
-          .catch((err) => console.error('[catalog-cache] prime error', err));
-      }
-    }).catch((err) => console.error('[catalog-cache] empty-check error', err));
+    // On startup: prime each table independently so the first page-load
+    // doesn't have to fall back to live HF for every model. We check the
+    // two tables separately because the upgrade path from B.1 → B.2 leaves
+    // the curated cache populated but the latest_uploads table empty —
+    // a combined empty-check would miss that case.
+    Promise.all([isCacheEmpty(), isLatestUploadsEmpty()])
+      .then(async ([curatedEmpty, latestEmpty]) => {
+        if (curatedEmpty) {
+          console.log('[catalog-cache] curated empty on startup — priming');
+          const rc = await refreshCuratedHfCache();
+          console.log(`[catalog-cache] primed curated=${rc.refreshed}/${rc.failed}`);
+        }
+        if (latestEmpty) {
+          console.log('[catalog-cache] latest empty on startup — priming');
+          const rl = await refreshLatestUploads();
+          console.log(`[catalog-cache] primed latest=${rl.refreshed}/${rl.failed}`);
+        }
+      })
+      .catch((err) => console.error('[catalog-cache] prime error', err));
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);

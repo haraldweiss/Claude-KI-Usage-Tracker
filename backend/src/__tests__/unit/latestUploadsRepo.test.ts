@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterEach } from '@jest/globals';
 process.env.DATABASE_PATH = ':memory:';
 
 const { initDatabase, runQuery } = await import('../../database/sqlite.js');
-const { replaceLatestUploads, listLatestUploads } = await import(
+const { replaceLatestUploads, listLatestUploads, isLatestUploadsEmpty } = await import(
   '../../data/latestUploadsRepo.js'
 );
 
@@ -50,5 +50,11 @@ describe('latestUploadsRepo', () => {
     );
     const rows = await listLatestUploads();
     expect(rows.map((r) => r.repo)).toEqual(['a/x', 'b/y', 'c/z']);
+  });
+
+  it('isLatestUploadsEmpty returns true on empty table, false otherwise', async () => {
+    expect(await isLatestUploadsEmpty()).toBe(true);
+    await replaceLatestUploads(['a/x']);
+    expect(await isLatestUploadsEmpty()).toBe(false);
   });
 });

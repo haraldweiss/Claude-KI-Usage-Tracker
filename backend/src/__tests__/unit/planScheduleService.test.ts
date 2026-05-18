@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 process.env.DATABASE_PATH = ':memory:';
-const { initDatabase, runQuery } = await import('../../database/sqlite.js');
+const { initDatabase, runQuery, getQuery } = await import('../../database/sqlite.js');
 const { getCurrentPlan } = await import('../../services/planScheduleService.js');
 
 beforeAll(async () => {
@@ -112,5 +112,46 @@ describe('getPlanHistory', () => {
     }
     const hist = await getPlanHistory(501, 3);
     expect(hist).toHaveLength(3);
+  });
+});
+
+const { schedulePlanChange } = await import('../../services/planScheduleService.js');
+
+beforeAll(async () => {
+  await runQuery(
+    `INSERT OR IGNORE INTO plan_pricing (plan_name, monthly_eur) VALUES
+     ('Pro', 20.0), ('Max (5x)', 100.0)`
+  );
+});
+
+describe('schedulePlanChange', () => {
+  it('rejects past date', async () => {
+    await expect(
+      schedulePlanChange(501, 'Pro', '2020-01-01')
+    ).rejects.toThrow(/today or later/);
+  });
+
+  it('rejects unknown plan name', async () => {
+    const future = '2099-12-31';
+    await expect(
+      schedulePlanChange(501, 'Bogus', future)
+    ).rejects.toThrow(/unknown plan/);
+  });
+
+  it('accepts a valid future change and inserts with source=scheduled', async () => {
+    const id = await schedulePlanChange(501, 'Pro', '2099-12-31', 'Kostengründe');
+    expect(id).toBeGreaterThan(0);
+    const row = await getQuery<{ source: string; note: string | null }>(
+      `SELECT source, note FROM plan_history WHERE id = ?`, [id]
+    );
+    expect(row?.source).toBe('scheduled');
+    expect(row?.note).toBe('Kostengründe');
+  });
+
+  it("accepts today's date (treated as immediate)", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(
+      schedulePlanChange(501, 'Pro', today)
+    ).resolves.toBeGreaterThan(0);
   });
 });

@@ -81,6 +81,8 @@ Neuer Service in `backend/src/services/`. Öffentliche API:
 
 ```typescript
 // Versucht Pros/Cons für ein Modell zu generieren und in den Cache zu schreiben.
+// Probiert primär mistral-nemo via eigene Pool, fällt bei Failure auf
+// Claude Haiku 4.5 zurück (falls Fallback konfiguriert).
 // Returns true bei Erfolg, false bei Skip/Failure. Wirft NICHT (Failure-Modes
 // werden via last_error stamping in catalog_hf_cache geloggt).
 export async function generateAndCacheProsCons(card: ModelCard): Promise<boolean>;
@@ -91,11 +93,38 @@ export async function generateBatchProsCons(cards: ModelCard[]): Promise<{
   generated: number;
   skipped: number;
   failed: number;
+  fallback_used: number;  // # Repos, die via Anthropic generiert wurden
 }>;
 
-// Boolean: ist B.3 überhaupt aktiv? (Env-Vars gesetzt?)
+// Boolean: ist B.3 überhaupt aktiv? (Mindestens primärer LLM konfiguriert?)
 export function isProsConsEnabled(): boolean;
 ```
+
+### Provider-Strategie: Primary + Fallback
+
+```
+generateAndCacheProsCons(card):
+    1. Falls Primary (mistral-nemo) konfiguriert:
+         → try callPrimary(card)
+         → bei Success: upsert mit pros/cons, return true
+         → bei Failure: log warn, weiter zu Schritt 2
+    2. Falls Fallback (Claude Haiku) konfiguriert:
+         → try callFallback(card)
+         → bei Success: upsert mit pros/cons, markiere fallback_used, return true
+         → bei Failure: log error, weiter zu Schritt 3
+    3. recordCacheError(repo, "primary + fallback both failed"), return false
+```
+
+Failure beim Primary = jeder der Failure-Modes aus der Tabelle weiter unten
+(Timeout, HTTP 5xx, ungültiges JSON nach 1 Retry, Network-Error).
+
+Konkrete Implementierung: zwei Adapter-Funktionen mit derselben Signatur
+`(card: ModelCard) => Promise<{pros: string[]; cons: string[]}>`:
+- `callPrimaryLLM(card)` → POST `CATALOG_LLM_URL/v1/chat/completions` (OpenAI-compat)
+- `callFallbackLLM(card)` → POST `https://api.anthropic.com/v1/messages` (Anthropic-native)
+
+Beide returnen das gleiche normalisierte `{pros, cons}` Format. Der äußere
+generateAndCacheProsCons-Wrapper ruft beide nacheinander wenn nötig.
 
 ### Prompt-Template
 
@@ -133,36 +162,53 @@ LLM-Output ist nicht garantiert reines JSON. Parser muss tolerant sein:
 
 ### Konfiguration
 
-Zwei neue Environment-Variablen, gesetzt im systemd-Unit:
+Drei (bzw. vier) neue Environment-Variablen, gesetzt im systemd-Unit:
 
 ```
+# Primary: eigene Pool (mistral-nemo via ai-provider-service)
 CATALOG_LLM_URL=https://ai.wolfinisoftware.de
 CATALOG_LLM_TOKEN=<Bearer-Token>
+
+# Fallback: Anthropic Claude Haiku 4.5 (nur genutzt wenn Primary versagt)
+CATALOG_LLM_FALLBACK_ANTHROPIC_KEY=sk-ant-...
+CATALOG_LLM_FALLBACK_MODEL=claude-haiku-4-5     # optional, Default = "claude-haiku-4-5"
 ```
 
-- Beide fehlen / leer → `isProsConsEnabled()` returnt `false` → Generation skippt.
-  Existierende Pros/Cons im Cache bleiben unangetastet.
-- Wird in `/etc/systemd/system/claudetracker-backend.service.d/override.conf`
-  via `Environment=` Direktiven gesetzt. Bei der lokalen Dev-Umgebung in
-  `backend/.env` (gitignored).
-- Token wird in derselben Datei wie `SECRETS_KEY` & andere Secrets gepflegt.
+Verhalten je nach Konfiguration:
+- **Beide gesetzt:** Primary first, Fallback bei Primary-Failure. Empfohlen.
+- **Nur Primary gesetzt:** Wie B.3 ohne Fallback — bei Primary-Failure wird
+  `last_error` gestempelt, nächster Cron probiert erneut.
+- **Nur Fallback gesetzt:** Sollte selten vorkommen. Anthropic wird Default-LLM,
+  jeder Call kostet. Geht aber wenn man bewusst keine eigene Pool hat.
+- **Beide leer:** `isProsConsEnabled()` returnt `false`, B.3 deaktiviert.
+
+Gesetzt in `/etc/systemd/system/claudetracker-backend.service.d/override.conf`
+via `Environment=` Direktiven. Lokale Dev-Umgebung: `backend/.env` (gitignored).
+Anthropic-Key wird in derselben Datei wie `SECRETS_KEY` gepflegt.
 
 ### Failure-Modes & Retry-Policy
 
-| Fall                              | Verhalten                                          |
+Failure-Klassen pro Provider — beide Provider durchlaufen unabhängig dieselbe Tabelle:
+
+| Fall                              | Verhalten innerhalb eines Provider-Calls           |
 |-----------------------------------|----------------------------------------------------|
-| `CATALOG_LLM_*` Env-Vars fehlen   | Generation komplett skippen, kein Error            |
-| HTTP 5xx vom Provider             | `last_error` stempeln, nächster Cron probiert erneut |
-| Timeout (30s)                     | wie 5xx                                            |
-| Response ist kein gültiges JSON   | 1× retry mit verschärftem System-Prompt, dann skip |
-| Response-JSON ohne `pros`/`cons`  | `last_error` stempeln, skip                        |
-| `pros`/`cons` falsche Länge (≠3)  | trimmen oder skip wenn 0                           |
-| Pool ist down                     | wie 5xx                                            |
-| Network-Error                     | wie 5xx                                            |
+| HTTP 5xx                          | Fehler werfen → äußerer Wrapper probiert Fallback  |
+| HTTP 4xx (z.B. 401, 429)          | Fehler werfen → äußerer Wrapper probiert Fallback  |
+| Timeout (30s)                     | Fehler werfen → Fallback                           |
+| Response ist kein gültiges JSON   | 1× retry mit verschärftem System-Prompt, dann werfen |
+| Response-JSON ohne `pros`/`cons`  | Fehler werfen → Fallback                           |
+| `pros`/`cons` falsche Länge (≠3)  | trimmen / mit leerem String füllen wenn 1-2 Bullets — nur bei 0 werfen |
+| Network-Error                     | Fehler werfen → Fallback                           |
+
+Auf der Wrapper-Ebene:
+- Primary wirft → Fallback wird probiert (falls konfiguriert)
+- Beide werfen → `recordCacheError(repo, "primary: <msg> / fallback: <msg>")`
+- Kein Provider konfiguriert → skip, kein Error
 
 Generation läuft **sequentiell** mit ~2s Pause zwischen Repos um den Pool nicht
 zu hämmern. Bei 6 Latest Uploads = ~15s Dauer, bei 10 Such-Treffern = ~25s — beides
-unkritisch im Hintergrund.
+unkritisch im Hintergrund. Im Fallback-Fall entfällt der 2s-Pause-Schutz (Anthropic
+hat eigenes Rate-Limiting).
 
 ### Eviction-Logik
 
@@ -195,12 +241,22 @@ werden nur einmal generiert (bis sie evicted werden) — kein Refresh-Loop.
   - JSON in Text eingebettet → korrekt extrahiert
   - Pros/Cons-Arrays falscher Länge → wirft
   - Strings länger 80 Zeichen → trimmt
+- `catalogProsConsService.callPrimaryLLM(card)`:
+  - Happy-Path: fetch returns gültiges OpenAI-compat JSON → korrektes Objekt
+  - HTTP 500 → wirft
+  - Kein JSON → retry mit strikterem Prompt → bei zweitem Fehler wirft
+  - URL/Token leer → wirft (caller behandelt)
+- `catalogProsConsService.callFallbackLLM(card)`:
+  - Happy-Path: fetch returns Anthropic-Messages-Response → korrektes Objekt
+  - HTTP 4xx (Auth) → wirft
+  - Key leer → wirft
 - `catalogProsConsService.generateAndCacheProsCons(card)`:
-  - Happy-Path: fetch returns gültiges JSON → upsert mit pros/cons
-  - HTTP 500 → `recordCacheError` aufgerufen, kein Upsert
-  - Kein JSON → retry mit strikterem Prompt → bei zweitem Fehler skip
-  - Env-Vars fehlen → returnt false, kein fetch
-- `catalogProsConsService.generateBatchProsCons(cards)` — Counters stimmen, sequenziell.
+  - Primary success → upsert ohne Fallback-Aufruf
+  - Primary fails, Fallback success → upsert mit `fallback_used` markiert
+  - Primary fails, Fallback fails → `recordCacheError` mit beiden Messages
+  - Beide leer konfiguriert → returnt false, kein Upsert
+  - Nur Primary konfiguriert + Primary fails → `recordCacheError` mit nur Primary-Msg
+- `catalogProsConsService.generateBatchProsCons(cards)` — Counters stimmen, sequenziell, `fallback_used` zählt.
 - `catalogCacheRefresh.refreshLatestUploads` — nach B.3-Integration: ruft Generation für jedes neue Repo auf.
 - `catalogCacheRefresh.evictStaleSearchCacheRows` — DELETE-Query, curated/latest bleiben.
 

@@ -3,13 +3,14 @@
 // Daily refresh of HF metadata for the curated catalog models.
 // Per-repo error handling: a failing repo doesn't stop the loop. The
 // existing DB row keeps its data_json and gets last_error stamped.
-import { fetchModelMetadata } from './catalogService.js';
+import { fetchModelMetadata, fetchLatestUploads } from './catalogService.js';
 import { CURATED_MODELS } from '../data/curatedModels.js';
 import {
   upsertCardCache,
   recordCacheError,
   getCachedCard,
 } from '../data/catalogCacheRepo.js';
+import { replaceLatestUploads } from '../data/latestUploadsRepo.js';
 
 export interface RefreshSummary {
   refreshed: number;
@@ -54,4 +55,69 @@ export async function isCacheEmpty(): Promise<boolean> {
   if (!firstModel) return true;
   const sample = await getCachedCard(firstModel.repo);
   return sample === null;
+}
+
+// ---------------------------------------------------------------------------
+// Sub-B.2: refresh the dynamic Latest Uploads index.
+// ---------------------------------------------------------------------------
+
+const LATEST_QUANTERS = ['bartowski', 'MaziyarPanahi'];
+const LATEST_TOP_N = 6;
+
+export async function refreshLatestUploads(): Promise<RefreshSummary> {
+  const summary: RefreshSummary = { refreshed: 0, failed: 0, errors: [] };
+
+  // 1. Query both quanters' latest uploads. Failures per author do not abort.
+  const merged: Array<{ repo: string; lastModified: string }> = [];
+  for (const author of LATEST_QUANTERS) {
+    try {
+      const list = await fetchLatestUploads(author, 15);
+      for (const m of list) {
+        const repo = m.id ?? m.modelId;
+        if (repo && m.lastModified) {
+          merged.push({ repo, lastModified: m.lastModified });
+        }
+      }
+    } catch (e) {
+      summary.errors.push({ repo: `author:${author}`, error: (e as Error).message });
+      summary.failed++;
+    }
+  }
+
+  // 2. Sort by lastModified DESC, dedup by repo, take top N.
+  const seen = new Set<string>();
+  const top = merged
+    .sort((a, b) => b.lastModified.localeCompare(a.lastModified))
+    .filter((m) => {
+      if (seen.has(m.repo)) return false;
+      seen.add(m.repo);
+      return true;
+    })
+    .slice(0, LATEST_TOP_N);
+
+  // 3. Ensure each repo's metadata is in catalog_hf_cache. Per-repo errors do
+  //    not stop the loop — failing repo still ends up in latest list with
+  //    cache miss (Page-load fallback to live HF later).
+  for (const m of top) {
+    try {
+      const card = await fetchModelMetadata(m.repo, 'Q4_K_M');
+      if (card === null) {
+        summary.failed++;
+        summary.errors.push({ repo: m.repo, error: 'HF 404' });
+        continue;
+      }
+      const clean = { ...card };
+      delete clean.stale;
+      await upsertCardCache(m.repo, clean, null);
+      summary.refreshed++;
+    } catch (e) {
+      summary.failed++;
+      summary.errors.push({ repo: m.repo, error: (e as Error).message });
+    }
+  }
+
+  // 4. Atomic replacement of the index table.
+  await replaceLatestUploads(top.map((m) => m.repo));
+
+  return summary;
 }

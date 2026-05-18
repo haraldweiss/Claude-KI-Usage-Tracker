@@ -106,3 +106,116 @@ describe('isCacheEmpty', () => {
     expect(await isCacheEmpty()).toBe(false);
   });
 });
+
+const { refreshLatestUploads } = await import(
+  '../../services/catalogCacheRefresh.js'
+);
+const { listLatestUploads } = await import('../../data/latestUploadsRepo.js');
+
+describe('refreshLatestUploads', () => {
+  it('picks top 6 across both quanters, sorted by lastModified DESC', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('author=bartowski') && url.includes('sort=lastModified')) {
+        return {
+          ok: true,
+          json: async () => [
+            { id: 'bartowski/A-GGUF', lastModified: '2026-05-18T12:00:00' },
+            { id: 'bartowski/B-GGUF', lastModified: '2026-05-18T10:00:00' },
+            { id: 'bartowski/C-GGUF', lastModified: '2026-05-18T08:00:00' },
+            { id: 'bartowski/D-GGUF', lastModified: '2026-05-16T08:00:00' },
+          ],
+        };
+      }
+      if (url.includes('author=MaziyarPanahi') && url.includes('sort=lastModified')) {
+        return {
+          ok: true,
+          json: async () => [
+            { id: 'MaziyarPanahi/W-GGUF', lastModified: '2026-05-18T11:00:00' },
+            { id: 'MaziyarPanahi/X-GGUF', lastModified: '2026-05-18T09:00:00' },
+            { id: 'MaziyarPanahi/Y-GGUF', lastModified: '2026-05-17T09:00:00' },
+            { id: 'MaziyarPanahi/Z-GGUF', lastModified: '2026-05-15T09:00:00' },
+          ],
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          modelId: extractRepoFromUrl(url),
+          downloads: 100,
+          siblings: [{ rfilename: 'q4.gguf' }],
+        }),
+      };
+    });
+
+    const r = await refreshLatestUploads();
+    expect(r.failed).toBe(0);
+    expect(r.refreshed).toBe(6);
+
+    const rows = await listLatestUploads();
+    expect(rows).toHaveLength(6);
+    expect(rows.map((x) => x.repo)).toEqual([
+      'bartowski/A-GGUF',
+      'MaziyarPanahi/W-GGUF',
+      'bartowski/B-GGUF',
+      'MaziyarPanahi/X-GGUF',
+      'bartowski/C-GGUF',
+      'MaziyarPanahi/Y-GGUF',
+    ]);
+  });
+
+  it('dedups duplicate repos across quanters', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('author=bartowski') && url.includes('sort=lastModified')) {
+        return { ok: true, json: async () => [
+          { id: 'shared/X-GGUF', lastModified: '2026-05-18T12:00:00' },
+        ]};
+      }
+      if (url.includes('author=MaziyarPanahi') && url.includes('sort=lastModified')) {
+        return { ok: true, json: async () => [
+          { id: 'shared/X-GGUF', lastModified: '2026-05-17T12:00:00' },
+        ]};
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          modelId: extractRepoFromUrl(url),
+          downloads: 100,
+          siblings: [{ rfilename: 'q4.gguf' }],
+        }),
+      };
+    });
+
+    await refreshLatestUploads();
+    const rows = await listLatestUploads();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.repo).toBe('shared/X-GGUF');
+  });
+
+  it('keeps going if one quanter fails', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('author=bartowski') && url.includes('sort=lastModified')) {
+        return { ok: false, status: 500 };
+      }
+      if (url.includes('author=MaziyarPanahi') && url.includes('sort=lastModified')) {
+        return { ok: true, json: async () => [
+          { id: 'MaziyarPanahi/M1-GGUF', lastModified: '2026-05-18T12:00:00' },
+          { id: 'MaziyarPanahi/M2-GGUF', lastModified: '2026-05-17T12:00:00' },
+        ]};
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          modelId: extractRepoFromUrl(url),
+          downloads: 100,
+          siblings: [{ rfilename: 'q4.gguf' }],
+        }),
+      };
+    });
+
+    const r = await refreshLatestUploads();
+    expect(r.errors.some((e) => e.repo === 'author:bartowski')).toBe(true);
+    expect(r.refreshed).toBe(2);
+    const rows = await listLatestUploads();
+    expect(rows).toHaveLength(2);
+  });
+});

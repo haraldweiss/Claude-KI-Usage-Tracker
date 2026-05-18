@@ -57,8 +57,12 @@ export default function AccountSection(): React.ReactElement {
   async function handleCancelPending() {
     if (!pending) return;
     if (!confirm(`Plan-Wechsel am ${pending.effective_from} auf ${pending.plan_name} abbrechen?`)) return;
-    await deletePlanSchedule();
-    setPending(null);
+    try {
+      await deletePlanSchedule();
+      setPending(null);
+    } catch (err) {
+      alert('Fehler: ' + (err as Error).message);
+    }
   }
 
   // Task 15: submit schedule form
@@ -73,6 +77,8 @@ export default function AccountSection(): React.ReactElement {
       });
       const fresh = await getPlanPending();
       setPending(fresh);
+      const freshHistory = await getPlanHistory(5);
+      setHistory(freshHistory);
       setSchedPlan(''); setSchedDate(''); setSchedNote('');
     } catch (err) {
       alert('Fehler: ' + (err as Error).message);

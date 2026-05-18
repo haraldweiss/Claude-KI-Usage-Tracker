@@ -454,6 +454,21 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // Sub-B.2: index table for the dynamic "Latest Uploads" section.
+          // Holds the top 6 repos by lastModified across the configured
+          // quanters. Refreshed daily by catalogCacheRefresh.refreshLatestUploads().
+          // Metadata for each repo lives in catalog_hf_cache.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS catalog_latest_uploads (
+                position    INTEGER PRIMARY KEY,
+                repo        TEXT NOT NULL,
+                fetched_at  TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

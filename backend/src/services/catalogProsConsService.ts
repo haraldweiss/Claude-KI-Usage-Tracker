@@ -184,6 +184,36 @@ export async function generateAndCacheProsCons(card: ModelCard): Promise<boolean
   return true;
 }
 
+export interface BatchResult {
+  generated: number;
+  skipped: number;
+  failed: number;
+}
+
+// Batch-Variante: ruft generateAndCacheProsCons() für jedes Card sequentiell auf.
+// Pause zwischen Calls (Default 2000ms) verhindert, dass die eigene Pool
+// gehämmert wird. Bei 6 Latest Uploads ≈ 12s zusätzlich.
+export async function generateBatchProsCons(
+  cards: ModelCard[],
+  opts: { pauseMs?: number } = {},
+): Promise<BatchResult> {
+  const pauseMs = opts.pauseMs ?? 2000;
+  const summary: BatchResult = { generated: 0, skipped: 0, failed: 0 };
+  if (!isProsConsEnabled()) {
+    summary.skipped = cards.length;
+    return summary;
+  }
+  for (let i = 0; i < cards.length; i++) {
+    const ok = await generateAndCacheProsCons(cards[i]!);
+    if (ok) summary.generated++;
+    else summary.failed++;
+    if (i < cards.length - 1 && pauseMs > 0) {
+      await new Promise((r) => setTimeout(r, pauseMs));
+    }
+  }
+  return summary;
+}
+
 // Tolerant gegenüber LLM-Output: probiert direkten JSON.parse, fällt
 // dann auf RegEx-Extraktion (z.B. wenn der LLM Markdown-Codeblöcke um das
 // JSON wrappt). Normalisiert auf exakt 3 Bullets je Liste (pad mit ""

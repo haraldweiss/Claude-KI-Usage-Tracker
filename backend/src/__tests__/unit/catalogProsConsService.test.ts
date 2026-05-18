@@ -11,6 +11,7 @@ const {
   callPrimaryLLM,
   callFallbackLLM,
   generateAndCacheProsCons,
+  generateBatchProsCons,
   isProsConsEnabled,
 } = await import('../../services/catalogProsConsService.js');
 
@@ -409,5 +410,73 @@ describe('generateAndCacheProsCons', () => {
     );
     expect(rows[0]!.last_error).toMatch(/primary/);
     expect(rows[0]!.last_error).not.toMatch(/fallback/);
+  });
+});
+
+describe('generateBatchProsCons', () => {
+  beforeEach(async () => {
+    fetchMock = jest.fn();
+    (globalThis as unknown as { fetch: jest.Mock }).fetch = fetchMock;
+    process.env.CATALOG_LLM_URL = 'http://pool.test';
+    process.env.CATALOG_LLM_TOKEN = 'tok';
+    // Seed 3 cards
+    for (const repo of ['a/x', 'a/y', 'a/z']) {
+      const c = { ...CARD, repo };
+      await runQuery(
+        `INSERT OR REPLACE INTO catalog_hf_cache (repo, data_json, fetched_at, last_error) VALUES (?, ?, ?, NULL)`,
+        [repo, JSON.stringify(c), new Date().toISOString()],
+      );
+    }
+  });
+  afterEach(async () => {
+    delete process.env.CATALOG_LLM_URL;
+    delete process.env.CATALOG_LLM_TOKEN;
+    delete process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY;
+    jest.resetAllMocks();
+    await runQuery(`DELETE FROM catalog_hf_cache`);
+  });
+
+  it('counts generated when all succeed', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"pros":["P","P","P"],"cons":["C","C","C"]}' } }],
+      }),
+    });
+    const cards = ['a/x', 'a/y', 'a/z'].map((repo) => ({ ...CARD, repo }));
+    const r = await generateBatchProsCons(cards as never[], { pauseMs: 0 });
+    expect(r.generated).toBe(3);
+    expect(r.failed).toBe(0);
+    expect(r.skipped).toBe(0);
+  });
+
+  it('counts failed when all fail', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => 'down' });
+    const cards = ['a/x', 'a/y'].map((repo) => ({ ...CARD, repo }));
+    const r = await generateBatchProsCons(cards as never[], { pauseMs: 0 });
+    expect(r.failed).toBe(2);
+    expect(r.generated).toBe(0);
+  });
+
+  it('counts skipped when not configured', async () => {
+    delete process.env.CATALOG_LLM_URL;
+    delete process.env.CATALOG_LLM_TOKEN;
+    const cards = ['a/x', 'a/y'].map((repo) => ({ ...CARD, repo }));
+    const r = await generateBatchProsCons(cards as never[], { pauseMs: 0 });
+    expect(r.skipped).toBe(2);
+    expect(r.generated).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('respects pauseMs between calls', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"pros":["P","P","P"],"cons":["C","C","C"]}' } }],
+      }),
+    });
+    const start = Date.now();
+    await generateBatchProsCons([CARD, CARD] as never[], { pauseMs: 100 });
+    expect(Date.now() - start).toBeGreaterThanOrEqual(100);
   });
 });

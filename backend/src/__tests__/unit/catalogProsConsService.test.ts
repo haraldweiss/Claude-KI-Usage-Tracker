@@ -1,8 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
-const { buildPrompt, parseProsCons } = await import('../../services/catalogProsConsService.js');
+const { buildPrompt, parseProsCons, callPrimaryLLM } = await import(
+  '../../services/catalogProsConsService.js'
+);
+
+let fetchMock: jest.Mock;
+
+const CARD = {
+  repo: 'bartowski/X-GGUF',
+  source_label: 'Bartowski',
+  size_b: 7,
+  quant_count: 4,
+  downloads: 1000,
+  default_quant: 'Q4_K_M',
+  ollama_command: 'ollama run hf.co/bartowski/X-GGUF:Q4_K_M',
+  description: 'Coding LLM',
+};
 
 describe('buildPrompt', () => {
   it('includes repo, size, source_label and description', () => {
@@ -86,5 +101,97 @@ describe('parseProsCons', () => {
 
   it('rejects unparseable garbage', () => {
     expect(() => parseProsCons('totally not json')).toThrow();
+  });
+});
+
+describe('callPrimaryLLM', () => {
+  beforeEach(() => {
+    fetchMock = jest.fn();
+    (globalThis as unknown as { fetch: jest.Mock }).fetch = fetchMock;
+    process.env.CATALOG_LLM_URL = 'http://pool.test';
+    process.env.CATALOG_LLM_TOKEN = 'test-token';
+  });
+  afterEach(() => {
+    jest.resetAllMocks();
+    delete process.env.CATALOG_LLM_URL;
+    delete process.env.CATALOG_LLM_TOKEN;
+    delete process.env.CATALOG_LLM_MODEL;
+  });
+
+  it('happy path: parses OpenAI-compat response', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"pros":["A","B","C"],"cons":["X","Y","Z"]}' } }],
+      }),
+    });
+    const r = await callPrimaryLLM(CARD as never);
+    expect(r.pros).toEqual(['A', 'B', 'C']);
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toContain('/v1/chat/completions');
+    expect((opts.headers as Record<string, string>).Authorization).toBe('Bearer test-token');
+  });
+
+  it('throws on HTTP 500', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => 'pool down',
+    });
+    await expect(callPrimaryLLM(CARD as never)).rejects.toThrow(/500/);
+  });
+
+  it('throws on HTTP 401', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => 'auth',
+    });
+    await expect(callPrimaryLLM(CARD as never)).rejects.toThrow(/401/);
+  });
+
+  it('retries once if response is not valid JSON', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'sorry no JSON' } }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"pros":["A","B","C"],"cons":["X","Y","Z"]}' } }],
+        }),
+      });
+    const r = await callPrimaryLLM(CARD as never);
+    expect(r.pros).toEqual(['A', 'B', 'C']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws if both attempts return unparseable', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'still no JSON' } }] }),
+    });
+    await expect(callPrimaryLLM(CARD as never)).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws if env vars missing', async () => {
+    delete process.env.CATALOG_LLM_URL;
+    await expect(callPrimaryLLM(CARD as never)).rejects.toThrow(/not configured/);
+  });
+
+  it('uses custom model from env', async () => {
+    process.env.CATALOG_LLM_MODEL = 'qwen2.5:7b';
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"pros":["A","B","C"],"cons":["X","Y","Z"]}' } }],
+      }),
+    });
+    await callPrimaryLLM(CARD as never);
+    const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(opts.body));
+    expect(body.model).toBe('qwen2.5:7b');
   });
 });

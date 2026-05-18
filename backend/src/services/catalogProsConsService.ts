@@ -11,6 +11,71 @@ export interface ProsCons {
   cons: string[];
 }
 
+const SYSTEM_PROMPT =
+  'Du bist ein Experte für lokale Open-Source-LLMs. Du bewertest Modelle für ' +
+  'deutschsprachige Entwickler:innen und gibst kompakte Pro/Contra-Listen aus. ' +
+  'Antworte AUSSCHLIESSLICH mit gültigem JSON, keine Erklärungen davor oder danach.';
+
+const STRICT_RETRY_PROMPT =
+  SYSTEM_PROMPT +
+  ' WICHTIG: Deine vorherige Antwort enthielt kein gültiges JSON. Antworte JETZT ' +
+  'nur mit reinem JSON, ohne Markdown-Codeblöcke, ohne Vor-/Nachwort.';
+
+const REQUEST_TIMEOUT_MS = 30_000;
+
+async function callOpenAICompat(
+  url: string,
+  token: string,
+  model: string,
+  system: string,
+  user: string,
+): Promise<string> {
+  const res = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      max_tokens: 500,
+      temperature: 0.3,
+    }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = json.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Empty response content');
+  return content;
+}
+
+export async function callPrimaryLLM(card: ModelCard): Promise<ProsCons> {
+  const url = process.env.CATALOG_LLM_URL?.trim();
+  const token = process.env.CATALOG_LLM_TOKEN?.trim();
+  const model = process.env.CATALOG_LLM_MODEL?.trim() || 'mistral-nemo:latest';
+  if (!url || !token) throw new Error('Primary LLM not configured');
+
+  const userPrompt = buildPrompt(card);
+  let content = await callOpenAICompat(url, token, model, SYSTEM_PROMPT, userPrompt);
+  try {
+    return parseProsCons(content);
+  } catch {
+    // Retry once with stricter system prompt
+    content = await callOpenAICompat(url, token, model, STRICT_RETRY_PROMPT, userPrompt);
+    return parseProsCons(content);
+  }
+}
+
 // Tolerant gegenüber LLM-Output: probiert direkten JSON.parse, fällt
 // dann auf RegEx-Extraktion (z.B. wenn der LLM Markdown-Codeblöcke um das
 // JSON wrappt). Normalisiert auf exakt 3 Bullets je Liste (pad mit ""

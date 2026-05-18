@@ -21,6 +21,7 @@ import { listAllActiveProviderUserIds } from './data/localUsageRepo.js';
 import { applyDuePlanChanges } from './services/planScheduleService.js';
 import {
   refreshCuratedHfCache,
+  refreshLatestUploads,
   isCacheEmpty,
 } from './services/catalogCacheRefresh.js';
 import { createApp } from './app.js';
@@ -136,8 +137,10 @@ async function start(): Promise<void> {
       try {
         console.log('[catalog-cache] starting daily refresh');
         const r = await refreshCuratedHfCache();
-        console.log(`[catalog-cache] refreshed=${r.refreshed} failed=${r.failed}`);
-        for (const e of r.errors) {
+        console.log(`[catalog-cache] curated refreshed=${r.refreshed} failed=${r.failed}`);
+        const l = await refreshLatestUploads();
+        console.log(`[catalog-cache] latest  refreshed=${l.refreshed} failed=${l.failed}`);
+        for (const e of [...r.errors, ...l.errors]) {
           console.warn(`[catalog-cache] ${e.repo}: ${e.error}`);
         }
       } catch (err) {
@@ -151,9 +154,9 @@ async function start(): Promise<void> {
     isCacheEmpty().then((empty) => {
       if (empty) {
         console.log('[catalog-cache] cache empty on startup — priming');
-        refreshCuratedHfCache()
-          .then((r) => console.log(
-            `[catalog-cache] primed: refreshed=${r.refreshed} failed=${r.failed}`,
+        Promise.all([refreshCuratedHfCache(), refreshLatestUploads()])
+          .then(([rc, rl]) => console.log(
+            `[catalog-cache] primed: curated=${rc.refreshed}/${rc.failed} latest=${rl.refreshed}/${rl.failed}`,
           ))
           .catch((err) => console.error('[catalog-cache] prime error', err));
       }

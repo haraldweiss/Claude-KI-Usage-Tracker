@@ -99,3 +99,55 @@ export async function cancelPendingPlanChange(userId: number): Promise<number> {
   );
   return result.changes;
 }
+
+/**
+ * Append a 'manual' history entry for an immediate plan switch.
+ * No-op when the new plan equals the user's current plan — avoids noise
+ * when PATCH /api/account is called only to update display_name.
+ */
+export async function recordImmediatePlanChange(
+  userId: number,
+  planName: string,
+  note?: string
+): Promise<void> {
+  const current = await getCurrentPlan(userId);
+  if (current === planName) return;
+  const today = new Date().toISOString().slice(0, 10);
+  await runQuery(
+    `INSERT INTO plan_history (user_id, plan_name, effective_from, source, note)
+     VALUES (?, ?, ?, 'manual', ?)`,
+    [userId, planName, today, note ?? null]
+  );
+}
+
+interface UserSyncRow { id: number; plan_name: string | null }
+
+/**
+ * Cron entry point. For every user whose users.plan_name diverges from
+ * getCurrentPlan(), update users.plan_name. Returns count of users synced.
+ */
+export async function applyDuePlanChanges(): Promise<number> {
+  const users = await allQuery<UserSyncRow>(`SELECT id, plan_name FROM users`);
+  let synced = 0;
+  for (const u of users) {
+    try {
+      const current = await getCurrentPlan(u.id);
+      if (current !== null && current !== u.plan_name) {
+        await runQuery(
+          `UPDATE users SET plan_name = ? WHERE id = ?`,
+          [current, u.id]
+        );
+        console.log(
+          `[planSchedule] user ${u.id}: ${u.plan_name ?? 'NULL'} → ${current}`
+        );
+        synced++;
+      }
+    } catch (err) {
+      console.error(
+        `[planSchedule] sync failed for user ${u.id}:`,
+        (err as Error).message
+      );
+    }
+  }
+  return synced;
+}

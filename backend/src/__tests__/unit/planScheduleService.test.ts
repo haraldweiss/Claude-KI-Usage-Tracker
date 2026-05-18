@@ -189,3 +189,61 @@ describe('cancelPendingPlanChange', () => {
     await expect(cancelPendingPlanChange(501)).resolves.toBe(0);
   });
 });
+
+const { recordImmediatePlanChange, applyDuePlanChanges } = await import(
+  '../../services/planScheduleService.js'
+);
+
+describe('recordImmediatePlanChange', () => {
+  it('no-ops when new plan equals current plan', async () => {
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source)
+       VALUES (501, 'Pro', '2026-01-01', 'manual')`
+    );
+    const beforeCount = (await allQuery(`SELECT * FROM plan_history WHERE user_id = 501`)).length;
+    await recordImmediatePlanChange(501, 'Pro');
+    const afterCount = (await allQuery(`SELECT * FROM plan_history WHERE user_id = 501`)).length;
+    expect(afterCount).toBe(beforeCount);
+  });
+
+  it('inserts when plan differs', async () => {
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source)
+       VALUES (501, 'Pro', '2026-01-01', 'manual')`
+    );
+    await recordImmediatePlanChange(501, 'Max (5x)', 'Wechsel back');
+    const today = new Date().toISOString().slice(0, 10);
+    const row = await getQuery<{ source: string; effective_from: string }>(
+      `SELECT source, effective_from FROM plan_history
+        WHERE user_id = 501 AND plan_name = 'Max (5x)' AND note = 'Wechsel back'`
+    );
+    expect(row?.source).toBe('manual');
+    expect(row?.effective_from).toBe(today);
+  });
+});
+
+describe('applyDuePlanChanges', () => {
+  it('syncs users.plan_name when out of sync', async () => {
+    await runQuery(`UPDATE users SET plan_name = 'Old' WHERE id = 501`);
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source)
+       VALUES (501, 'New', '2026-01-01', 'manual')`
+    );
+    const synced = await applyDuePlanChanges();
+    expect(synced).toBeGreaterThanOrEqual(1);
+    const u = await getQuery<{ plan_name: string }>(
+      `SELECT plan_name FROM users WHERE id = 501`
+    );
+    expect(u?.plan_name).toBe('New');
+  });
+
+  it('no-op when users.plan_name already matches current plan', async () => {
+    await runQuery(`UPDATE users SET plan_name = 'Pro' WHERE id = 501`);
+    await runQuery(
+      `INSERT INTO plan_history (user_id, plan_name, effective_from, source)
+       VALUES (501, 'Pro', '2026-01-01', 'manual')`
+    );
+    const synced = await applyDuePlanChanges();
+    expect(synced).toBe(0);
+  });
+});

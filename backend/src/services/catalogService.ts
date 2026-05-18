@@ -87,8 +87,15 @@ export async function fetchModelMetadata(
     return hit.data as ModelCard;
   }
   try {
+    // HF expects the slash between user/repo unencoded; encode each side.
+    const parts = repo.split('/', 2);
+    const user = parts[0] ?? repo;
+    const name = parts[1];
+    const encodedRepo = name
+      ? `${encodeURIComponent(user)}/${encodeURIComponent(name)}`
+      : encodeURIComponent(user);
     const res = await fetch(
-      `https://huggingface.co/api/models/${encodeURIComponent(repo)}`,
+      `https://huggingface.co/api/models/${encodedRepo}`,
       { headers: authHeaders() },
     );
     if (!res.ok) {

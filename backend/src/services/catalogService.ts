@@ -17,6 +17,9 @@ export interface ModelCard {
   cons?: string[];
   setup_note?: string;
   stale?: boolean;
+  // B.3: LLM-generated pros/cons (only on auto-generated, not on curated).
+  // ISO-8601 timestamp; used by the 04:00 cron to detect stale (> 30d) entries.
+  auto_pros_generated_at?: string;
 }
 
 interface HfModelResponse {

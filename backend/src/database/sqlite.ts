@@ -156,6 +156,29 @@ export function initDatabase(): Promise<void> {
         if (err && !err.message.includes('already exists')) reject(err);
       });
 
+      // Plan-change schedule + audit trail. See spec
+      // 2026-05-18-tracker-plan-scheduling-design.md
+      database.run(`
+        CREATE TABLE IF NOT EXISTS plan_history (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          plan_name       TEXT NOT NULL,
+          effective_from  TEXT NOT NULL,
+          created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          source          TEXT NOT NULL DEFAULT 'manual',
+          note            TEXT
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+      database.run(
+        `CREATE INDEX IF NOT EXISTS idx_plan_history_user_date
+           ON plan_history(user_id, effective_from)`,
+        (err: Error | null) => {
+          if (err && !err.message.includes('already exists')) reject(err);
+        }
+      );
+
       database.run(`
         CREATE TABLE IF NOT EXISTS sessions (
           id TEXT PRIMARY KEY,

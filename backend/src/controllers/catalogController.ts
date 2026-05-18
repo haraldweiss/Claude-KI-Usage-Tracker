@@ -8,6 +8,7 @@ import {
   type ModelCard,
 } from '../services/catalogService.js';
 import { CURATED_MODELS } from '../data/curatedModels.js';
+import { getCachedCard, getOldestFetchedAt } from '../data/catalogCacheRepo.js';
 import { getProviderServiceConfig } from '../data/localUsageRepo.js';
 import { decryptSecret } from '../utils/secretCrypto.js';
 
@@ -17,7 +18,14 @@ export async function getCurated(_req: Request, res: Response): Promise<void> {
     spec.sections.map(async (s) => {
       const cards = await Promise.all(
         s.models.map(async (m): Promise<ModelCard | null> => {
-          const card = await fetchModelMetadata(m.repo, s.default_quant).catch(() => null);
+          // DB-first read. Cold-start fallback to live HF if the row is missing.
+          const cached = await getCachedCard(m.repo);
+          let card: ModelCard | null;
+          if (cached) {
+            card = cached.card;
+          } else {
+            card = await fetchModelMetadata(m.repo, s.default_quant).catch(() => null);
+          }
           if (!card) return null;
           // Merge curated meta into the HF-derived card.
           return {
@@ -36,7 +44,8 @@ export async function getCurated(_req: Request, res: Response): Promise<void> {
       };
     }),
   );
-  res.json({ sections });
+  const oldest = await getOldestFetchedAt();
+  res.json({ sections, fetched_at: oldest });
 }
 
 export async function getSearch(req: Request, res: Response): Promise<void> {

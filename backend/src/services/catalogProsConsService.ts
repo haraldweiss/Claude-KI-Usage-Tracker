@@ -76,6 +76,54 @@ export async function callPrimaryLLM(card: ModelCard): Promise<ProsCons> {
   }
 }
 
+async function callAnthropicNative(
+  key: string,
+  model: string,
+  system: string,
+  user: string,
+): Promise<string> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 500,
+      system,
+      messages: [{ role: 'user', content: user }],
+    }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+  const text = json.content?.find((b) => b.type === 'text')?.text;
+  if (!text) throw new Error('Empty Anthropic response');
+  return text;
+}
+
+export async function callFallbackLLM(card: ModelCard): Promise<ProsCons> {
+  const key = process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY?.trim();
+  const model = process.env.CATALOG_LLM_FALLBACK_MODEL?.trim() || 'claude-haiku-4-5';
+  if (!key) throw new Error('Fallback LLM not configured');
+
+  const userPrompt = buildPrompt(card);
+  let content = await callAnthropicNative(key, model, SYSTEM_PROMPT, userPrompt);
+  try {
+    return parseProsCons(content);
+  } catch {
+    content = await callAnthropicNative(key, model, STRICT_RETRY_PROMPT, userPrompt);
+    return parseProsCons(content);
+  }
+}
+
 // Tolerant gegenüber LLM-Output: probiert direkten JSON.parse, fällt
 // dann auf RegEx-Extraktion (z.B. wenn der LLM Markdown-Codeblöcke um das
 // JSON wrappt). Normalisiert auf exakt 3 Bullets je Liste (pad mit ""

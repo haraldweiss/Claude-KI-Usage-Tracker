@@ -2,7 +2,7 @@
 // © 2026 Harald Weiss
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
-const { buildPrompt, parseProsCons, callPrimaryLLM } = await import(
+const { buildPrompt, parseProsCons, callPrimaryLLM, callFallbackLLM } = await import(
   '../../services/catalogProsConsService.js'
 );
 
@@ -193,5 +193,91 @@ describe('callPrimaryLLM', () => {
     const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(opts.body));
     expect(body.model).toBe('qwen2.5:7b');
+  });
+});
+
+describe('callFallbackLLM', () => {
+  beforeEach(() => {
+    fetchMock = jest.fn();
+    (globalThis as unknown as { fetch: jest.Mock }).fetch = fetchMock;
+    process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY = 'sk-ant-test';
+  });
+  afterEach(() => {
+    jest.resetAllMocks();
+    delete process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY;
+    delete process.env.CATALOG_LLM_FALLBACK_MODEL;
+  });
+
+  it('happy path: parses Anthropic messages response', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: '{"pros":["A","B","C"],"cons":["X","Y","Z"]}' }],
+      }),
+    });
+    const r = await callFallbackLLM(CARD as never);
+    expect(r.pros).toEqual(['A', 'B', 'C']);
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toBe('https://api.anthropic.com/v1/messages');
+    const headers = opts.headers as Record<string, string>;
+    expect(headers['x-api-key']).toBe('sk-ant-test');
+    expect(headers['anthropic-version']).toBeTruthy();
+  });
+
+  it('uses custom model from env', async () => {
+    process.env.CATALOG_LLM_FALLBACK_MODEL = 'claude-sonnet-4-5';
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: '{"pros":["A","B","C"],"cons":["X","Y","Z"]}' }],
+      }),
+    });
+    await callFallbackLLM(CARD as never);
+    const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(opts.body));
+    expect(body.model).toBe('claude-sonnet-4-5');
+  });
+
+  it('uses default claude-haiku-4-5 if model env unset', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: '{"pros":["A","B","C"],"cons":["X","Y","Z"]}' }],
+      }),
+    });
+    await callFallbackLLM(CARD as never);
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.model).toBe('claude-haiku-4-5');
+  });
+
+  it('throws on HTTP 401', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => '{"error":"auth"}',
+    });
+    await expect(callFallbackLLM(CARD as never)).rejects.toThrow(/401/);
+  });
+
+  it('throws if key missing', async () => {
+    delete process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY;
+    await expect(callFallbackLLM(CARD as never)).rejects.toThrow(/not configured/);
+  });
+
+  it('retries once if response is not valid JSON', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: 'no JSON' }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: '{"pros":["A","B","C"],"cons":["X","Y","Z"]}' }],
+        }),
+      });
+    const r = await callFallbackLLM(CARD as never);
+    expect(r.pros).toEqual(['A', 'B', 'C']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

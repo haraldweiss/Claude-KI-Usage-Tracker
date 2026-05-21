@@ -487,6 +487,22 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // 2026-05-21: Pros/cons cache for non-Ollama models (Claude Haiku/
+          // Sonnet/Opus today; could extend to other cloud providers later).
+          // Populated lazily from the recommendation endpoint when a model
+          // is recommended and has no cached pros/cons yet.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS model_pros_cons (
+                model_name   TEXT PRIMARY KEY,
+                pros         TEXT NOT NULL,
+                cons         TEXT NOT NULL,
+                generated_at TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

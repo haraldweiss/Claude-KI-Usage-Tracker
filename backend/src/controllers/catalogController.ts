@@ -16,6 +16,9 @@ import {
   generateBatchProsCons,
   isProsConsEnabled,
 } from '../services/catalogProsConsService.js';
+import { lookupCuratedLocal, normalizeOllamaName, type LocalModelFamily } from '../data/curatedLocalModels.js';
+import { getLocalProsCons } from '../data/localProsConsRepo.js';
+import { generateLocalProsCons } from '../services/catalogProsConsService.js';
 
 export async function getCurated(_req: Request, res: Response): Promise<void> {
   const spec = CURATED_MODELS;
@@ -128,5 +131,105 @@ export async function getInstalled(req: Request, res: Response): Promise<void> {
     res.json({ models: data.loaded ?? [] });
   } catch {
     res.json({ models: [] });
+  }
+}
+
+export interface LocalInstalledCard {
+  name: string;
+  base_name: string;
+  family: LocalModelFamily;
+  pros?: string[];
+  cons?: string[];
+  setup_note?: string;
+}
+
+const FAMILY_RANK: Record<LocalModelFamily, number> = {
+  chat: 0,
+  code: 1,
+  embedding: 2,
+  custom: 3,
+};
+
+export async function getLocalInstalled(req: Request, res: Response): Promise<void> {
+  const userId = req.user!.id;
+  const cfg = await getProviderServiceConfig(userId);
+  if (!cfg || cfg.enabled !== 1) {
+    res.json({ models: [] });
+    return;
+  }
+
+  let loaded: string[];
+  try {
+    const token = decryptSecret(cfg.service_token_enc);
+    const url = new URL('/models/status', cfg.service_url);
+    const r = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) {
+      res.json({ models: [] });
+      return;
+    }
+    const data = (await r.json()) as { loaded?: string[] };
+    loaded = data.loaded ?? [];
+  } catch {
+    res.json({ models: [] });
+    return;
+  }
+
+  const cards: LocalInstalledCard[] = [];
+  const needsGeneration: Array<{ name: string; family: LocalModelFamily }> = [];
+
+  for (const name of loaded) {
+    const base_name = normalizeOllamaName(name);
+    const curated = lookupCuratedLocal(name);
+    if (curated) {
+      cards.push({
+        name,
+        base_name,
+        family: curated.family,
+        pros: curated.pros,
+        cons: curated.cons,
+        setup_note: curated.setup_note,
+      });
+      continue;
+    }
+    const cached = await getLocalProsCons(name);
+    if (cached) {
+      cards.push({
+        name,
+        base_name,
+        family: cached.family,
+        pros: cached.pros,
+        cons: cached.cons,
+      });
+      continue;
+    }
+    cards.push({ name, base_name, family: 'custom' });
+    needsGeneration.push({ name, family: 'custom' });
+  }
+
+  cards.sort((a, b) => {
+    const rDiff = FAMILY_RANK[a.family] - FAMILY_RANK[b.family];
+    if (rDiff !== 0) return rDiff;
+    return a.name.localeCompare(b.name);
+  });
+
+  res.json({ models: cards });
+
+  if (needsGeneration.length > 0) {
+    void (async () => {
+      for (const { name, family } of needsGeneration) {
+        try {
+          await generateLocalProsCons(name, family);
+        } catch (err) {
+          console.error(
+            '[catalog-local] generate failed',
+            name,
+            (err as Error).message,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    })().catch(() => {});
   }
 }

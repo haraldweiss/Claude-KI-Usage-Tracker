@@ -6,6 +6,8 @@
 // Karten ohne Pros/Cons werden vom Frontend einfach ohne diese Felder gerendert.
 import type { ModelCard } from './catalogService.js';
 import { upsertCardCache, recordCacheError } from '../data/catalogCacheRepo.js';
+import type { LocalModelFamily } from '../data/curatedLocalModels.js';
+import { upsertLocalProsCons } from '../data/localProsConsRepo.js';
 
 export interface ProsCons {
   pros: string[];
@@ -263,4 +265,88 @@ export function buildPrompt(card: ModelCard): string {
     'Antworte AUSSCHLIESSLICH mit gültigem JSON, keine Erklärungen davor oder danach:',
     '{"pros": ["...", "...", "..."], "cons": ["...", "...", "..."]}',
   ].join('\n');
+}
+
+// Prompt-Template für lokale Ollama-Modelle, die NICHT aus HuggingFace kommen
+// (z.B. Custom-Builds wie "mistral-nemo-cc"). Anders als buildPrompt() für
+// HF-Cards kennen wir hier nur Name + Family-Hint, keine HF-Description.
+export function buildLocalPrompt(modelName: string, family: LocalModelFamily): string {
+  return [
+    `Modell-Name (Ollama): ${modelName}`,
+    `Kategorie: ${family}`,
+    '',
+    'Schreibe 3 Pros und 3 Cons, jeweils einen kurzen Satz (max. 80 Zeichen),',
+    'konkret und praxisnah für deutschsprachige Entwickler:innen:',
+    '- Pros: Anwendungsfälle, Stärken, was das Modell gut macht',
+    '- Cons: Schwächen, Limitierungen, wofür es ungeeignet ist',
+    '',
+    'Wenn der Modell-Name auf eine bekannte Familie hinweist (z.B. "mistral-nemo-cc"',
+    'als Custom-Variante von Mistral Nemo), nutze dein Wissen über die Familie.',
+    '',
+    'Antworte AUSSCHLIESSLICH mit gültigem JSON, keine Erklärungen davor oder danach:',
+    '{"pros": ["...", "...", "..."], "cons": ["...", "...", "..."]}',
+  ].join('\n');
+}
+
+// Generiert Pros/Cons für ein lokales Ollama-Modell via Primary-LLM (oder
+// Fallback). Cached das Ergebnis in catalog_local_pros_cons. Failure ist
+// nicht fatal — der nächste Page-Load triggert einen Retry. Returns true
+// bei Erfolg, false bei Skip/Failure.
+export async function generateLocalProsCons(
+  modelName: string,
+  family: LocalModelFamily,
+): Promise<boolean> {
+  if (!isProsConsEnabled()) return false;
+
+  const userPrompt = buildLocalPrompt(modelName, family);
+  let result: ProsCons | null = null;
+
+  const primaryUrl = process.env.CATALOG_LLM_URL?.trim();
+  const primaryToken = process.env.CATALOG_LLM_TOKEN?.trim();
+  const primaryModel =
+    process.env.CATALOG_LLM_MODEL?.trim() || 'mistral-nemo:latest';
+  if (primaryUrl && primaryToken) {
+    try {
+      let content = await callOpenAICompat(
+        primaryUrl, primaryToken, primaryModel, SYSTEM_PROMPT, userPrompt,
+      );
+      try {
+        result = parseProsCons(content);
+      } catch {
+        content = await callOpenAICompat(
+          primaryUrl, primaryToken, primaryModel, STRICT_RETRY_PROMPT, userPrompt,
+        );
+        result = parseProsCons(content);
+      }
+    } catch {
+      result = null;
+    }
+  }
+
+  if (!result) {
+    const fallbackKey = process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY?.trim();
+    const fallbackModel =
+      process.env.CATALOG_LLM_FALLBACK_MODEL?.trim() || 'claude-haiku-4-5';
+    if (fallbackKey) {
+      try {
+        let content = await callAnthropicNative(
+          fallbackKey, fallbackModel, SYSTEM_PROMPT, userPrompt,
+        );
+        try {
+          result = parseProsCons(content);
+        } catch {
+          content = await callAnthropicNative(
+            fallbackKey, fallbackModel, STRICT_RETRY_PROMPT, userPrompt,
+          );
+          result = parseProsCons(content);
+        }
+      } catch {
+        result = null;
+      }
+    }
+  }
+
+  if (!result) return false;
+  await upsertLocalProsCons(modelName, result.pros, result.cons, family);
+  return true;
 }

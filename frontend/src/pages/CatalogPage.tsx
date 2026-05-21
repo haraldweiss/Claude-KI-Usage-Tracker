@@ -5,12 +5,15 @@ import {
   getCurated,
   searchCatalog,
   getInstalled,
+  getLocalInstalled,
   isInstalled as checkInstalled,
   type CuratedResponse,
   type ModelCard as ModelCardType,
+  type LocalModelCard as LocalModelCardType,
 } from '../services/catalogApi';
 import ModelCard from '../components/ModelCard';
 import CatalogSection from '../components/CatalogSection';
+import LocalInstalledSection from '../components/LocalInstalledSection';
 
 function relativeTime(iso: string): string {
   const ts = new Date(iso).getTime();
@@ -27,6 +30,7 @@ function relativeTime(iso: string): string {
 export default function CatalogPage(): React.ReactElement {
   const [curated, setCurated] = useState<CuratedResponse | null>(null);
   const [installedNames, setInstalledNames] = useState<string[]>([]);
+  const [localModels, setLocalModels] = useState<LocalModelCardType[]>([]);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ModelCardType[] | null>(null);
   const [searchStale, setSearchStale] = useState(false);
@@ -36,10 +40,13 @@ export default function CatalogPage(): React.ReactElement {
   const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
-    void Promise.all([getCurated(), getInstalled()]).then(([c, inst]) => {
-      setCurated(c);
-      setInstalledNames(inst.models);
-    }).catch(() => {});
+    void Promise.all([getCurated(), getInstalled(), getLocalInstalled()])
+      .then(([c, inst, local]) => {
+        setCurated(c);
+        setInstalledNames(inst.models);
+        setLocalModels(local.models);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -73,6 +80,8 @@ export default function CatalogPage(): React.ReactElement {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
   }, [query]);
+
+  const searchActive = searchResults !== null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -115,22 +124,24 @@ export default function CatalogPage(): React.ReactElement {
         </div>
       )}
 
-      {searchResults !== null ? (
+      {!searchActive && <LocalInstalledSection models={localModels} />}
+
+      {searchActive ? (
         <section>
           <h2 className="text-lg font-semibold text-gray-900 mb-2">
-            Such-Treffer für „{query}" ({searchResults.length})
+            Such-Treffer für „{query}" ({searchResults!.length})
           </h2>
           {searching && <div className="text-sm text-gray-500">Suche läuft…</div>}
           {searchError && (
             <div className="text-sm text-red-700">Fehler: {searchError}</div>
           )}
-          {searchResults.length === 0 && !searching && (
+          {searchResults!.length === 0 && !searching && (
             <div className="text-sm text-gray-500 italic">
               Keine Modelle gefunden.
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {searchResults.map((card) => (
+            {searchResults!.map((card) => (
               <ModelCard
                 key={card.repo}
                 card={card}

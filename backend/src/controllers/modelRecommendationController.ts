@@ -39,7 +39,7 @@ export async function recommendModel(req: Request<unknown, unknown, Recommendati
       return;
     }
 
-    const recommendation = await modelRecommendationService.recommendModel(taskDescription, constraints);
+    const recommendation = await modelRecommendationService.recommendModel(taskDescription, constraints, req.user!.id);
 
     if ((recommendation as any).error) {
       res.status(500).json({

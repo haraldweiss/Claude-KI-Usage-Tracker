@@ -64,3 +64,22 @@ export function isInstalled(installedNames: string[], repo: string): boolean {
     return ln.startsWith(needle) || ln.includes(`hf.co/${repoLower}`);
   });
 }
+
+export type LocalModelFamily = 'chat' | 'code' | 'embedding' | 'custom';
+
+export interface LocalModelCard {
+  name: string;
+  base_name: string;
+  family: LocalModelFamily;
+  pros?: string[];
+  cons?: string[];
+  setup_note?: string;
+}
+
+export interface LocalInstalledResponse {
+  models: LocalModelCard[];
+}
+
+export function getLocalInstalled(): Promise<LocalInstalledResponse> {
+  return apiCall<LocalInstalledResponse>('/catalog/local-installed');
+}

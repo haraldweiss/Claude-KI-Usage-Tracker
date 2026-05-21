@@ -3,6 +3,17 @@
 import React, { useState } from 'react';
 import { recommendModel } from '../services/api';
 
+type LocalModelFamily = 'chat' | 'code' | 'embedding' | 'custom';
+
+interface LocalAlternative {
+  name: string;
+  base_name: string;
+  family: LocalModelFamily;
+  pros?: string[];
+  cons?: string[];
+  ollama_command: string;
+}
+
 interface Recommendation {
   recommended: string;
   confidence: number;
@@ -14,18 +25,23 @@ interface Recommendation {
     estimatedCost: string;
     matchedKeywords: string[];
   };
+  pros?: string[];
+  cons?: string[];
   alternatives: Array<{
     model: string;
     confidence: number;
     savings: string;
     riskOfFailure: string;
     safetyImprovement: string;
+    pros?: string[];
+    cons?: string[];
   }>;
   historicalData?: {
     successRateHaiku: number;
     successRateSonnet: number;
     successRateOpus: number;
   };
+  localAlternatives?: LocalAlternative[];
 }
 
 export default function ModelSuggester(): React.ReactElement {
@@ -177,6 +193,26 @@ export default function ModelSuggester(): React.ReactElement {
                 </div>
               </div>
             )}
+
+            {(recommendation.pros?.length || recommendation.cons?.length) ? (
+              <div className="mt-4 bg-white p-4 rounded-lg">
+                <p className="text-sm text-slate-600 mb-2 font-semibold">Stärken & Schwächen</p>
+                <div className="space-y-1">
+                  {recommendation.pros?.map((p, i) => (
+                    <div key={`p${i}`} className="text-xs text-green-800 flex gap-1">
+                      <span aria-hidden>✅</span>
+                      <span>{p}</span>
+                    </div>
+                  ))}
+                  {recommendation.cons?.map((c, i) => (
+                    <div key={`c${i}`} className="text-xs text-amber-800 flex gap-1">
+                      <span aria-hidden>⚠️</span>
+                      <span>{c}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {/* Alternatives Section */}
@@ -219,6 +255,23 @@ export default function ModelSuggester(): React.ReactElement {
                           ? '⚠️ Consider with caution'
                           : '❌ Not recommended'}
                     </div>
+
+                    {(alt.pros?.length || alt.cons?.length) ? (
+                      <div className="mt-3 space-y-1">
+                        {alt.pros?.map((p, i) => (
+                          <div key={`p${i}`} className="text-xs text-green-800 flex gap-1">
+                            <span aria-hidden>✅</span>
+                            <span>{p}</span>
+                          </div>
+                        ))}
+                        {alt.cons?.map((c, i) => (
+                          <div key={`c${i}`} className="text-xs text-amber-800 flex gap-1">
+                            <span aria-hidden>⚠️</span>
+                            <span>{c}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

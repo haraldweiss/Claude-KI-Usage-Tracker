@@ -469,6 +469,24 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // 2026-05-21: Local Ollama models pros/cons cache. Populated lazily
+          // by getLocalInstalled() controller when a model is neither curated
+          // nor already cached. Key is the exact Ollama model name (e.g.
+          // "mistral-nemo-cc:latest"), so customer-specific tags persist
+          // even when normalize() would collapse them.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS catalog_local_pros_cons (
+                model_name   TEXT PRIMARY KEY,
+                pros         TEXT NOT NULL,
+                cons         TEXT NOT NULL,
+                family       TEXT NOT NULL,
+                generated_at TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

@@ -8,6 +8,7 @@ import type { ModelCard } from './catalogService.js';
 import { upsertCardCache, recordCacheError } from '../data/catalogCacheRepo.js';
 import type { LocalModelFamily } from '../data/curatedLocalModels.js';
 import { upsertLocalProsCons } from '../data/localProsConsRepo.js';
+import { upsertModelProsCons } from '../data/modelProsConsRepo.js';
 
 export interface ProsCons {
   pros: string[];
@@ -348,5 +349,93 @@ export async function generateLocalProsCons(
 
   if (!result) return false;
   await upsertLocalProsCons(modelName, result.pros, result.cons, family);
+  return true;
+}
+
+// Prompt für Claude/Cloud-Modelle. Kennt Tier und Pricing, daher informierter
+// Output als der buildLocalPrompt für anonyme Ollama-Modelle.
+export function buildClaudePrompt(
+  modelName: string,
+  tier: string | null,
+  pricing: { input: number; output: number },
+): string {
+  const tierLine = tier ? `Tier: ${tier}` : 'Tier: unbekannt';
+  return [
+    `Modell: ${modelName}`,
+    tierLine,
+    `Preis (USD pro 1M tokens): Input ${pricing.input}, Output ${pricing.output}`,
+    '',
+    'Schreibe 3 Pros und 3 Cons, jeweils einen kurzen Satz (max. 80 Zeichen),',
+    'konkret und praxisnah für deutschsprachige Entwickler:innen:',
+    '- Pros: Stärken des Modells (Reasoning, Kontextlänge, Geschwindigkeit, Tool-Use, Vision, etc.)',
+    '- Cons: Schwächen, Limitierungen, wofür es ungeeignet ist',
+    '',
+    'Berücksichtige den Tier und Preis-Kontext: günstigere Modelle dürfen',
+    '"weniger Reasoning" als Con haben, teure Modelle "höherer Preis" als Con.',
+    '',
+    'Antworte AUSSCHLIESSLICH mit gültigem JSON, keine Erklärungen davor oder danach:',
+    '{"pros": ["...", "...", "..."], "cons": ["...", "...", "..."]}',
+  ].join('\n');
+}
+
+// Generiert Pros/Cons für ein Claude-Modell via Primary-LLM (oder Fallback).
+// Cached das Ergebnis in model_pros_cons. Returns true bei Erfolg.
+export async function generateClaudeProsCons(
+  modelName: string,
+  tier: string | null,
+  pricing: { input: number; output: number },
+): Promise<boolean> {
+  if (!isProsConsEnabled()) return false;
+
+  const userPrompt = buildClaudePrompt(modelName, tier, pricing);
+  let result: ProsCons | null = null;
+
+  const primaryUrl = process.env.CATALOG_LLM_URL?.trim();
+  const primaryToken = process.env.CATALOG_LLM_TOKEN?.trim();
+  const primaryModel =
+    process.env.CATALOG_LLM_MODEL?.trim() || 'mistral-nemo:latest';
+  if (primaryUrl && primaryToken) {
+    try {
+      let content = await callOpenAICompat(
+        primaryUrl, primaryToken, primaryModel, SYSTEM_PROMPT, userPrompt,
+      );
+      try {
+        result = parseProsCons(content);
+      } catch {
+        content = await callOpenAICompat(
+          primaryUrl, primaryToken, primaryModel, STRICT_RETRY_PROMPT, userPrompt,
+        );
+        result = parseProsCons(content);
+      }
+    } catch {
+      result = null;
+    }
+  }
+
+  if (!result) {
+    const fallbackKey = process.env.CATALOG_LLM_FALLBACK_ANTHROPIC_KEY?.trim();
+    const fallbackModel =
+      process.env.CATALOG_LLM_FALLBACK_MODEL?.trim() || 'claude-haiku-4-5';
+    if (fallbackKey) {
+      try {
+        let content = await callAnthropicNative(
+          fallbackKey, fallbackModel, SYSTEM_PROMPT, userPrompt,
+        );
+        try {
+          result = parseProsCons(content);
+        } catch {
+          content = await callAnthropicNative(
+            fallbackKey, fallbackModel, STRICT_RETRY_PROMPT, userPrompt,
+          );
+          result = parseProsCons(content);
+        }
+      } catch {
+        result = null;
+      }
+    }
+  }
+
+  if (!result) return false;
+  await upsertModelProsCons(modelName, result.pros, result.cons);
   return true;
 }

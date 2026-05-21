@@ -19,10 +19,38 @@ interface ActiveModel {
   last_updated: string | null;
 }
 
+// Extrahiert die letzte Versions-Zahl im Modellnamen als [major, minor]-Tupel.
+// "Claude Sonnet 4.6" → [4, 6]; "Claude Opus 4.10" → [4, 10]; "Claude Haiku 5" → [5, 0].
+// Tuple-Vergleich vermeidet den Float-Vergleichsfehler bei "4.10" vs "4.5"
+// (als Float: 4.10 < 4.5; als Tupel: [4,10] > [4,5]).
+export function extractVersionKey(modelName: string): [number, number] {
+  const matches = modelName.match(/\d+(?:\.\d+)?/g);
+  if (!matches || matches.length === 0) return [0, 0];
+  const last = matches[matches.length - 1]!;
+  const parts = last.split('.');
+  const major = parseInt(parts[0]!, 10);
+  const minor = parts[1] ? parseInt(parts[1], 10) : 0;
+  return [Number.isFinite(major) ? major : 0, Number.isFinite(minor) ? minor : 0];
+}
+
 async function loadActiveModels(): Promise<ActiveModel[]> {
   const rows = (await db.allQuery(
-    "SELECT model, input_price, output_price, tier, last_updated FROM pricing WHERE status = 'active' ORDER BY last_updated DESC, model ASC"
+    "SELECT model, input_price, output_price, tier, last_updated FROM pricing WHERE status = 'active'"
   )) as ActiveModel[];
+  // Sortierung in JS, damit Versions-Tupel korrekt verglichen werden (SQLite kann
+  // "Claude Sonnet 4.10" vs "4.5" nicht lexikographisch lösen). Reihenfolge:
+  // tier alphabetisch, dann Version DESC. Bei Score-Gleichstand im Recommender
+  // gewinnt der erste — also das jeweils neueste Modell pro tier.
+  rows.sort((a, b) => {
+    const tierA = a.tier ?? '';
+    const tierB = b.tier ?? '';
+    if (tierA !== tierB) return tierA.localeCompare(tierB);
+    const [aMaj, aMin] = extractVersionKey(a.model);
+    const [bMaj, bMin] = extractVersionKey(b.model);
+    if (aMaj !== bMaj) return bMaj - aMaj;
+    if (aMin !== bMin) return bMin - aMin;
+    return a.model.localeCompare(b.model);
+  });
   return rows;
 }
 

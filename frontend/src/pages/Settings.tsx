@@ -5,6 +5,7 @@ import { getPricing, getPlanPricing } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import AccountSection from '../components/settings/AccountSection';
 import ApiTokenSection from '../components/settings/ApiTokenSection';
+import ProviderServiceSettings from '../components/settings/ProviderServiceSettings';
 import PlanPricingTable from '../components/PlanPricingTable';
 import PricingTable from '../components/PricingTable';
 import type { PricingData, PlanPricingRow } from '../types/api';
@@ -54,6 +55,7 @@ export default function Settings(): React.ReactElement {
       <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
       <AccountSection />
       <ApiTokenSection />
+      <ProviderServiceSettings />
 
       {/* Plan subscription pricing section */}
       <div className="bg-white rounded-lg shadow p-6">

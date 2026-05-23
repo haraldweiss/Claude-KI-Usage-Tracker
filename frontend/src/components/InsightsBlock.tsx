@@ -31,11 +31,48 @@ function formatUsd(value: number): string {
   }).format(value);
 }
 
+// Confidence tiers gate insight visibility by tracking duration.
+// Days 0-6: early — first patterns visible, single insights tagged "vorläufig"
+// Days 7-13: actionable — full week captures weekly variation, plan hints OK
+// Days 14-29: confident — two weeks smooth anomalies, extrapolation stable
+// Days 30+: established — full month, no disclaimers shown
+export const INSIGHT_CONFIDENCE_TIERS = {
+  early: 0,
+  actionable: 7,
+  confident: 14,
+  established: 30
+} as const;
+
+export type ConfidenceLevel = keyof typeof INSIGHT_CONFIDENCE_TIERS;
+
+/** Determine the confidence level for an insight based on days of tracking data.
+ * Thresholds: early (<7), actionable (7+), confident (14+), established (30+)
+ * @param daysTracked - Non-negative integer of days since tracking started
+ * @returns The confidence level
+ * @throws Error if daysTracked is not a non-negative integer */
+export function getConfidenceLevel(daysTracked: number): ConfidenceLevel {
+  if (!Number.isFinite(daysTracked) || daysTracked < 0 || !Number.isInteger(daysTracked)) {
+    throw new Error(`Invalid daysTracked value: ${daysTracked}. Must be a non-negative integer.`);
+  }
+  if (daysTracked >= INSIGHT_CONFIDENCE_TIERS.established) return 'established';
+  if (daysTracked >= INSIGHT_CONFIDENCE_TIERS.confident) return 'confident';
+  if (daysTracked >= INSIGHT_CONFIDENCE_TIERS.actionable) return 'actionable';
+  return 'early';
+}
+
+const CONFIDENCE_BADGE: Record<ConfidenceLevel, { label: string; emoji: string; classes: string } | null> = {
+  early:       { label: 'Vorläufig (<7 Tage)',   emoji: '🌱', classes: 'bg-gray-200 text-gray-700' },
+  actionable:  { label: 'Belastbar (7+ Tage)',   emoji: '📊', classes: 'bg-amber-100 text-amber-800' },
+  confident:   { label: 'Stabil (14+ Tage)',     emoji: '✅', classes: 'bg-emerald-100 text-emerald-800' },
+  established: null
+};
+
 interface Insight {
   level: 'info' | 'good' | 'warn' | 'alert';
   title: string;
   body: string;
   action?: string;
+  confidence?: ConfidenceLevel;
 }
 
 const LEVEL_STYLES: Record<Insight['level'], string> = {
@@ -83,7 +120,6 @@ function priorCycleDailyRate(allTime: SpendingTotal | null): number | null {
   return prevCycle.additional_eur / cycleLen;
 }
 
-const MIN_DAYS_FOR_PLAN_ADVICE = 14;
 const MIN_DAYS_FOR_FORECAST = 3;
 const FORECAST_SMOOTHING_DAYS = 7;
 
@@ -119,11 +155,13 @@ function buildInsights(
       .filter((p) => p.monthly_eur > planEur)
       .sort((a, b) => a.monthly_eur - b.monthly_eur)[0];
 
-    if (daysTracked < MIN_DAYS_FOR_PLAN_ADVICE) {
+    const planConfidence = getConfidenceLevel(daysTracked);
+    if (daysTracked < INSIGHT_CONFIDENCE_TIERS.actionable) {
       insights.push({
         level: 'info',
         title: `${meta.plan_name}: noch keine Plan-Empfehlung`,
-        body: `Aktuell ${pct}% des Wochenlimits. Für eine fundierte Empfehlung brauche ich mindestens ${MIN_DAYS_FOR_PLAN_ADVICE} Tage Tracking-Daten — bisher sind es ${daysTracked}.`
+        body: `Aktuell ${pct}% des Wochenlimits. Für eine fundierte Empfehlung brauche ich mindestens ${INSIGHT_CONFIDENCE_TIERS.actionable} Tage Tracking-Daten — bisher sind es ${daysTracked}.`,
+        confidence: planConfidence
       });
     } else if (pct < 25 && cheaperPlan) {
       const savings = (planEur - cheaperPlan.monthly_eur) * 12;
@@ -131,7 +169,8 @@ function buildInsights(
         level: 'good',
         title: `${meta.plan_name} ist evtl. zu groß`,
         body: `Du nutzt diese Woche nur ${pct}% deines Limits. Mit ${cheaperPlan.plan_name} (${formatEur(cheaperPlan.monthly_eur)}/Monat) hättest du immer noch Reserven und sparst ca. ${formatEur(savings)} pro Jahr.`,
-        action: `Wenn das Muster anhält → auf ${cheaperPlan.plan_name} downgraden.`
+        action: `Wenn das Muster anhält → auf ${cheaperPlan.plan_name} downgraden.`,
+        confidence: planConfidence
       });
     } else if (pct >= 80 && expensiverPlan) {
       const extra = (expensiverPlan.monthly_eur - planEur) * 12;
@@ -139,13 +178,15 @@ function buildInsights(
         level: 'warn',
         title: `${meta.plan_name} wird knapp`,
         body: `Du bist diese Woche schon bei ${pct}% deines Limits. ${expensiverPlan.plan_name} (${formatEur(expensiverPlan.monthly_eur)}/Monat) gibt dir mehr Spielraum für ca. ${formatEur(extra)} mehr pro Jahr.`,
-        action: `Bei häufigen Limit-Annäherungen → ${expensiverPlan.plan_name} überlegen.`
+        action: `Bei häufigen Limit-Annäherungen → ${expensiverPlan.plan_name} überlegen.`,
+        confidence: planConfidence
       });
     } else {
       insights.push({
         level: 'good',
         title: `${meta.plan_name} passt zu deinem Verbrauch`,
-        body: `Wochenlimit zu ${pct}% genutzt. Genug Reserve, kein Anlass zum Wechsel.`
+        body: `Wochenlimit zu ${pct}% genutzt. Genug Reserve, kein Anlass zum Wechsel.`,
+        confidence: planConfidence
       });
     }
   }
@@ -190,13 +231,17 @@ function buildInsights(
   // -------- Cost source ratio --------
   if (claudeAiTotalEur + apiEur > 0) {
     const claudeShare = (claudeAiTotalEur / (claudeAiTotalEur + apiEur)) * 100;
+    const allTimeApiEur = allTime?.anthropic_api?.total_eur_equivalent ?? 0;
+    const apiStale = apiUsd === 0 && allTimeApiEur > 0;
     insights.push({
       level: 'info',
-      title: 'Kosten-Verteilung',
+      title: 'Kosten-Verteilung diesen Monat',
       body: `${claudeShare.toFixed(0)}% deiner Kosten kommen aus claude.ai (Subscription + Zusatznutzung), ${(100 - claudeShare).toFixed(0)}% aus der Anthropic API.${
         apiUsd > 0
           ? ` API-Spend ${formatUsd(apiUsd)} ≈ ${formatEur(apiEur)}.`
-          : ''
+          : apiStale
+            ? ` Hinweis: API-Kosten gesamt liegen bei ${formatEur(allTimeApiEur)} — diesen Monat aber kein neuer Sync von der Anthropic Console.`
+            : ''
       }`
     });
   }
@@ -211,7 +256,8 @@ function buildInsights(
         name: k.key_name ?? '?',
         cost: k.cost_usd ?? 0,
         lines: k.lines_accepted ?? 0,
-        usdPerLine: (k.cost_usd ?? 0) / (k.lines_accepted ?? 1)
+        usdPerLine: (k.cost_usd ?? 0) / (k.lines_accepted ?? 1),
+        last_synced: k.last_synced
       }))
       .sort((a, b) => a.usdPerLine - b.usdPerLine);
     const cheapest = ranked[0];
@@ -219,10 +265,18 @@ function buildInsights(
     if (cheapest && priciest && cheapest !== priciest) {
       const ratio = priciest.usdPerLine / cheapest.usdPerLine;
       if (ratio > 1.2) {
+        const oldestSyncMs = Math.min(
+          new Date(cheapest.last_synced).getTime(),
+          new Date(priciest.last_synced).getTime()
+        );
+        const ageDays = Math.floor((Date.now() - oldestSyncMs) / 86_400_000);
+        const staleNote = ageDays > 3
+          ? ` (letzter Sync vor ${ageDays} Tagen — Werte ggf. veraltet)`
+          : '';
         insights.push({
           level: 'info',
           title: 'Claude Code Keys: Effizienz-Vergleich',
-          body: `${cheapest.name}: ${formatUsd(cheapest.usdPerLine)}/Line. ${priciest.name}: ${formatUsd(priciest.usdPerLine)}/Line (${ratio.toFixed(1)}× teurer).`,
+          body: `${cheapest.name}: ${formatUsd(cheapest.usdPerLine)}/Line. ${priciest.name}: ${formatUsd(priciest.usdPerLine)}/Line (${ratio.toFixed(1)}× teurer)${staleNote}.`,
           action: 'Wenn beide Keys ähnliche Aufgaben machen, lohnt es sich vielleicht, vorrangig den günstigeren zu verwenden.'
         });
       }
@@ -236,21 +290,26 @@ function buildInsights(
   if (allTime && allTime.claude_ai.months.length > 0) {
     const cycles = allTime.claude_ai.months.length;
     const total = allTime.grand_total_eur ?? allTime.claude_ai.total_eur;
+    const claudeAiSub = allTime.claude_ai.subscription_eur ?? 0;
+    const claudeAiAdd = allTime.claude_ai.additional_eur ?? 0;
+    const apiAllTimeEur = allTime.anthropic_api?.total_eur_equivalent ?? 0;
+    const breakdown = `Abo ${formatEur(claudeAiSub)} + Zusatznutzung ${formatEur(claudeAiAdd)}${apiAllTimeEur > 0 ? ` + API ${formatEur(apiAllTimeEur)}` : ''}`;
     const sinceLabel = allTime.since
       ? new Date(allTime.since).toLocaleDateString('de-DE')
       : '?';
     let body: string;
-    if (daysTracked < 14) {
-      body = `${formatEur(total)} über ${daysTracked} ${daysTracked === 1 ? 'Tag' : 'Tage'} Tracking — noch zu kurz für einen belastbaren Monatsschnitt.`;
+    if (daysTracked < INSIGHT_CONFIDENCE_TIERS.confident) {
+      body = `${formatEur(total)} (${breakdown}) über ${daysTracked} ${daysTracked === 1 ? 'Tag' : 'Tage'} Tracking — noch zu kurz für einen belastbaren Monatsschnitt.`;
     } else {
       const dailyAvg = total / Math.max(1, daysTracked);
       const monthlyExtrap = dailyAvg * 30;
-      body = `${formatEur(total)} über ${daysTracked} Tage (${cycles} ${cycles === 1 ? 'Cycle' : 'Cycles'}). Tagesschnitt ${formatEur(dailyAvg)}, hochgerechnet ca. ${formatEur(monthlyExtrap)}/Monat.`;
+      body = `${formatEur(total)} (${breakdown}) über ${daysTracked} Tage (${cycles} ${cycles === 1 ? 'Cycle' : 'Cycles'}). Tagesschnitt ${formatEur(dailyAvg)}, hochgerechnet ca. ${formatEur(monthlyExtrap)}/Monat.`;
     }
     insights.push({
       level: 'info',
       title: `Insgesamt seit ${sinceLabel}`,
-      body
+      body,
+      confidence: getConfidenceLevel(daysTracked)
     });
   }
 
@@ -295,7 +354,21 @@ export default function InsightsBlock(): React.ReactElement {
         ]);
         if (cancelled) return;
         setCombined(summary.combined ?? null);
-        setAllTime(total);
+        // TEST MODE: Allow overriding daysTracked via URL parameter for manual testing
+        const params = new URLSearchParams(window.location.search);
+        const testDaysTracked = params.get('testDaysTracked');
+        if (testDaysTracked) {
+          const days = parseInt(testDaysTracked, 10);
+          if (!isNaN(days) && days >= 0) {
+            // Create a mock allTime object with a since date that results in the test days value
+            const since = new Date();
+            since.setDate(since.getDate() - days);
+            const mockAllTime = { ...total, since: since.toISOString().slice(0, 10) };
+            setAllTime(mockAllTime);
+          }
+        } else {
+          setAllTime(total);
+        }
         setPlans(planRes.plans);
         setKeys(keyRes.keys);
         setError(null);
@@ -331,7 +404,14 @@ export default function InsightsBlock(): React.ReactElement {
           <div className="flex items-start gap-3">
             <span className="text-xl leading-none">{LEVEL_ICON[ins.level]}</span>
             <div className="flex-1">
-              <h3 className="font-semibold">{ins.title}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold">{ins.title}</h3>
+                {ins.confidence && CONFIDENCE_BADGE[ins.confidence] && (
+                  <span className={`inline-block px-2 py-0.5 text-xs rounded whitespace-nowrap ${CONFIDENCE_BADGE[ins.confidence]!.classes}`}>
+                    {CONFIDENCE_BADGE[ins.confidence]!.emoji} {CONFIDENCE_BADGE[ins.confidence]!.label}
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-sm">{ins.body}</p>
               {ins.action && (
                 <p className="mt-2 text-sm font-medium">→ {ins.action}</p>

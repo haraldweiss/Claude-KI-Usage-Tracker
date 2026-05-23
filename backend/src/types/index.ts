@@ -47,6 +47,23 @@ export interface ApiTokenRow {
   revoked_at: string | null;
 }
 
+export interface PlanHistoryRow {
+  id: number;
+  user_id: number;
+  plan_name: string;
+  effective_from: string;     // ISO date YYYY-MM-DD
+  created_at: string;
+  source: 'manual' | 'seed' | 'scheduled';
+  note: string | null;
+}
+
+export interface PendingPlanChange {
+  id: number;
+  plan_name: string;
+  effective_from: string;
+  note: string | null;
+}
+
 // Augment Express Request to include req.user (set by auth middleware)
 import 'express';
 

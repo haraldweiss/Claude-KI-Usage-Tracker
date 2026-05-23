@@ -2,6 +2,10 @@
 // © 2026 Harald Weiss
 import * as db from '../database/sqlite.js';
 import type { TaskComplexity, SafetyScore, ModelAnalyticsRefreshResult } from '../types/index.js';
+import { resolveTargetFamilies } from '../data/keywordFamilyMap.js';
+import { resolveLocalInstalledCards, type LocalInstalledCard } from './localInstalledService.js';
+import { getModelProsCons } from '../data/modelProsConsRepo.js';
+import { generateClaudeProsCons } from './catalogProsConsService.js';
 
 // Last-resort fallback when even loadActiveModels() throws. Updated to a
 // currently-active model on each pricing-fallback snapshot revision.
@@ -15,10 +19,38 @@ interface ActiveModel {
   last_updated: string | null;
 }
 
+// Extrahiert die letzte Versions-Zahl im Modellnamen als [major, minor]-Tupel.
+// "Claude Sonnet 4.6" → [4, 6]; "Claude Opus 4.10" → [4, 10]; "Claude Haiku 5" → [5, 0].
+// Tuple-Vergleich vermeidet den Float-Vergleichsfehler bei "4.10" vs "4.5"
+// (als Float: 4.10 < 4.5; als Tupel: [4,10] > [4,5]).
+export function extractVersionKey(modelName: string): [number, number] {
+  const matches = modelName.match(/\d+(?:\.\d+)?/g);
+  if (!matches || matches.length === 0) return [0, 0];
+  const last = matches[matches.length - 1]!;
+  const parts = last.split('.');
+  const major = parseInt(parts[0]!, 10);
+  const minor = parts[1] ? parseInt(parts[1], 10) : 0;
+  return [Number.isFinite(major) ? major : 0, Number.isFinite(minor) ? minor : 0];
+}
+
 async function loadActiveModels(): Promise<ActiveModel[]> {
   const rows = (await db.allQuery(
-    "SELECT model, input_price, output_price, tier, last_updated FROM pricing WHERE status = 'active' ORDER BY last_updated DESC, model ASC"
+    "SELECT model, input_price, output_price, tier, last_updated FROM pricing WHERE status = 'active'"
   )) as ActiveModel[];
+  // Sortierung in JS, damit Versions-Tupel korrekt verglichen werden (SQLite kann
+  // "Claude Sonnet 4.10" vs "4.5" nicht lexikographisch lösen). Reihenfolge:
+  // tier alphabetisch, dann Version DESC. Bei Score-Gleichstand im Recommender
+  // gewinnt der erste — also das jeweils neueste Modell pro tier.
+  rows.sort((a, b) => {
+    const tierA = a.tier ?? '';
+    const tierB = b.tier ?? '';
+    if (tierA !== tierB) return tierA.localeCompare(tierB);
+    const [aMaj, aMin] = extractVersionKey(a.model);
+    const [bMaj, bMin] = extractVersionKey(b.model);
+    if (aMaj !== bMaj) return bMaj - aMaj;
+    if (aMin !== bMin) return bMin - aMin;
+    return a.model.localeCompare(b.model);
+  });
   return rows;
 }
 
@@ -73,6 +105,17 @@ interface RecommendationAlternative {
   savings: string;
   riskOfFailure: string;
   safetyImprovement: string;
+  pros?: string[];
+  cons?: string[];
+}
+
+export interface LocalAlternative {
+  name: string;
+  base_name: string;
+  family: 'chat' | 'code' | 'embedding' | 'custom';
+  pros?: string[];
+  cons?: string[];
+  ollama_command: string;
 }
 
 interface RecommendationResponse {
@@ -90,6 +133,9 @@ interface RecommendationResponse {
   historicalData?: HistoricalData;
   error?: string;
   fallback?: string;
+  pros?: string[];
+  cons?: string[];
+  localAlternatives?: LocalAlternative[];
 }
 
 interface ModelAnalysisRecord {
@@ -293,7 +339,8 @@ export async function calculateCostBenefit(
  */
 export async function recommendModel(
   taskDescription: string,
-  constraints: RecommendationConstraints = {}
+  constraints: RecommendationConstraints = {},
+  userId?: number,
 ): Promise<RecommendationResponse> {
   try {
     const { minSafety = 70, preferredModels = null, avoidModels = null } = constraints;
@@ -408,7 +455,64 @@ export async function recommendModel(
       successRateOpus: opusModel ? safetyByModel.get(opusModel)?.successRate || 0 : 0
     };
 
-    // Build response
+    // Enrich with pros/cons from model_pros_cons. Fire-and-forget generation
+    // for misses — sequentially with 2s pauses to avoid hammering the LLM pool.
+    const namesToEnrich = [recommendedModel, ...alternatives.map((a) => a.model)];
+    const prosConsByModel = new Map<string, { pros: string[]; cons: string[] }>();
+    const needsClaudeGeneration: Array<{ name: string; tier: string | null; pricing: { input: number; output: number } }> = [];
+
+    for (const name of namesToEnrich) {
+      const cached = await getModelProsCons(name);
+      if (cached) {
+        prosConsByModel.set(name, { pros: cached.pros, cons: cached.cons });
+        continue;
+      }
+      const row = activeModels.find((m) => m.model === name);
+      if (row) {
+        needsClaudeGeneration.push({
+          name,
+          tier: row.tier,
+          pricing: { input: row.input_price, output: row.output_price },
+        });
+      }
+    }
+
+    if (needsClaudeGeneration.length > 0) {
+      void (async () => {
+        for (const { name, tier, pricing } of needsClaudeGeneration) {
+          try {
+            await generateClaudeProsCons(name, tier, pricing);
+          } catch (err) {
+            console.error(
+              '[reco-catalog] claude pros/cons generate failed',
+              name,
+              (err as Error).message,
+            );
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      })().catch(() => {});
+    }
+
+    // Resolve local alternatives, filtered by task-matched families.
+    let localAlternatives: LocalAlternative[] = [];
+    if (userId !== undefined) {
+      const targetFamilies = new Set(resolveTargetFamilies(taskAnalysis.matchedKeywords));
+      const localCards: LocalInstalledCard[] = await resolveLocalInstalledCards(userId);
+      localAlternatives = localCards
+        .filter((c) => targetFamilies.has(c.family))
+        .map((c) => ({
+          name: c.name,
+          base_name: c.base_name,
+          family: c.family,
+          pros: c.pros,
+          cons: c.cons,
+          ollama_command: `ollama run ${c.name}`,
+        }));
+    }
+
+    const recoProsCons = prosConsByModel.get(recommendedModel);
+
     return {
       recommended: recommendedModel,
       confidence: Math.round(confidence * 100) / 100,
@@ -418,23 +522,31 @@ export async function recommendModel(
         matchedKeywords: taskAnalysis.matchedKeywords,
         safetyScore: recommendedSafetyScore,
         costScore: recommendedCostScore,
-        estimatedCost: `$${estimateCost(estimatedInputTokens, estimatedOutputTokens, recommendedPricing)}`
+        estimatedCost: `$${estimateCost(estimatedInputTokens, estimatedOutputTokens, recommendedPricing)}`,
       },
-      alternatives: alternatives.map(alt => ({
-        model: alt.model,
-        confidence: Math.round((alt.score / 100) * 100) / 100,
-        savings:
-          alt.model.includes('Haiku') && recommendedModel.includes('Opus')
-            ? '75-85%'
-            : alt.model.includes('Haiku') && recommendedModel.includes('Sonnet')
-              ? '60-70%'
-              : alt.model.includes('Sonnet') && recommendedModel.includes('Opus')
-                ? '75-80%'
-                : 'N/A',
-        riskOfFailure: alt.safetyScore >= 85 ? 'Low' : alt.safetyScore >= 70 ? 'Medium' : 'High',
-        safetyImprovement: (((recommendedSafetyScore - alt.safetyScore) / 100) * 100).toFixed(0) + '%'
-      })),
-      historicalData
+      pros: recoProsCons?.pros,
+      cons: recoProsCons?.cons,
+      alternatives: alternatives.map((alt) => {
+        const altPC = prosConsByModel.get(alt.model);
+        return {
+          model: alt.model,
+          confidence: Math.round((alt.score / 100) * 100) / 100,
+          savings:
+            alt.model.includes('Haiku') && recommendedModel.includes('Opus')
+              ? '75-85%'
+              : alt.model.includes('Haiku') && recommendedModel.includes('Sonnet')
+                ? '60-70%'
+                : alt.model.includes('Sonnet') && recommendedModel.includes('Opus')
+                  ? '75-80%'
+                  : 'N/A',
+          riskOfFailure: alt.safetyScore >= 85 ? 'Low' : alt.safetyScore >= 70 ? 'Medium' : 'High',
+          safetyImprovement: (((recommendedSafetyScore - alt.safetyScore) / 100) * 100).toFixed(0) + '%',
+          pros: altPC?.pros,
+          cons: altPC?.cons,
+        };
+      }),
+      historicalData,
+      localAlternatives,
     };
   } catch (error) {
     console.error('Error in recommendModel:', error);

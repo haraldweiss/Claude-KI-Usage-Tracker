@@ -12,12 +12,15 @@ import type { User } from '../types/index.js';
 // SPA route which would just bounce to /login without consuming the token.
 const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.de/claudetracker/api/auth/verify';
 
-// NIT N4: cookie path comes from env so dev (localhost) can use '/' while
-// production uses '/claudetracker/'. Set COOKIE_PATH=/ in .env for local dev.
-const COOKIE_PATH = process.env.COOKIE_PATH || '/claudetracker/';
+// Cookie path must be '/' because frontend calls /api/* at root, not /claudetracker/api/*
+// The Apache proxy routes both paths to the same backend
+const COOKIE_PATH = process.env.COOKIE_PATH || '/';
+// Don't set domain explicitly — let the browser infer from request origin
+// Behind Apache proxy, the browser sees wolfinisoftware.de; explicitly setting .wolfinisoftware.de
+// can cause rejection. The browser will correctly set the cookie to the origin domain.
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: true, // HTTPS production requirement — browsers reject secure:false over HTTPS
   sameSite: 'lax' as const,
   path: COOKIE_PATH,
   maxAge: 30 * 24 * 60 * 60 * 1000
@@ -119,8 +122,19 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     }
     if (!user) throw new Error('user creation failed');
     const sid = await createSession(user.id, req.headers['user-agent'] || null, req.ip || null);
+    console.log(`[auth] created session ${sid} for user ${user.id} (${user.email})`);
     res.cookie(SESSION_COOKIE_NAME, sid, COOKIE_OPTS);
-    res.redirect('/claudetracker/');
+    console.log(`[auth] set cookie "${SESSION_COOKIE_NAME}=${sid}" with path="${COOKIE_PATH}", httpOnly=${COOKIE_OPTS.httpOnly}, secure=${COOKIE_OPTS.secure}, sameSite=${COOKIE_OPTS.sameSite}`);
+    console.log(`[auth] response headers: ${JSON.stringify(res.getHeaders())}`);
+    // Return HTML that redirects and loads the app — ensures session cookie is sent
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html><head>
+    <meta charset="utf-8">
+    <title>Anmeldung erfolgreich</title>
+    <script>window.location.href = '/claudetracker/';</script>
+    </head><body>
+    Weitergeleitet zu <a href="/claudetracker/">Claude Usage Tracker</a>...
+    </body></html>`);
   } catch (err) {
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(
       `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center">
@@ -139,9 +153,11 @@ export async function logout(req: Request, res: Response): Promise<void> {
 
 export async function whoami(req: Request, res: Response): Promise<void> {
   const sid = req.cookies?.[SESSION_COOKIE_NAME];
-  if (!sid) { res.status(401).json({ error: 'no session' }); return; }
+  console.log(`[auth/me] SESSION_COOKIE_NAME="${SESSION_COOKIE_NAME}", sid="${sid}", cookies=${JSON.stringify(req.cookies)}`);
+  if (!sid) { console.log(`[auth/me] no session cookie found`); res.status(401).json({ error: 'no session' }); return; }
   const user = await getSessionUser(sid);
-  if (!user) { res.status(401).json({ error: 'invalid session' }); return; }
+  if (!user) { console.log(`[auth/me] session ${sid} not found in database`); res.status(401).json({ error: 'invalid session' }); return; }
+  console.log(`[auth/me] session ${sid} authenticated as user ${user.id}`);
   await touchSession(sid);   // roll expiry on /me too, matching requireUser middleware
   res.json({ id: user.id, email: user.email, display_name: user.display_name,
              plan_name: user.plan_name, monthly_limit_eur: user.monthly_limit_eur,

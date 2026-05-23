@@ -3,6 +3,17 @@
 import React, { useState } from 'react';
 import { recommendModel } from '../services/api';
 
+type LocalModelFamily = 'chat' | 'code' | 'embedding' | 'custom';
+
+interface LocalAlternative {
+  name: string;
+  base_name: string;
+  family: LocalModelFamily;
+  pros?: string[];
+  cons?: string[];
+  ollama_command: string;
+}
+
 interface Recommendation {
   recommended: string;
   confidence: number;
@@ -14,18 +25,23 @@ interface Recommendation {
     estimatedCost: string;
     matchedKeywords: string[];
   };
+  pros?: string[];
+  cons?: string[];
   alternatives: Array<{
     model: string;
     confidence: number;
     savings: string;
     riskOfFailure: string;
     safetyImprovement: string;
+    pros?: string[];
+    cons?: string[];
   }>;
   historicalData?: {
     successRateHaiku: number;
     successRateSonnet: number;
     successRateOpus: number;
   };
+  localAlternatives?: LocalAlternative[];
 }
 
 export default function ModelSuggester(): React.ReactElement {
@@ -33,6 +49,43 @@ export default function ModelSuggester(): React.ReactElement {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
+
+  const handleCopyCommand = async (cmd: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopiedCommand(cmd);
+      setTimeout(() => setCopiedCommand(null), 2000);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = cmd;
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        setCopiedCommand(cmd);
+        setTimeout(() => setCopiedCommand(null), 2000);
+      } catch {
+        // user copies manually
+      } finally {
+        document.body.removeChild(ta);
+      }
+    }
+  };
+
+  const FAMILY_LABEL_DE: Record<LocalModelFamily, string> = {
+    chat: 'Chat',
+    code: 'Code',
+    embedding: 'Embedding',
+    custom: 'Custom',
+  };
+
+  const FAMILY_BADGE_DE: Record<LocalModelFamily, string> = {
+    chat: 'bg-blue-100 text-blue-800',
+    code: 'bg-green-100 text-green-800',
+    embedding: 'bg-gray-100 text-gray-700',
+    custom: 'bg-purple-100 text-purple-800',
+  };
 
   const handleGetRecommendation = async (): Promise<void> => {
     if (!taskInput.trim()) {
@@ -177,6 +230,26 @@ export default function ModelSuggester(): React.ReactElement {
                 </div>
               </div>
             )}
+
+            {(recommendation.pros?.length || recommendation.cons?.length) ? (
+              <div className="mt-4 bg-white p-4 rounded-lg">
+                <p className="text-sm text-slate-600 mb-2 font-semibold">Stärken & Schwächen</p>
+                <div className="space-y-1">
+                  {recommendation.pros?.map((p, i) => (
+                    <div key={`p${i}`} className="text-xs text-green-800 flex gap-1">
+                      <span aria-hidden>✅</span>
+                      <span>{p}</span>
+                    </div>
+                  ))}
+                  {recommendation.cons?.map((c, i) => (
+                    <div key={`c${i}`} className="text-xs text-amber-800 flex gap-1">
+                      <span aria-hidden>⚠️</span>
+                      <span>{c}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {/* Alternatives Section */}
@@ -218,6 +291,87 @@ export default function ModelSuggester(): React.ReactElement {
                         : alt.confidence >= 0.6
                           ? '⚠️ Consider with caution'
                           : '❌ Not recommended'}
+                    </div>
+
+                    {(alt.pros?.length || alt.cons?.length) ? (
+                      <div className="mt-3 space-y-1">
+                        {alt.pros?.map((p, i) => (
+                          <div key={`p${i}`} className="text-xs text-green-800 flex gap-1">
+                            <span aria-hidden>✅</span>
+                            <span>{p}</span>
+                          </div>
+                        ))}
+                        {alt.cons?.map((c, i) => (
+                          <div key={`c${i}`} className="text-xs text-amber-800 flex gap-1">
+                            <span aria-hidden>⚠️</span>
+                            <span>{c}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Local Alternatives */}
+          {recommendation.localAlternatives && recommendation.localAlternatives.length > 0 && (
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800 mb-4">
+                🦙 Lokale Alternativen (kostenlos) ({recommendation.localAlternatives.length})
+              </h3>
+              <p className="text-sm text-slate-600 mb-4">
+                Lokal installierte Ollama-Modelle in der passenden Kategorie. Ausführung ist
+                kostenlos (kein API-Call), aber Qualität und Geschwindigkeit hängen vom Modell
+                und deiner Hardware ab.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {recommendation.localAlternatives.map((alt) => (
+                  <div key={alt.name} className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <span className="text-sm font-medium font-mono text-slate-800 break-all">
+                        {alt.name}
+                      </span>
+                      <span
+                        className={`shrink-0 text-xs px-2 py-0.5 rounded ${FAMILY_BADGE_DE[alt.family]}`}
+                      >
+                        {FAMILY_LABEL_DE[alt.family]}
+                      </span>
+                    </div>
+
+                    {(alt.pros?.length || alt.cons?.length) ? (
+                      <div className="mb-3 space-y-1">
+                        {alt.pros?.map((p, i) => (
+                          <div key={`p${i}`} className="text-xs text-green-800 flex gap-1">
+                            <span aria-hidden>✅</span>
+                            <span>{p}</span>
+                          </div>
+                        ))}
+                        {alt.cons?.map((c, i) => (
+                          <div key={`c${i}`} className="text-xs text-amber-800 flex gap-1">
+                            <span aria-hidden>⚠️</span>
+                            <span>{c}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mb-3 text-xs text-slate-500 italic">
+                        Pros/Cons werden im Hintergrund generiert.
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs bg-white border border-slate-200 rounded px-2 py-1 break-all font-mono">
+                        {alt.ollama_command}
+                      </code>
+                      <button
+                        onClick={() => handleCopyCommand(alt.ollama_command)}
+                        className="shrink-0 text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded"
+                        aria-label="Kopieren"
+                      >
+                        {copiedCommand === alt.ollama_command ? '✓' : '📋'}
+                      </button>
                     </div>
                   </div>
                 ))}

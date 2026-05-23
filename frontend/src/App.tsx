@@ -9,6 +9,7 @@ import UserMenu from './components/UserMenu';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import RecommendationsPage from './pages/RecommendationsPage';
+import CatalogPage from './pages/CatalogPage';
 import LoginPage from './pages/Login';
 import AuthVerifyPage from './pages/AuthVerify';
 import './index.css';
@@ -30,6 +31,7 @@ function NavBar(): React.ReactElement {
         <div className="flex gap-4 items-center">
           {tab('/', 'Dashboard')}
           {tab('/recommendations', '🎯 Recommendations')}
+          {tab('/catalog', '📚 Modell-Katalog')}
           {tab('/settings', 'Settings')}
           <UserMenu />
         </div>
@@ -59,6 +61,7 @@ export default function App(): React.ReactElement {
             <Route path="/auth/verify" element={<AuthVerifyPage />} />
             <Route path="/" element={<ProtectedShell><Dashboard /></ProtectedShell>} />
             <Route path="/recommendations" element={<ProtectedShell><RecommendationsPage /></ProtectedShell>} />
+            <Route path="/catalog" element={<ProtectedShell><CatalogPage /></ProtectedShell>} />
             <Route path="/settings" element={<ProtectedShell><Settings /></ProtectedShell>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

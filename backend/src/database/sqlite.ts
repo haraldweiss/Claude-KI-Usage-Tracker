@@ -156,6 +156,29 @@ export function initDatabase(): Promise<void> {
         if (err && !err.message.includes('already exists')) reject(err);
       });
 
+      // Plan-change schedule + audit trail. See spec
+      // 2026-05-18-tracker-plan-scheduling-design.md
+      database.run(`
+        CREATE TABLE IF NOT EXISTS plan_history (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          plan_name       TEXT NOT NULL,
+          effective_from  TEXT NOT NULL,
+          created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          source          TEXT NOT NULL DEFAULT 'manual',
+          note            TEXT
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+      database.run(
+        `CREATE INDEX IF NOT EXISTS idx_plan_history_user_date
+           ON plan_history(user_id, effective_from)`,
+        (err: Error | null) => {
+          if (err && !err.message.includes('already exists')) reject(err);
+        }
+      );
+
       database.run(`
         CREATE TABLE IF NOT EXISTS sessions (
           id TEXT PRIMARY KEY,
@@ -297,6 +320,189 @@ export function initDatabase(): Promise<void> {
           });
           const { seedInitialUser } = await import('./migrations/seedInitialUser.js');
           await seedInitialUser();
+          const { seedPlanHistoryFromUsers } = await import('./migrations/seedPlanHistoryFromUsers.js');
+          await seedPlanHistoryFromUsers();
+
+          // Provider-Service integration tables (Sub-project A: local LLM tracking).
+          // 1:0..1 with users — each tracker user can configure one ai-provider-service
+          // endpoint they want to pull usage events from.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS user_provider_service_config (
+                user_id            INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                service_url        TEXT NOT NULL,
+                service_token_enc  TEXT NOT NULL,
+                provider_user_id   TEXT NOT NULL,
+                last_sync_at       TEXT,
+                last_sync_cursor   TEXT,
+                last_sync_error    TEXT,
+                enabled            INTEGER NOT NULL DEFAULT 1,
+                created_at         TEXT NOT NULL,
+                updated_at         TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          // Mirror of /usage/events from the provider-service. UNIQUE makes
+          // INSERT OR IGNORE idempotent — even if the cursor is wrong we never
+          // double-count.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS provider_service_events (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                remote_event_id   INTEGER NOT NULL,
+                remote_created_at TEXT NOT NULL,
+                provider_id       TEXT NOT NULL,
+                model             TEXT NOT NULL,
+                input_tokens      INTEGER,
+                output_tokens     INTEGER,
+                cost_usd          REAL,
+                origin_app        TEXT,
+                status            TEXT NOT NULL,
+                error_message     TEXT,
+                ingested_at       TEXT NOT NULL,
+                UNIQUE (user_id, remote_event_id)
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_pse_user_created ON provider_service_events(user_id, remote_created_at)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_pse_provider ON provider_service_events(user_id, provider_id)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+
+          // Sub-A.1: provider_user_id on events (additive). Used by the multi-source
+          // card to fall back from origin_app to "user:<provider_user_id>" when the
+          // upstream app does not set the X-Origin-App header. Defensive on existing
+          // production rows: nullable.
+          await addMissingColumns('provider_service_events', [
+            { name: 'provider_user_id', ddl: 'TEXT' },
+          ]);
+
+          // Sub-A.1: 1:N — multiple provider_user_ids per tracker-user. Replaces the
+          // single column user_provider_service_config.provider_user_id (kept for one
+          // release as rollback safety net). Each row tracks its own sync cursor so a
+          // failing/slow ID doesn't poison another ID's incremental state.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS provider_service_user_ids (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider_user_id  TEXT NOT NULL,
+                label             TEXT,
+                enabled           INTEGER NOT NULL DEFAULT 1,
+                last_sync_at      TEXT,
+                last_sync_cursor  TEXT,
+                last_sync_error   TEXT,
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL,
+                UNIQUE (user_id, provider_user_id)
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_psuid_user_enabled ON provider_service_user_ids(user_id, enabled)',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
+            );
+          });
+
+          // Migration: copy existing provider_user_id from user_provider_service_config
+          // into the new table. Idempotent via NOT EXISTS so reruns are safe.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `INSERT INTO provider_service_user_ids
+                 (user_id, provider_user_id, label, enabled, last_sync_at, last_sync_cursor, last_sync_error, created_at, updated_at)
+               SELECT
+                 upsc.user_id, upsc.provider_user_id, NULL, upsc.enabled,
+                 upsc.last_sync_at, upsc.last_sync_cursor, upsc.last_sync_error,
+                 upsc.created_at, upsc.updated_at
+               FROM user_provider_service_config upsc
+               WHERE upsc.provider_user_id IS NOT NULL
+                 AND upsc.provider_user_id != ''
+                 AND NOT EXISTS (
+                   SELECT 1 FROM provider_service_user_ids psuid
+                   WHERE psuid.user_id = upsc.user_id
+                     AND psuid.provider_user_id = upsc.provider_user_id
+                 )`,
+              (mErr: Error | null) => (mErr ? rej(mErr) : res())
+            );
+          });
+
+          // Sub-B.1: HF metadata cache. Filled daily by the catalogCacheRefresh cron
+          // (and once on startup if empty). Page-load reads from here instead of
+          // hitting the HF API for each curated model.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS catalog_hf_cache (
+                repo        TEXT PRIMARY KEY,
+                data_json   TEXT NOT NULL,
+                fetched_at  TEXT NOT NULL,
+                last_error  TEXT
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
+          // Sub-B.2: index table for the dynamic "Latest Uploads" section.
+          // Holds the top 6 repos by lastModified across the configured
+          // quanters. Refreshed daily by catalogCacheRefresh.refreshLatestUploads().
+          // Metadata for each repo lives in catalog_hf_cache.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS catalog_latest_uploads (
+                position    INTEGER PRIMARY KEY,
+                repo        TEXT NOT NULL,
+                fetched_at  TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
+          // 2026-05-21: Local Ollama models pros/cons cache. Populated lazily
+          // by getLocalInstalled() controller when a model is neither curated
+          // nor already cached. Key is the exact Ollama model name (e.g.
+          // "mistral-nemo-cc:latest"), so customer-specific tags persist
+          // even when normalize() would collapse them.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS catalog_local_pros_cons (
+                model_name   TEXT PRIMARY KEY,
+                pros         TEXT NOT NULL,
+                cons         TEXT NOT NULL,
+                family       TEXT NOT NULL,
+                generated_at TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
+          // 2026-05-21: Pros/cons cache for non-Ollama models (Claude Haiku/
+          // Sonnet/Opus today; could extend to other cloud providers later).
+          // Populated lazily from the recommendation endpoint when a model
+          // is recommended and has no cached pros/cons yet.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS model_pros_cons (
+                model_name   TEXT PRIMARY KEY,
+                pros         TEXT NOT NULL,
+                cons         TEXT NOT NULL,
+                generated_at TEXT NOT NULL
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

@@ -4,7 +4,7 @@
 // override this from the popup via chrome.storage.local.api_base. Every
 // fetch resolves the URL fresh so a settings change takes effect on the
 // next call without reloading the extension.
-const DEFAULT_API_BASE = 'http://localhost:3000/api';
+const DEFAULT_API_BASE = 'https://wolfinisoftware.de/api';
 const API_BASE_STORAGE_KEY = 'api_base';
 const QUEUE_STORAGE_KEY = 'usage_queue';
 
@@ -343,23 +343,55 @@ async function autoSync() {
           if (candidate.length < 80) plan_name = candidate;
         }
 
-        // Session usage % — labeled "Aktuelle Sitzung" / "Current session".
-        // The percent appears on the same row but a different DOM line; we
-        // accept any % within ~200 chars after the label.
-        const sessionMatch =
-          text.match(/Aktuelle Sitzung[\s\S]{0,200}?(\d+)\s*%/i) ||
-          text.match(/Current session[\s\S]{0,200}?(\d+)\s*%/i);
-        const session_pct = sessionMatch ? parseInt(sessionMatch[1], 10) : null;
+        // Plan-usage panel rows are rendered as e.g.
+        //   "Wöchentlich · alle Modelle\n82% · Reset in 1T"
+        //   "5-Stunden-Limit\n5% · Reset in 4h"
+        // …but on the plain /settings/usage page they appear without the
+        // 'Reset in X' suffix. So percentage capture is the must-have and
+        // the reset suffix is best-effort — never let a missing 'Reset in'
+        // cause the percentage match to fail.
+        const extractPctAndReset = (labels) => {
+          for (const label of labels) {
+            const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
+            const pctMatch = text.match(pctRe);
+            if (!pctMatch) continue;
+            const pct = parseInt(pctMatch[1], 10);
+            // Search for 'Reset in X' within ~40 chars after the percentage.
+            // Greedy `[^\n·•]+` naturally terminates at line break / next bullet.
+            const tail = text.slice((pctMatch.index ?? 0) + pctMatch[0].length, (pctMatch.index ?? 0) + pctMatch[0].length + 60);
+            const resetMatch = tail.match(/Reset(?:\s+in)?\s+([^\n·•]+)/i);
+            const reset = resetMatch ? resetMatch[1].trim() : null;
+            return { pct, reset };
+          }
+          return { pct: null, reset: null };
+        };
 
-        const allModelsMatch =
-          text.match(/Alle Modelle[\s\S]{0,200}?(\d+)\s*%/i) ||
-          text.match(/All models[\s\S]{0,200}?(\d+)\s*%/i);
-        const weekly_all_models_pct = allModelsMatch ? parseInt(allModelsMatch[1], 10) : null;
+        // Session limit — labeled "5-Stunden-Limit" in the new panel, but
+        // older claude.ai builds used "Aktuelle Sitzung" / "Current session".
+        const session = extractPctAndReset([
+          '5-Stunden-Limit',
+          '5-hour limit',
+          'Aktuelle Sitzung',
+          'Current session'
+        ]);
+        const session_pct = session.pct;
+        const session_reset_in = session.reset;
 
-        const sonnetMatch =
-          text.match(/Nur Sonnet[\s\S]{0,200}?(\d+)\s*%/i) ||
-          text.match(/Sonnet only[\s\S]{0,200}?(\d+)\s*%/i);
-        const weekly_sonnet_pct = sonnetMatch ? parseInt(sonnetMatch[1], 10) : null;
+        const allModels = extractPctAndReset([
+          'Wöchentlich\\s*·\\s*alle Modelle',
+          'Weekly\\s*·\\s*all models',
+          'Alle Modelle',
+          'All models'
+        ]);
+        const weekly_all_models_pct = allModels.pct;
+        const weekly_all_models_reset_in = allModels.reset;
+
+        const sonnet = extractPctAndReset([
+          'Nur Sonnet',
+          'Sonnet only'
+        ]);
+        const weekly_sonnet_pct = sonnet.pct;
+        const weekly_sonnet_reset_in = sonnet.reset;
 
         // Additional usage block — three numbers we want:
         //   "31,35 € ausgegeben"  → spent_eur
@@ -419,8 +451,11 @@ async function autoSync() {
         return {
           plan_name,
           session_pct,
+          session_reset_in,
           weekly_all_models_pct,
+          weekly_all_models_reset_in,
           weekly_sonnet_pct,
+          weekly_sonnet_reset_in,
           spent_eur,
           spent_pct,
           monthly_limit_eur,
@@ -534,7 +569,7 @@ async function consoleSync() {
         reason = 'keine Tabelle gefunden';
       } else if (!diag.candidate_headers) {
         const seen = (diag.all_headers || []).map((h) => `[${h.join(' | ')}]`).join(' / ');
-        reason = `keine Cost-Spalte. Headers: ${seen || '(leer)'}`;
+        reason = `keine Kosten-Spalte. Headers: ${seen || '(leer)'}`;
       } else if (diag.body_row_count === 0) {
         reason = 'Tabelle leer (Zeilen rendern noch?)';
       } else if (diag.rows_skipped_no_cost > 0) {
@@ -632,16 +667,12 @@ function scrapeConsoleKeysTable() {
   const tables = realTables.length > 0 ? realTables : ariaTables;
   diag.tables_seen = tables.length;
 
-  // Lenient match: lowercase + word-boundary contains. Handles "Cost",
-  // "Cost (USD)", "Cost ▲", "Cost  ⓘ", "MTD Cost", etc. Strict match for
-  // 'key' / 'workspace' would also fail with sort-indicator suffixes — same
-  // treatment.
-  const matchHeader = (headers, needle, opts = {}) => {
-    const re = opts.exact
-      ? new RegExp(`^${needle}\\b`)
-      : new RegExp(`\\b${needle}\\b`);
-    return headers.findIndex((h) => re.test(h));
-  };
+  // Lenient match: lowercase substring against a list of language variants.
+  // Handles English ("Cost", "Cost (USD)") and German ("Kosten",
+  // "Schlüssel", "Arbeitsbereich", "Zuletzt verwendet am"), incl. sort
+  // indicators and unit suffixes.
+  const matchAny = (headers, needles) =>
+    headers.findIndex((h) => needles.some((n) => h.includes(n)));
 
   for (const table of tables) {
     // Real <table>: headers from thead. ARIA: role="columnheader".
@@ -651,13 +682,13 @@ function scrapeConsoleKeysTable() {
     const headers = Array.from(headerEls).map((h) => h.textContent.trim().toLowerCase());
     diag.all_headers.push(headers);
 
-    const costIdx = matchHeader(headers, 'cost');
+    const costIdx = matchAny(headers, ['cost', 'kosten']);
     if (costIdx === -1) continue;
     diag.candidate_headers = headers;
 
-    const keyIdx = matchHeader(headers, 'key');
-    const workspaceIdx = matchHeader(headers, 'workspace');
-    const lastUsedIdx = headers.findIndex((h) => /\blast used\b/.test(h));
+    const keyIdx = matchAny(headers, ['key', 'schlüssel', 'schluessel']);
+    const workspaceIdx = matchAny(headers, ['workspace', 'arbeitsbereich']);
+    const lastUsedIdx = matchAny(headers, ['last used', 'zuletzt verwendet']);
 
     const rows = realTables.length > 0
       ? Array.from(table.querySelectorAll('tbody tr'))
@@ -760,29 +791,35 @@ async function claudeCodeSync() {
       func: () => {
         const text = document.body.innerText || '';
 
-        // Top-level metrics — labeled exactly like in the screenshot.
-        // English labels are the live ones; we don't expect German here.
-        const linesMatch = text.match(/Lines of code accepted\s*\n+\s*([\d.,]+)/i);
+        // Top-level metrics — labels exist in English and German variants.
+        const linesMatch = text.match(/(?:Lines of code accepted|Akzeptierte Codezeilen|Zeilen Code akzeptiert)\s*\n+\s*([\d.,]+)/i);
         const total_lines_accepted = linesMatch
           ? parseInt(linesMatch[1].replace(/[.,]/g, ''), 10) || null
           : null;
 
-        const acceptMatch = text.match(/Suggestion accept rate\s*\n+\s*([\d.,]+)\s*%/i);
+        const acceptMatch = text.match(/(?:Suggestion accept rate|Akzeptanzrate|Vorschlags?-?Akzeptanzrate)\s*\n+\s*([\d.,]+)\s*%/i);
         const accept_rate_pct = acceptMatch
           ? parseFloat(acceptMatch[1].replace(',', '.'))
           : null;
 
-        // Team table — has a "Spend this month" + "Lines this month" header.
-        // Walk every <table> on the page and pick the one whose <thead>
-        // includes both columns.
+        // Team table — find the table that has a spend column. We accept
+        // English ("Spend this month") and German ("Ausgaben diesen Monat").
         const tables = Array.from(document.querySelectorAll('table'));
+        const all_headers = [];
         const rows = [];
         for (const table of tables) {
           const headers = Array.from(table.querySelectorAll('thead th, thead td'))
             .map((h) => h.textContent.trim().toLowerCase());
-          const memberIdx = headers.findIndex((h) => h === 'members' || h === 'member');
-          const spendIdx = headers.findIndex((h) => h.startsWith('spend'));
-          const linesIdx = headers.findIndex((h) => h.startsWith('lines'));
+          all_headers.push(headers);
+          const memberIdx = headers.findIndex((h) =>
+            ['members', 'member', 'mitglieder', 'mitglied', 'name'].some((n) => h.includes(n))
+          );
+          const spendIdx = headers.findIndex((h) =>
+            h.startsWith('spend') || h.startsWith('ausgaben') || h.includes('kosten')
+          );
+          const linesIdx = headers.findIndex((h) =>
+            h.startsWith('lines') || h.startsWith('zeilen')
+          );
           if (spendIdx === -1) continue;
 
           for (const tr of table.querySelectorAll('tbody tr')) {
@@ -822,13 +859,17 @@ async function claudeCodeSync() {
           if (rows.length > 0) break;
         }
 
-        return { total_lines_accepted, accept_rate_pct, rows };
+        return { total_lines_accepted, accept_rate_pct, rows, all_headers, tables_seen: tables.length };
       }
     });
 
     const data = injection?.result;
     if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
-      return { skipped: true, reason: 'no_rows' };
+      const seen = (data?.all_headers || []).map((h) => `[${h.join(' | ')}]`).join(' / ');
+      const reason = data?.tables_seen === 0
+        ? 'keine Tabelle'
+        : `keine passenden Spalten. Headers: ${seen || '(leer)'}`;
+      return { skipped: true, reason };
     }
 
     const apiBase = await getApiBase();

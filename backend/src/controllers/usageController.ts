@@ -673,10 +673,18 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       [req.user!.id]
     );
 
-    // `since` reflects when tracking actually began, not the earliest cycle's
-    // end date — those differ now that we group by billing cycle.
-    const earliestRow = allRows[allRows.length - 1];
-    const since = earliestRow ? earliestRow.timestamp.slice(0, 10) : null;
+    // `since` reflects when tracking actually began across ALL claude.ai
+    // sources, not just claude_official_sync. The official sync started
+    // later (it scrapes the Claude.ai dashboard), but per-message claude_ai
+    // rows often go back further — those count as real tracking history.
+    const earliestOverall = await getQuery<{ first_ts: string | null }>(
+      `SELECT MIN(timestamp) as first_ts
+         FROM usage_records
+        WHERE user_id = ?
+          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync')`,
+      [req.user!.id]
+    );
+    const since = earliestOverall?.first_ts ? earliestOverall.first_ts.slice(0, 10) : null;
     const apiTotalUsd = apiTotalRow?.total_usd ?? 0;
 
     // Convert API USD to EUR using the latest stored exchange rate so the

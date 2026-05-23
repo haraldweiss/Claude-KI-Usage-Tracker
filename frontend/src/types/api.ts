@@ -39,8 +39,11 @@ export interface ClaudeAiSpend {
 export interface ClaudeAiUsageMeta {
   plan_name?: string | null;
   session_pct?: number | null;
+  session_reset_in?: string | null;
   weekly_all_models_pct?: number | null;
+  weekly_all_models_reset_in?: string | null;
   weekly_sonnet_pct?: number | null;
+  weekly_sonnet_reset_in?: string | null;
   spent_eur?: number | null;
   spent_pct?: number | null;
   monthly_limit_eur?: number | null;
@@ -201,4 +204,21 @@ export interface AdminStats {
   total_users: number;
   active_last_7d: number;
   total_records: number;
+}
+
+export interface PlanHistoryRow {
+  id: number;
+  user_id: number;
+  plan_name: string;
+  effective_from: string;
+  created_at: string;
+  source: 'manual' | 'seed' | 'scheduled';
+  note: string | null;
+}
+
+export interface PendingPlanChange {
+  id: number;
+  plan_name: string;
+  effective_from: string;
+  note: string | null;
 }

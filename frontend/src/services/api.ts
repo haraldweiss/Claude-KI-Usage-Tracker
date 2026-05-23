@@ -20,21 +20,27 @@ import {
   CurrentUser,
   ApiTokenInfo,
   AdminUserRow,
-  AdminStats
+  AdminStats,
+  PlanHistoryRow,
+  PendingPlanChange
 } from '../types/api';
 
-const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`;
+// Use relative path for API calls — works both locally and on production VPS
+// On production, Apache routes /api to the backend (port 3001)
+const API_BASE = '/api';
 
 /**
  * Central fetch helper.
- * - Always sends cookies (credentials: 'include')
+ * - Sends cookies for all requests (credentials: 'include')
+ * - Only /auth/request omits credentials (user doesn't have session yet)
  * - Redirects to /login on 401, unless the request itself is an /auth/ call
  *   (those handle their own auth flow and must not loop)
  */
-async function apiCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const isInitialAuthRequest = path.startsWith('/auth/request');
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    credentials: 'include',
+    credentials: isInitialAuthRequest ? 'omit' : 'include',
     headers: { 'Content-Type': 'application/json', ...(init.headers || {}) }
   });
   if (res.status === 401 && !path.startsWith('/auth/')) {
@@ -260,3 +266,32 @@ export const adminDeleteUser = (id: number) =>
 
 /** Return aggregate admin stats. */
 export const adminStats = () => apiCall<AdminStats>('/admin/stats');
+
+// ---------------------------------------------------------------------------
+// Plan-schedule endpoints
+// ---------------------------------------------------------------------------
+
+/** Return the current user's plan-change history, DESC by effective_from. */
+export const getPlanHistory = (limit?: number) =>
+  apiCall<PlanHistoryRow[]>(
+    `/account/plan-history${limit ? `?limit=${limit}` : ''}`
+  );
+
+/** Return the user's next pending plan change, or null. */
+export const getPlanPending = () =>
+  apiCall<PendingPlanChange | null>('/account/plan-pending');
+
+/** Schedule a future plan change. Throws 400 on validation errors. */
+export const postPlanSchedule = (body: {
+  plan_name: string;
+  effective_from: string;
+  note?: string;
+}) =>
+  apiCall<{ id: number }>('/account/plan-schedule', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** Cancel all pending scheduled plan changes for the current user. */
+export const deletePlanSchedule = () =>
+  apiCall<void>('/account/plan-schedule', { method: 'DELETE' });

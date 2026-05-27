@@ -5,6 +5,8 @@ import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
 import type { UsageTrackRequest, UsageTrackResponse, UsageRecord } from '../types/index.js';
 import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow } from '../services/modelNormalizer.js';
 import { upsertPricing } from '../services/pricingService.js';
+import { getPlanPrice } from '../services/planPricingService.js';
+import { convertUsdToEur } from '../services/exchangeRateService.js';
 
 interface PricingRow {
   model: string;
@@ -50,7 +52,7 @@ export async function trackUsage(
     };
 
     if (!rawModel || input_tokens === undefined || output_tokens === undefined) {
-      res.status(400).json({ success: false, error: 'Missing required fields' } as any);
+      res.status(400).json({ success: false, error: 'Missing required fields' });
       return;
     }
 
@@ -162,7 +164,7 @@ export async function trackUsage(
     });
   } catch (error) {
     console.error('Error tracking usage:', error);
-    res.status(500).json({ success: false, error: 'Internal server error' } as any);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 }
 
@@ -298,7 +300,6 @@ export async function getSummary(
     // without needing a separate /pricing/plans request.
     let planEur = 0;
     if (parsedMeta?.plan_name) {
-      const { getPlanPrice } = await import('../services/planPricingService.js');
       planEur = (await getPlanPrice(parsedMeta.plan_name)) ?? 0;
     }
 
@@ -388,7 +389,6 @@ export async function getSummary(
     const apiTotalUsd = apiByWorkspace.reduce((sum, r) => sum + (r.cost_usd || 0), 0);
 
     // EUR equivalent of the API spend, for the combined hero number.
-    const { convertUsdToEur } = await import('../services/exchangeRateService.js');
     const fx = await convertUsdToEur(apiTotalUsd);
 
     res.json({
@@ -413,8 +413,17 @@ export async function getSummary(
     });
   } catch (error) {
     console.error('Error getting summary:', error);
-    res.status(500).json({ error: 'Internal server error' } as any);
+    res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+interface ModelBreakdownRow {
+  model: string;
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  total_cost: number;
 }
 
 interface ModelByCategoryRow {
@@ -442,7 +451,7 @@ export async function getModelBreakdown(
     // (cumulative cost in cost_usd, not per-message token usage), so showing
     // them in a "tokens per model" table just produces misleading 0,00 rows.
     // The Combined Cost tab has the proper per-source visualization for them.
-    const breakdown = await allQuery(
+    const breakdown = await allQuery<ModelBreakdownRow>(
       `SELECT
         model,
         COUNT(*) as request_count,
@@ -490,12 +499,12 @@ export async function getModelBreakdown(
     }
 
     res.json({
-      models: (breakdown as any[]) || [],
+      models: breakdown || [],
       by_model_category: byModelCategory
     });
   } catch (error) {
     console.error('Error getting model breakdown:', error);
-    res.status(500).json({ error: 'Internal server error' } as any);
+    res.status(500).json({ error: 'Internal server error' });
   }
 }
 
@@ -636,8 +645,6 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       }
     }
 
-    const { getPlanPrice } = await import('../services/planPricingService.js');
-
     const months: MonthSpendRow[] = [];
     for (const c of cycles) {
       const subscription_eur = c.plan_name ? (await getPlanPrice(c.plan_name)) ?? 0 : 0;
@@ -690,7 +697,6 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     // Convert API USD to EUR using the latest stored exchange rate so the
     // dashboard can display a single combined total. The rate metadata is
     // included alongside so the UI can render a transparency line.
-    const { convertUsdToEur } = await import('../services/exchangeRateService.js');
     const fx = await convertUsdToEur(apiTotalUsd);
 
     res.json({

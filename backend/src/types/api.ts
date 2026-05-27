@@ -24,8 +24,9 @@ export interface UsageTrackRequest {
 
 export interface UsageTrackResponse {
   success: boolean;
-  id: number;
-  cost: string;
+  id?: number;
+  cost?: string;
+  error?: string;
 }
 
 export interface UsageRecord {

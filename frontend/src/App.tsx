@@ -14,25 +14,34 @@ import LoginPage from './pages/Login';
 import AuthVerifyPage from './pages/AuthVerify';
 import './index.css';
 
+const NAV_LINKS = [
+  { path: '/', label: 'Dashboard' },
+  { path: '/recommendations', label: '🎯 Recommendations' },
+  { path: '/catalog', label: '📚 Modell-Katalog' },
+  { path: '/settings', label: 'Settings' },
+];
+
 function NavBar(): React.ReactElement {
   const loc = useLocation();
-  const tab = (path: string, label: string) => (
-    <Link to={path} className={`px-4 py-2 rounded-lg font-medium transition ${
-      loc.pathname === path ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-    }`}>{label}</Link>
-  );
   return (
     <nav className="bg-white shadow">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
         <div className="flex items-center gap-2">
-          <span className="text-2xl">📊</span>
+          <span className="text-2xl">💻</span>
           <h1 className="text-xl font-bold text-gray-900">Claude Usage Tracker</h1>
         </div>
         <div className="flex gap-4 items-center">
-          {tab('/', 'Dashboard')}
-          {tab('/recommendations', '🎯 Recommendations')}
-          {tab('/catalog', '📚 Modell-Katalog')}
-          {tab('/settings', 'Settings')}
+          {NAV_LINKS.map(({ path, label }) => (
+            <Link
+              key={path}
+              to={path}
+              className={`px-4 py-2 rounded-lg font-medium transition ${
+                loc.pathname === path ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {label}
+            </Link>
+          ))}
           <UserMenu />
         </div>
       </div>

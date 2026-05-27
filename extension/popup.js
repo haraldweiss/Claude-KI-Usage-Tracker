@@ -121,21 +121,23 @@ async function loadStats() {
 }
 
 function formatEur(value) {
+  if (value === null || value === undefined || !isFinite(value)) return '0,00 €';
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',
     currency: 'EUR',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(value || 0);
+  }).format(value);
 }
 
 function formatUsd(value) {
+  if (value === null || value === undefined || !isFinite(value)) return '$0.00';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(value || 0);
+  }).format(value);
 }
 
 function displayStats(stats) {

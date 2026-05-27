@@ -33,8 +33,7 @@ export const trackUsageValidator = [
     .notEmpty()
     .withMessage('model is required')
     .isLength({ max: 100 })
-    .withMessage('model must be less than 100 characters')
-    .escape(),
+    .withMessage('model must be less than 100 characters'),
 
   body('input_tokens')
     .isInt({ min: 0 })
@@ -48,22 +47,19 @@ export const trackUsageValidator = [
     .optional()
     .trim()
     .isLength({ max: 500 })
-    .withMessage('conversation_id must be less than 500 characters')
-    .escape(),
+    .withMessage('conversation_id must be less than 500 characters'),
 
   body('source')
     .optional()
     .trim()
     .isLength({ max: 50 })
-    .withMessage('source must be less than 50 characters')
-    .escape(),
+    .withMessage('source must be less than 50 characters'),
 
   body('task_description')
     .optional()
     .trim()
     .isLength({ max: 1000 })
-    .withMessage('task_description must be less than 1000 characters')
-    .escape(),
+    .withMessage('task_description must be less than 1000 characters'),
 
   body('success_status')
     .optional()
@@ -93,22 +89,19 @@ export const trackUsageValidator = [
     .optional()
     .trim()
     .isLength({ max: 100 })
-    .withMessage('workspace must be less than 100 characters')
-    .escape(),
+    .withMessage('workspace must be less than 100 characters'),
 
   body('key_name')
     .optional()
     .trim()
     .isLength({ max: 100 })
-    .withMessage('key_name must be less than 100 characters')
-    .escape(),
+    .withMessage('key_name must be less than 100 characters'),
 
   body('key_id_suffix')
     .optional()
     .trim()
     .isLength({ max: 16 })
-    .withMessage('key_id_suffix must be less than 16 characters')
-    .escape(),
+    .withMessage('key_id_suffix must be less than 16 characters'),
 
   body('cost_usd')
     .optional()
@@ -126,8 +119,7 @@ export const updatePricingValidator = [
     .notEmpty()
     .withMessage('model parameter is required')
     .isLength({ max: 100 })
-    .withMessage('model must be less than 100 characters')
-    .escape(),
+    .withMessage('model must be less than 100 characters'),
 
   body('input_price')
     .isFloat({ min: 0, max: 10000 })
@@ -148,8 +140,7 @@ export const confirmPricingValidator = [
     .notEmpty()
     .withMessage('Model is required')
     .isLength({ max: 100 })
-    .withMessage('Model name must be 100 characters or less')
-    .escape(),
+    .withMessage('Model name must be 100 characters or less'),
   body('inputPrice')
     .optional()
     .isFloat({ min: 0, max: 1000 })
@@ -170,8 +161,7 @@ export const recommendValidator = [
     .notEmpty()
     .withMessage('taskDescription is required')
     .isLength({ min: 3, max: 2000 })
-    .withMessage('taskDescription must be between 3 and 2000 characters')
-    .escape(),
+    .withMessage('taskDescription must be between 3 and 2000 characters'),
 
   body('constraints')
     .optional()

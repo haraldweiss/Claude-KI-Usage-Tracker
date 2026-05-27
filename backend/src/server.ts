@@ -133,10 +133,14 @@ async function start(): Promise<void> {
       }
     }
     cron.schedule('*/15 * * * *', () => {
-      void runProviderServiceSyncTick();
+      runProviderServiceSyncTick().catch((err) =>
+        console.error('[provider-service-sync] cron tick error:', err)
+      );
     });
     // Kick off one tick on startup so the dashboard has data without waiting.
-    void runProviderServiceSyncTick();
+    runProviderServiceSyncTick().catch((err) =>
+      console.error('[provider-service-sync] startup tick error:', err)
+    );
     console.log('Provider-service sync scheduled every 15 minutes');
 
     // Sub-B.1: Daily refresh of HF metadata for curated catalog models at 04:00.

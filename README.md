@@ -307,6 +307,21 @@ All connection settings live in `chrome.storage.local` and are configured throug
 
 ---
 
+## 🔧 Code Quality
+
+A systematic code review was performed in May 2026, fixing the following issues:
+
+| Category | Changes |
+|---|---|
+| **XSS mitigation misuse** | Removed `express-validator` `.escape()` from all 6 validator chains — it was corrupting model names by HTML-encoding data before storage. React auto-escapes all output, making this both harmful and redundant. |
+| **Dynamic imports in hot paths** | Replaced 4 `await import(...)` calls inside route handlers with static top-level imports (`planPricingService`, `exchangeRateService`). |
+| **React remounts** | Extracted `NavBar` from inside `App` component to module level — defining components inside other components creates new function identities on every render, causing React to unmount/remount all DOM elements. |
+| **Unhandled rejections** | Added `.catch()` handlers to fire-and-forget Promise chains in `server.ts` (cron ticks and startup invocations). |
+| **Type safety** | Removed 5 `as any` type assertions from `usageController.ts` error responses. Added `error` field to `UsageTrackResponse` type. Introduced typed interfaces for all query results. |
+| **NaN/Infinity display** | Added `isFinite()` guard to `formatEur()` / `formatUsd()` in the extension popup to avoid rendering "NaN €" / "$NaN". |
+
+---
+
 ## 🐛 Troubleshooting
 
 | Issue | Solution |
@@ -369,7 +384,7 @@ MIT — see [LICENSE](./LICENSE).
 
 ---
 
-**Last Updated**: May 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights, multi-user magic-link auth)
+**Last Updated**: May 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights, multi-user magic-link auth, code quality pass)
 **Maintained by**: Harald Weiss
 **Repository**: [GitHub](https://github.com/haraldweiss/Claude-KI-Usage-Tracker)
 

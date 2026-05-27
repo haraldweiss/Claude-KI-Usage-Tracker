@@ -207,8 +207,8 @@ export default function OverviewTab(): React.ReactElement {
       <div className={`grid grid-cols-1 gap-6 ${opencodeGo ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
         {/* Plan-Status */}
         <div className="bg-white rounded-lg shadow p-5">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Plan</div>
-          <div className="mt-2 text-2xl font-bold text-gray-900">{meta?.plan_name ?? '—'}</div>
+          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Claude.ai</div>
+          <div className="mt-1 text-lg font-semibold text-gray-900">{meta?.plan_name ?? '—'}</div>
           <div className="text-sm text-gray-600">{formatEur(planEur)} / Monat</div>
           <div className="mt-3 text-xs text-gray-500">
             Zusatznutzung {formatEur(additionalEur)}

@@ -144,6 +144,7 @@ function displayStats(stats) {
   const claudeAi = stats?.combined?.claude_ai;
   const api = stats?.combined?.anthropic_api;
   const meta = claudeAi?.meta;
+  const opencodeGo = stats?.combined?.opencode_go;
 
   const claudeAiTotalEur = claudeAi?.total_eur ?? 0;
   const apiUsd = api?.cost_usd ?? 0;
@@ -160,6 +161,20 @@ function displayStats(stats) {
     typeof meta?.weekly_all_models_pct === 'number' ? `${meta.weekly_all_models_pct}%` : '—';
   document.getElementById('session-pct').textContent =
     typeof meta?.session_pct === 'number' ? `${meta.session_pct}%` : '—';
+
+  // OpenCode Go — show usage as "plan: C% · W% · M%" when data exists
+  const opencodeRow = document.getElementById('opencode-row');
+  const opencodeEl = document.getElementById('opencode-go-summary');
+  if (opencodeGo && opencodeEl) {
+    opencodeRow.style.display = '';
+    const parts = [];
+    if (typeof opencodeGo.continuous_pct === 'number') parts.push(`F ${opencodeGo.continuous_pct}%`);
+    if (typeof opencodeGo.weekly_pct === 'number') parts.push(`W ${opencodeGo.weekly_pct}%`);
+    if (typeof opencodeGo.monthly_pct === 'number') parts.push(`M ${opencodeGo.monthly_pct}%`);
+    opencodeEl.textContent = parts.length > 0 ? parts.join(' · ') : (opencodeGo.plan_name || 'aktiv');
+  } else if (opencodeEl) {
+    opencodeRow.style.display = 'none';
+  }
 }
 
 function showError(message, isSuccess = false) {

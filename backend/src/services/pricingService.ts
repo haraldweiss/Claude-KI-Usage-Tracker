@@ -169,6 +169,35 @@ export async function seedFromFallbackIfEmpty(): Promise<void> {
   }
 }
 
+/**
+ * Add OpenCode Go models to the pricing table if they don't already exist.
+ * Called on every startup alongside seedFromFallbackIfEmpty, so new models
+ * added in a code update also appear on existing installations.
+ */
+export async function seedOpenCodeGoPricing(): Promise<void> {
+  const opencodeGoModels = pricingFallback.models.filter(
+    (m) => m.api_id && m.api_id.startsWith('opencode-go/')
+  );
+  for (const m of opencodeGoModels) {
+    const existing = await getQuery<{ model: string }>(
+      'SELECT model FROM pricing WHERE model = ?',
+      [m.displayName]
+    );
+    if (!existing) {
+      await upsertPricing({
+        model: m.displayName,
+        inputPrice: m.inputPrice,
+        outputPrice: m.outputPrice,
+        source: 'auto',
+        status: 'active',
+        tier: m.tier,
+        apiId: m.api_id
+      });
+      console.log(`[openCodeGoPricing] Seeded model: ${m.displayName}`);
+    }
+  }
+}
+
 export async function checkAndUpdatePricing(): Promise<boolean> {
   const upstream = await fetchLiteLLMPricing();
   if (!upstream) {

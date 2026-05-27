@@ -5,6 +5,7 @@ import { initDatabase, closeDatabase, runQuery } from './database/sqlite.js';
 import {
   schedulePricingCheck,
   seedFromFallbackIfEmpty,
+  seedOpenCodeGoPricing,
   checkAndUpdatePricing
 } from './services/pricingService.js';
 import { refreshModelAnalytics } from './services/modelRecommendationService.js';
@@ -49,6 +50,9 @@ async function start(): Promise<void> {
 
     await seedPlanPricingIfEmpty();
     console.log('Plan pricing seeded if empty');
+
+    await seedOpenCodeGoPricing();
+    console.log('OpenCode Go model pricing seeded');
 
     // Kick off a one-time OpenCode Go price fetch at startup (non-blocking).
     refreshOpenCodeGoPricing()

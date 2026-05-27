@@ -137,7 +137,8 @@ export default function OverviewTab(): React.ReactElement {
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const planEur = subscriptionEur(plans, meta?.plan_name);
   const claudeAiTotalEur = planEur + additionalEur;
-  const grandTotalEur = claudeAiTotalEur + apiTotalEur;
+  const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
+  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur;
 
   // Forecast: extrapolate today's spend rate to month end. Plan-Abo is fixed
   // (already counted), so we only forecast the variable parts (additional
@@ -172,7 +173,7 @@ export default function OverviewTab(): React.ReactElement {
     : currentDailyRate;
 
   const forecastVariable = variableSoFar + daysLeft * dailyRate;
-  const forecastTotal = planEur + forecastVariable;
+  const forecastTotal = planEur + opencodeGoEur + forecastVariable;
 
   // Limit forecast: at this weekly rate, when does the user hit 100%?
   const weeklyAllPct = meta?.weekly_all_models_pct ?? null;
@@ -195,6 +196,7 @@ export default function OverviewTab(): React.ReactElement {
             </div>
             <p className="mt-1 text-sm text-gray-500">
               claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
+              {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
             </p>
           </div>
           <div className="text-sm text-gray-500 sm:text-right">
@@ -327,13 +329,14 @@ export default function OverviewTab(): React.ReactElement {
               Geglättete Hochrechnung: in den ersten {SMOOTHING_DAYS} Tagen mit der Tagesrate der
               vorherigen Abrechnungsperiode ({formatEur(priorDailyRate ?? 0)}/Tag) gewichtet —
               {' '}{Math.round(weight * 100)}% aktueller Monat, {Math.round((1 - weight) * 100)}%
-              Vorperiode. Plan-Abo ({formatEur(planEur)}) ist fix; nur Zusatznutzung + API werden
-              hochgerechnet.
+              Vorperiode. Plan-Abo ({formatEur(planEur)}) + OpenCode Go ({formatEur(opencodeGoEur)}) sind
+              fix; nur Zusatznutzung + API werden hochgerechnet.
             </>
           ) : (
             <>
-              Lineare Extrapolation des bisherigen Tagesverbrauchs. Plan-Abo ({formatEur(planEur)}) ist
-              fix; nur Zusatznutzung + API werden hochgerechnet.
+              Lineare Extrapolation des bisherigen Tagesverbrauchs. Plan-Abo ({formatEur(planEur)}) +
+              OpenCode Go ({formatEur(opencodeGoEur)}) sind fix; nur Zusatznutzung + API werden
+              hochgerechnet.
             </>
           )}
         </p>

@@ -105,6 +105,10 @@ export interface SpendingTotal {
     total_usd: number;
     total_eur_equivalent?: number;
   };
+  opencode_go?: {
+    monthly_eur: number;
+    total_eur: number;
+  };
   grand_total_eur?: number;
   exchange_rate?: {
     usd_to_eur: number;

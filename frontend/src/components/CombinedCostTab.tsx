@@ -112,7 +112,8 @@ export default function CombinedCostTab(): React.ReactElement {
   const additionalUsageEur = claudeAi?.cost_eur ?? 0;
   const planSubscriptionEur = subscriptionEur(plans, claudeAi?.meta?.plan_name);
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv;
+  const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur;
   const exchangeRate = combined?.exchange_rate;
 
   const noData = !claudeAi && apiTotal === 0;
@@ -128,13 +129,17 @@ export default function CombinedCostTab(): React.ReactElement {
             {formatEur(grandTotalEur)}
           </span>
         </div>
-        {planSubscriptionEur > 0 && (
-          <p className="mt-2 text-sm text-gray-600">
-            claude.ai {formatEur(claudeAiTotalEur)} (Plan-Abo {formatEur(planSubscriptionEur)} +
-            Zusatznutzung {formatEur(additionalUsageEur)}) <span className="mx-1">·</span>
-            Anthropic API {formatUsd(apiTotal)} ≈ {formatEur(apiTotalEurEquiv)}
-          </p>
-        )}
+        <p className="mt-2 text-sm text-gray-600">
+          claude.ai {formatEur(claudeAiTotalEur)}
+          {planSubscriptionEur > 0 && (
+            <> (Plan-Abo {formatEur(planSubscriptionEur)} + Zusatznutzung {formatEur(additionalUsageEur)})</>
+          )}
+          <span className="mx-1">·</span>
+          Anthropic API {formatUsd(apiTotal)} ≈ {formatEur(apiTotalEurEquiv)}
+          {opencodeGoEur > 0 && (
+            <><span className="mx-1">·</span>OpenCode Go {formatEur(opencodeGoEur)}</>
+          )}
+        </p>
         {exchangeRate?.usd_to_eur && (
           <p className="mt-1 text-xs text-gray-400">
             Umrechnung: 1 USD = {exchangeRate.usd_to_eur.toFixed(4)} EUR

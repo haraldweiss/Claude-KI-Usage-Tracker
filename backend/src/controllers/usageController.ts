@@ -759,6 +759,13 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     // included alongside so the UI can render a transparency line.
     const fx = await convertUsdToEur(apiTotalUsd);
 
+    // OpenCode Go subscription cost — fixed monthly fee added to totals.
+    const opencodeGoRow = await getQuery<{ monthly_eur: number }>(
+      `SELECT monthly_eur FROM plan_pricing WHERE plan_name = 'OpenCode Go'`
+    );
+    const opencodeGoMonthlyEur = opencodeGoRow?.monthly_eur ?? 0;
+    const opencodeGoTotalEur = opencodeGoMonthlyEur > 0 ? opencodeGoMonthlyEur * Math.max(1, months.length) : 0;
+
     res.json({
       since,
       claude_ai: {
@@ -771,7 +778,11 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
         total_usd: apiTotalUsd,
         total_eur_equivalent: fx.eur
       },
-      grand_total_eur: claudeAiTotalEur + fx.eur,
+      opencode_go: {
+        monthly_eur: opencodeGoMonthlyEur,
+        total_eur: opencodeGoTotalEur
+      },
+      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur,
       exchange_rate: {
         usd_to_eur: fx.rate,
         rate_date: fx.rate_date

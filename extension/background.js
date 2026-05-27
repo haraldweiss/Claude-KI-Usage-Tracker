@@ -320,7 +320,7 @@ async function autoSync() {
       createdTabId = tab.id;
       await waitForTabComplete(tab.id, 30000);
       // Give React a moment to render the usage figures
-      await sleep(2500);
+      await sleep(4000);
     }
 
     // Inject the scrape function directly via scripting API instead of relying
@@ -331,13 +331,8 @@ async function autoSync() {
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        // We scrape against the page text rather than DOM nodes because
-        // claude.ai's usage page is a hashed-class-name React app — the
-        // labels are stable, the class names are not.
         const text = document.body.innerText || '';
 
-        // Helper: read the first number after a label. Handles German and
-        // English with localized number formats ("31,35" or "31.35").
         const numAfter = (regex) => {
           const m = text.match(regex);
           if (!m) return null;
@@ -348,7 +343,7 @@ async function autoSync() {
 
         // Plan name: appears near top of page, just after "Plan-Nutzungslimits"
         // (or "Plan usage limits" in English). The plan label is the next
-        // non-empty line and looks like "Max (5x)", "Pro", "Team", etc.
+        // non-empty line.
         let plan_name = null;
         const planLabelMatch = text.match(/Plan-Nutzungslimits\s*\n+\s*([^\n]+)/i)
           || text.match(/Plan usage limits\s*\n+\s*([^\n]+)/i);
@@ -357,31 +352,37 @@ async function autoSync() {
           if (candidate.length < 80) plan_name = candidate;
         }
 
-        // Plan-usage panel rows are rendered as e.g.
-        //   "Wöchentlich · alle Modelle\n82% · Reset in 1T"
-        //   "5-Stunden-Limit\n5% · Reset in 4h"
-        // …but on the plain /settings/usage page they appear without the
-        // 'Reset in X' suffix. So percentage capture is the must-have and
-        // the reset suffix is best-effort — never let a missing 'Reset in'
-        // cause the percentage match to fail.
+        // Extract percentage and optional reset text around a section label.
+        // The new layout puts the reset BEFORE the percentage, older layouts
+        // put it AFTER. We search both directions and accept "Zurücksetzung"
+        // alongside "Reset" / "Reset in".
         const extractPctAndReset = (labels) => {
           for (const label of labels) {
             const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
             const pctMatch = text.match(pctRe);
             if (!pctMatch) continue;
             const pct = parseInt(pctMatch[1], 10);
-            // Search for 'Reset in X' within ~40 chars after the percentage.
-            // Greedy `[^\n·•]+` naturally terminates at line break / next bullet.
-            const tail = text.slice((pctMatch.index ?? 0) + pctMatch[0].length, (pctMatch.index ?? 0) + pctMatch[0].length + 60);
-            const resetMatch = tail.match(/Reset(?:\s+in)?\s+([^\n·•]+)/i);
-            const reset = resetMatch ? resetMatch[1].trim() : null;
+            const matchEnd = (pctMatch.index ?? 0) + pctMatch[0].length;
+
+            // Search after the percentage
+            const tail = text.slice(matchEnd, matchEnd + 80);
+            const resetRe = /(?:Reset(?:\s+in)?|Zurücksetzung\s+in)\s+([^\n·•]{1,60})/i;
+            let reset = tail.match(resetRe)?.[1]?.trim() ?? null;
+
+            // Search before the percentage if nothing found after
+            if (!reset) {
+              const head = text.slice(Math.max(0, (pctMatch.index ?? 0) - 120), pctMatch.index ?? 0);
+              const beforeMatch = head.match(resetRe);
+              if (beforeMatch) {
+                reset = beforeMatch[1].trim();
+              }
+            }
+
             return { pct, reset };
           }
           return { pct: null, reset: null };
         };
 
-        // Session limit — labeled "5-Stunden-Limit" in the new panel, but
-        // older claude.ai builds used "Aktuelle Sitzung" / "Current session".
         const session = extractPctAndReset([
           '5-Stunden-Limit',
           '5-hour limit',

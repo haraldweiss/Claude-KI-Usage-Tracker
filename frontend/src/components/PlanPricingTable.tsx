@@ -73,81 +73,88 @@ export default function PlanPricingTable({ plans, onUpdate, readOnly = false }: 
     }
   };
 
+  const claudePlans = plans.filter((p) => p.plan_name !== 'OpenCode Go');
+  const opencodePlan = plans.find((p) => p.plan_name === 'OpenCode Go');
+
   if (plans.length === 0) {
     return (
       <div className="text-center py-6 text-gray-500">Keine Plan-Preise gespeichert.</div>
     );
   }
 
-  return (
-    <table className="w-full">
-      <thead className="bg-gray-50 border-b">
-        <tr>
-          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Plan</th>
-          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Quelle</th>
-          <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 uppercase">
-            Monatspreis
-          </th>
-          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">
-            Geändert
-          </th>
-          <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 uppercase">
-            Aktion
-          </th>
-        </tr>
-      </thead>
-      <tbody className="divide-y">
-        {plans.map((plan) => (
-          <tr key={plan.plan_name} className="hover:bg-gray-50">
-            <td className="px-4 py-3 font-medium text-gray-900">{plan.plan_name}</td>
-            <td className="px-4 py-3">{sourceBadge(plan.source)}</td>
-            <td className="px-4 py-3 text-right">
-              {editing === plan.plan_name && !readOnly ? (
-                <input
-                  type="text"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  className="w-24 border rounded px-2 py-1 text-right"
-                  autoFocus
-                />
-              ) : (
-                <span className="font-medium text-orange-600">{formatEur(plan.monthly_eur)}</span>
-              )}
-            </td>
-            <td className="px-4 py-3 text-sm text-gray-500">
-              {new Date(plan.last_updated).toLocaleDateString('de-DE')}
-            </td>
-            <td className="px-4 py-3 text-right">
-              {editing === plan.plan_name && !readOnly ? (
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => save(plan.plan_name)}
-                    disabled={saving}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {saving ? '…' : 'Speichern'}
-                  </button>
-                  <button
-                    onClick={cancelEdit}
-                    className="px-3 py-1 text-sm text-gray-600 hover:text-gray-900"
-                  >
-                    Abbrechen
-                  </button>
-                </div>
-              ) : (
-                !readOnly && (
-                  <button
-                    onClick={() => startEdit(plan)}
-                    className="text-blue-600 hover:underline text-sm"
-                  >
-                    Bearbeiten
-                  </button>
-                )
-              )}
-            </td>
+  const renderTable = (title: string, items: PlanPricingRow[]) => (
+    <div className="mt-4 first:mt-0">
+      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">{title}</h4>
+      <table className="w-full">
+        <thead className="bg-gray-50 border-b">
+          <tr>
+            <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Plan</th>
+            <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Quelle</th>
+            <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 uppercase">Monatspreis</th>
+            <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Geändert</th>
+            <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 uppercase">Aktion</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody className="divide-y">
+          {items.map((plan) => (
+            <tr key={plan.plan_name} className="hover:bg-gray-50">
+              <td className="px-4 py-3 font-medium text-gray-900">{plan.plan_name}</td>
+              <td className="px-4 py-3">{sourceBadge(plan.source)}</td>
+              <td className="px-4 py-3 text-right">
+                {editing === plan.plan_name && !readOnly ? (
+                  <input
+                    type="text"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    className="w-24 border rounded px-2 py-1 text-right"
+                    autoFocus
+                  />
+                ) : (
+                  <span className="font-medium text-orange-600">{formatEur(plan.monthly_eur)}</span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-sm text-gray-500">
+                {new Date(plan.last_updated).toLocaleDateString('de-DE')}
+              </td>
+              <td className="px-4 py-3 text-right">
+                {editing === plan.plan_name && !readOnly ? (
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => save(plan.plan_name)}
+                      disabled={saving}
+                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {saving ? '…' : 'Speichern'}
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="px-3 py-1 text-sm text-gray-600 hover:text-gray-900"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                ) : (
+                  !readOnly && (
+                    <button
+                      onClick={() => startEdit(plan)}
+                      className="text-blue-600 hover:underline text-sm"
+                    >
+                      Bearbeiten
+                    </button>
+                  )
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div>
+      {claudePlans.length > 0 && renderTable('Claude.ai', claudePlans)}
+      {opencodePlan && renderTable('OpenCode Go', [opencodePlan])}
+    </div>
   );
 }

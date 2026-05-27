@@ -5,6 +5,7 @@ import { getSummary, getConsoleKeys, getSpendingTotal, getPlanPricing } from '..
 import {
   CombinedSpendBreakdown,
   ConsoleKeyRecord,
+  OpenCodeGoSpend,
   PlanPricingRow,
   SpendingTotal
 } from '../types/api';
@@ -107,6 +108,7 @@ export default function CombinedCostTab(): React.ReactElement {
   const apiTotal = combined?.anthropic_api?.cost_usd ?? 0;
   const apiTotalEurEquiv = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
+  const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const additionalUsageEur = claudeAi?.cost_eur ?? 0;
   const planSubscriptionEur = subscriptionEur(plans, claudeAi?.meta?.plan_name);
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
@@ -217,7 +219,7 @@ export default function CombinedCostTab(): React.ReactElement {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className={`grid grid-cols-1 gap-6 ${opencodeGo ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-baseline justify-between">
             <h3 className="text-lg font-semibold text-gray-900">claude.ai</h3>
@@ -314,6 +316,86 @@ export default function CombinedCostTab(): React.ReactElement {
           )}
         </div>
       </div>
+
+      {opencodeGo && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">OpenCode Go</h3>
+            {opencodeGo.plan_name && (
+              <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded font-medium">
+                {opencodeGo.plan_name}
+              </span>
+            )}
+          </div>
+          {opencodeGo.plan_name && (
+            <p className="mt-1 text-sm text-gray-500">
+              {opencodeGo.plan_name}-Abonnement
+            </p>
+          )}
+          <div className="mt-4 space-y-4">
+            {opencodeGo.continuous_pct != null && (
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Fortlaufende Nutzung</span>
+                  <span className="font-medium">{opencodeGo.continuous_pct}%</span>
+                </div>
+                <div className="mt-1 h-2 bg-gray-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full rounded ${opencodeGo.continuous_pct < 50 ? 'bg-emerald-500' : opencodeGo.continuous_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, opencodeGo.continuous_pct)}%` }}
+                  />
+                </div>
+                {opencodeGo.continuous_reset_in && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Reset in {opencodeGo.continuous_reset_in}
+                  </p>
+                )}
+              </div>
+            )}
+            {opencodeGo.weekly_pct != null && (
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Wöchentliche Nutzung</span>
+                  <span className="font-medium">{opencodeGo.weekly_pct}%</span>
+                </div>
+                <div className="mt-1 h-2 bg-gray-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full rounded ${opencodeGo.weekly_pct < 50 ? 'bg-emerald-500' : opencodeGo.weekly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, opencodeGo.weekly_pct)}%` }}
+                  />
+                </div>
+                {opencodeGo.weekly_reset_in && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Reset in {opencodeGo.weekly_reset_in}
+                  </p>
+                )}
+              </div>
+            )}
+            {opencodeGo.monthly_pct != null && (
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Monatliche Nutzung</span>
+                  <span className="font-medium">{opencodeGo.monthly_pct}%</span>
+                </div>
+                <div className="mt-1 h-2 bg-gray-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full rounded ${opencodeGo.monthly_pct < 50 ? 'bg-emerald-500' : opencodeGo.monthly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, opencodeGo.monthly_pct)}%` }}
+                  />
+                </div>
+                {opencodeGo.monthly_reset_in && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Reset in {opencodeGo.monthly_reset_in}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <p className="mt-4 text-xs text-gray-500">
+            Letzter Sync: {formatRelativeTime(opencodeGo.last_synced)}
+          </p>
+        </div>
+      )}
 
       <ApiKeysDetailTable keys={keys} />
     </div>

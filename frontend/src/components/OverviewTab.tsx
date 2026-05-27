@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
-import { CombinedSpendBreakdown, PlanPricingRow, SpendingTotal } from '../types/api';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, PlanPricingRow, SpendingTotal } from '../types/api';
 
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', {
@@ -132,6 +132,7 @@ export default function OverviewTab(): React.ReactElement {
   const claudeAi = combined?.claude_ai ?? null;
   const meta = claudeAi?.meta ?? null;
   const apiTotalUsd = combined?.anthropic_api?.cost_usd ?? 0;
+  const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const planEur = subscriptionEur(plans, meta?.plan_name);
@@ -202,8 +203,8 @@ export default function OverviewTab(): React.ReactElement {
         </div>
       </div>
 
-      {/* Status row: 3 cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Status row */}
+      <div className={`grid grid-cols-1 gap-6 ${opencodeGo ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
         {/* Plan-Status */}
         <div className="bg-white rounded-lg shadow p-5">
           <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Plan</div>
@@ -247,6 +248,62 @@ export default function OverviewTab(): React.ReactElement {
             {meta?.reset_date && <div>Reset: {meta.reset_date}</div>}
           </div>
         </div>
+
+        {/* OpenCode Go */}
+        {opencodeGo && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              OpenCode Go
+            </div>
+            <div className="mt-2 text-xl font-bold text-gray-900">
+              {opencodeGo.plan_name ?? 'OpenCode Go'}
+            </div>
+            <div className="mt-3 space-y-2">
+              {opencodeGo.continuous_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Fortlaufend</span>
+                    <span className="font-medium">{opencodeGo.continuous_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${opencodeGo.continuous_pct < 50 ? 'bg-emerald-500' : opencodeGo.continuous_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, opencodeGo.continuous_pct)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {opencodeGo.weekly_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Wöchentlich</span>
+                    <span className="font-medium">{opencodeGo.weekly_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${opencodeGo.weekly_pct < 50 ? 'bg-emerald-500' : opencodeGo.weekly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, opencodeGo.weekly_pct)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {opencodeGo.monthly_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Monatlich</span>
+                    <span className="font-medium">{opencodeGo.monthly_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${opencodeGo.monthly_pct < 50 ? 'bg-emerald-500' : opencodeGo.monthly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, opencodeGo.monthly_pct)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Forecast */}
@@ -321,11 +378,14 @@ export default function OverviewTab(): React.ReactElement {
       )}
 
       {/* Sync status */}
-      {claudeAi?.last_synced && (
-        <div className="text-xs text-gray-500 text-right">
-          claude.ai-Sync: {formatRelativeTime(claudeAi.last_synced)}
-        </div>
-      )}
+      <div className="text-xs text-gray-500 text-right space-x-4">
+        {claudeAi?.last_synced && (
+          <span>claude.ai-Sync: {formatRelativeTime(claudeAi.last_synced)}</span>
+        )}
+        {opencodeGo?.last_synced && (
+          <span>OpenCode Go-Sync: {formatRelativeTime(opencodeGo.last_synced)}</span>
+        )}
+      </div>
     </div>
   );
 }

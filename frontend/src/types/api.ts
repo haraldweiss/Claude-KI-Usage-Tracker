@@ -16,6 +16,17 @@ export interface UsageSummaryData {
 
 // Plan B: combined claude.ai + Anthropic Console API spend breakdown.
 // Returned by GET /api/usage/summary alongside the existing aggregates.
+export interface OpenCodeGoSpend {
+  plan_name: string | null;
+  continuous_pct: number | null;
+  continuous_reset_in: string | null;
+  weekly_pct: number | null;
+  weekly_reset_in: string | null;
+  monthly_pct: number | null;
+  monthly_reset_in: string | null;
+  last_synced: string;
+}
+
 export interface CombinedSpendBreakdown {
   claude_ai: ClaudeAiSpend | null;
   anthropic_api: {
@@ -23,6 +34,7 @@ export interface CombinedSpendBreakdown {
     cost_eur_equivalent?: number;
     by_workspace: ApiWorkspaceSpend[];
   };
+  opencode_go?: OpenCodeGoSpend | null;
   exchange_rate?: {
     usd_to_eur: number;
     rate_date: string | null;

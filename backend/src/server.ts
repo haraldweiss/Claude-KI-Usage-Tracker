@@ -10,7 +10,8 @@ import {
 import { refreshModelAnalytics } from './services/modelRecommendationService.js';
 import {
   seedPlanPricingIfEmpty,
-  schedulePlanPricingRefresh
+  schedulePlanPricingRefresh,
+  refreshOpenCodeGoPricing
 } from './services/planPricingService.js';
 import {
   refreshExchangeRate,
@@ -48,6 +49,16 @@ async function start(): Promise<void> {
 
     await seedPlanPricingIfEmpty();
     console.log('Plan pricing seeded if empty');
+
+    // Kick off a one-time OpenCode Go price fetch at startup (non-blocking).
+    refreshOpenCodeGoPricing()
+      .then((r) =>
+        console.log(r.updated
+          ? `Startup OpenCode Go pricing: ${r.monthly_usd} USD ≈ ${r.monthly_eur?.toFixed(2)} EUR`
+          : `Startup OpenCode Go pricing skipped: ${r.error || 'no update'}`
+        )
+      )
+      .catch((err) => console.error('Startup OpenCode Go pricing error:', (err as Error).message));
 
     // Kick off a one-time fetch at startup, but don't block the server on it.
     // If LiteLLM is unreachable, log and continue — the daily cron will retry.

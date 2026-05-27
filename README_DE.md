@@ -1,6 +1,6 @@
 # Claude Usage Tracker
 
-Webanwendung + Browser-Extension, die die **echten Kosten** für Claude über drei Anthropic-Quellen hinweg trackt — claude.ai-Subscription, Anthropic-Console-API-Keys und Claude Code — und sie als eine Zahl auf einem einheitlichen Dashboard anzeigt.
+Webanwendung + Browser-Extension, die die **echten Kosten** für KI über vier Quellen hinweg trackt — claude.ai-Subscription, Anthropic-Console-API-Keys, Claude Code und OpenCode Go — und sie als eine Zahl auf einem einheitlichen Dashboard anzeigt.
 
 **Status**: ✅ Phase 5 — Multi-Source Cost Tracker (live auf VPS, Plan-B-Architektur)
 
@@ -8,11 +8,12 @@ Webanwendung + Browser-Extension, die die **echten Kosten** für Claude über dr
 
 ## 🎯 Was es macht
 
-Das Dashboard sagt dir mit einer Zahl, was Claude diesen Monat tatsächlich kostet. Es zieht die Daten aus drei sonst voneinander getrennten Quellen:
+Das Dashboard sagt dir mit einer Zahl, was deine KI-Tools diesen Monat tatsächlich kosten. Es zieht die Daten aus vier sonst voneinander getrennten Quellen:
 
 1. **claude.ai/settings/usage** — die Subscription-Seite (Plan, Zusatznutzung, Wochenlimits)
 2. **console.anthropic.com/settings/keys** — Workspace-API-Keys + kumulative Kosten
 3. **platform.claude.com/claude-code** — Claude-Code-Keys mit Kosten + Lines-of-Code
+4. **opencode.ai** — OpenCode Go Workspace-Abonnement (Plan, fortlaufende/wöchentliche/monatliche Nutzung %)
 
 Die Browser-Extension scraped diese Seiten in einem festen Rhythmus, postet die Zahlen ans lokale Backend, und das Backend macht sie über eine typed API für das React-Dashboard verfügbar.
 
@@ -27,16 +28,16 @@ Die offizielle Usage/Cost-API erfordert einen Admin-Key (Organization-Level-Cred
 ## ✨ Features
 
 ### Cost-Tracking
-- **Drei Sync-Quellen**: claude.ai (alle 10 Min), Anthropic Console (alle 24h), Claude Code (alle 24h, 5 Min versetzt). Konfigurierbar; manuelle Trigger über das Popup oder die Service-Worker-Konsole.
-- **Plan-Subscription-Preise** in einer editierbaren Settings-Tabelle (Pro 18 €, Max 5x 99 €, Max 20x 199 €, Team 30 €). Daily-Refresh-Hook bereit für eine zukünftige Anthropic-Pricing-Page-Quelle; aktuell werden Werte einmalig geseedet und bleiben unverändert, solange der User nicht editiert.
+- **Vier Sync-Quellen**: claude.ai (alle 10 Min), Anthropic Console (alle 24h), Claude Code (alle 24h, 5 Min versetzt), OpenCode Go (alle 24h, 7 Min versetzt). Konfigurierbar; manuelle Trigger über das Popup oder die Service-Worker-Konsole.
+- **Plan-Subscription-Preise** in einer editierbaren Settings-Tabelle (Pro 18 €, Max 5x 99 €, Max 20x 199 €, Team 30 €, OpenCode Go $10). Anthropic-Pläne werden einmalig geseedet; OpenCode-Go-Preis wird täglich automatisch von opencode.ai/go geholt und USD→EUR umgerechnet.
 - **USD → EUR Umrechnung** über [Frankfurter](https://api.frankfurter.app) (ECB-basiert, kostenlos, kein API-Key). Täglich aktualisiert; fällt auf den letzten gespeicherten Kurs zurück, falls die API kurz nicht erreichbar ist.
 - **Self-maintaining Model-Pricing**: Snapshot deckt Claude 4.x (Opus 4.7, Sonnet 4.6, Haiku 4.5), 3.7-Linie und Legacy-Modelle ab. Daily LiteLLM-Sync hält die Preise aktuell.
 - **History Retention**: claude.ai-Snapshots werden one-per-day behalten, sodass monatliche Diffs und All-Time-Totals erhalten bleiben, obwohl die Page nur den aktuellen Monat zeigt.
 
 ### Dashboard
-- **Übersicht**: Hero-Zahl in EUR, drei Status-Cards (Plan, Wochenlimits mit farbig wechselnden Progress-Bars, Budget), Forecast-Card mit linearer Extrapolation des Tagesschnitts auf Monatsende, Monats-Trend (ab 2 Monaten), Sync-Status-Footer.
+- **Übersicht**: Hero-Zahl in EUR, vier Status-Cards (Plan, Wochenlimits mit farbig wechselnden Progress-Bars, Budget, OpenCode-Go-Nutzungslimits), Forecast-Card mit linearer Extrapolation des Tagesschnitts auf Monatsende, Monats-Trend (ab 2 Monaten), Sync-Status-Footer.
 - **Modelle**: Per-Key-Detail-Tabelle (Key/Member, Source-Badge, Workspace, Kosten, Lines, letzter Sync) — funktioniert ohne per-message-Daten, weil die Quelle der kumulative Cost-pro-Key-Sync ist.
-- **Gesamtkosten**: gleiche Per-Key-Tabelle, plus klare "diesen Monat vs. seit Tracking-Start"-Aufteilung mit aufklappbarer Monats-Aufschlüsselung (Plan-Abo + Zusatznutzung + Total pro Monat).
+- **Gesamtkosten**: gleiche Per-Key-Tabelle, plus klare "diesen Monat vs. seit Tracking-Start"-Aufteilung mit aufklappbarer Monats-Aufschlüsselung (Plan-Abo + Zusatznutzung + Total pro Monat), und eine OpenCode-Go-Card mit Nutzungs-Progress-Bars und Reset-Timern.
 - **Recommendations**: Live-Insights aus den echten Sync-Daten (Plan-Right-Sizing basiert auf Wochenlimit-%, Forecast-Warnung beim Monatslimit, Cost-Source-Verhältnis, Claude-Code-Key-Effizienz-Vergleich) plus interaktiver Modell-Suggester für Ad-hoc-Anfragen.
 - **Settings**: editierbare Plan-Subscription-Preise + editierbares Modell-Token-Pricing.
 

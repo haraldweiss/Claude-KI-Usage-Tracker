@@ -73,6 +73,18 @@ export async function trackUsage(
       );
     }
 
+    // OpenCode Go sync: same dedupe pattern as claude_official_sync — keep
+    // at most one snapshot per day.
+    if (source === 'opencode_go_sync') {
+      await runQuery(
+        `DELETE FROM usage_records
+         WHERE source = 'opencode_go_sync'
+           AND date(timestamp) = date('now')
+           AND user_id = ?`,
+        [req.user!.id]
+      );
+    }
+
     // Console scraping appends a fresh row per key per sync. The dashboard
     // takes the latest snapshot per (workspace, key_id_suffix) for current
     // totals and diffs consecutive snapshots for trends. No dedupe here.
@@ -250,10 +262,56 @@ export async function getSummary(
       try {
         parsedMeta = JSON.parse(claudeAiRow.response_metadata) as ClaudeAiMeta;
       } catch {
-        // Older rows may have stored metadata as a non-JSON string. Treat as missing.
         parsedMeta = null;
       }
     }
+
+    // -------- OpenCode Go subscription data ---------
+    const opencodeGoRow = await getQuery<{
+      timestamp: string;
+      response_metadata: string | null;
+    }>(
+      `SELECT timestamp, response_metadata
+       FROM usage_records
+       WHERE source = 'opencode_go_sync'
+         AND user_id = ?
+       ORDER BY timestamp DESC
+       LIMIT 1`,
+      [req.user!.id]
+    );
+
+    interface OpenCodeGoMeta {
+      plan_name?: string | null;
+      continuous_pct?: number | null;
+      continuous_reset_in?: string | null;
+      weekly_pct?: number | null;
+      weekly_reset_in?: string | null;
+      monthly_pct?: number | null;
+      monthly_reset_in?: string | null;
+      scraped_at?: string;
+    }
+
+    let opencodeGoMeta: OpenCodeGoMeta | null = null;
+    if (opencodeGoRow?.response_metadata) {
+      try {
+        opencodeGoMeta = JSON.parse(opencodeGoRow.response_metadata) as OpenCodeGoMeta;
+      } catch {
+        opencodeGoMeta = null;
+      }
+    }
+
+    const opencodeGo = opencodeGoRow
+      ? {
+          plan_name: opencodeGoMeta?.plan_name ?? null,
+          continuous_pct: opencodeGoMeta?.continuous_pct ?? null,
+          continuous_reset_in: opencodeGoMeta?.continuous_reset_in ?? null,
+          weekly_pct: opencodeGoMeta?.weekly_pct ?? null,
+          weekly_reset_in: opencodeGoMeta?.weekly_reset_in ?? null,
+          monthly_pct: opencodeGoMeta?.monthly_pct ?? null,
+          monthly_reset_in: opencodeGoMeta?.monthly_reset_in ?? null,
+          last_synced: opencodeGoRow.timestamp
+        }
+      : null;
 
     // Stale-carryover guard for the in-progress cycle: claude.ai's dashboard
     // can keep displaying the previous cycle's spent_eur for a while after
@@ -405,6 +463,7 @@ export async function getSummary(
           cost_eur_equivalent: fx.eur,
           by_workspace: apiByWorkspace
         },
+        opencode_go: opencodeGo,
         exchange_rate: {
           usd_to_eur: fx.rate,
           rate_date: fx.rate_date
@@ -462,11 +521,12 @@ export async function getModelBreakdown(
        FROM usage_records
        WHERE ${dateFilter}
          AND user_id = ?
-         AND COALESCE(source, '') NOT IN (
-           'claude_official_sync',
-           'anthropic_console_sync',
-           'claude_code_sync'
-         )
+          AND COALESCE(source, '') NOT IN (
+            'claude_official_sync',
+            'anthropic_console_sync',
+            'claude_code_sync',
+            'opencode_go_sync'
+          )
        GROUP BY model
        ORDER BY total_tokens DESC`,
       [req.user!.id]
@@ -688,7 +748,7 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       `SELECT MIN(timestamp) as first_ts
          FROM usage_records
         WHERE user_id = ?
-          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync')`,
+          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync')`,
       [req.user!.id]
     );
     const since = earliestOverall?.first_ts ? earliestOverall.first_ts.slice(0, 10) : null;

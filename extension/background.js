@@ -58,6 +58,12 @@ const CLAUDE_CODE_SYNC_ALARM = 'auto-sync-claude-code';
 const CLAUDE_CODE_SYNC_INTERVAL_MIN = 24 * 60;
 const CLAUDE_CODE_USAGE_URL = 'https://platform.claude.com/claude-code';
 
+// OpenCode Go — scrapes the workspace usage page to capture subscription plan
+// name, usage percentages (continuous, weekly, monthly), and reset timers.
+const OPENCODE_GO_SYNC_ALARM = 'auto-sync-opencode-go';
+const OPENCODE_GO_SYNC_INTERVAL_MIN = 24 * 60;
+const OPENCODE_GO_WORKSPACE_URL = 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go';
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -114,6 +120,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.type === 'TRIGGER_OPENCODE_GO_SYNC') {
+    opencodeGoSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === 'GET_LAST_SYNC_ALL') {
     chrome.storage.local.get('last_sync_all').then((d) => sendResponse(d.last_sync_all || null));
     return true;
@@ -130,6 +143,7 @@ async function syncAll() {
     { type: 'auto', label: 'Claude.ai', fn: autoSync },
     { type: 'console', label: 'Console', fn: consoleSync },
     { type: 'claude_code', label: 'Claude Code', fn: claudeCodeSync },
+    { type: 'opencode_go', label: 'OpenCode Go', fn: opencodeGoSync },
   ];
 
   const stepResults = [];
@@ -920,6 +934,144 @@ async function claudeCodeSync() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Plan B (4th source): opencode.ai workspace usage page
+//
+// Scrapes the OpenCode Go workspace to get the subscription plan name,
+// usage percentages (fortlaufend/continuous, wöchentlich/weekly, monatlich/
+// monthly), and their reset timers. One daily snapshot is enough since
+// usage percentages change slowly.
+// ---------------------------------------------------------------------------
+
+async function opencodeGoSync() {
+  let createdTabId = null;
+
+  try {
+    const existing = await chrome.tabs.query({ url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go*' });
+    let tabId;
+
+    if (existing.length > 0) {
+      tabId = existing[0].id;
+    } else {
+      const tab = await chrome.tabs.create({ url: OPENCODE_GO_WORKSPACE_URL, active: false });
+      tabId = tab.id;
+      createdTabId = tab.id;
+      await waitForTabComplete(tab.id, 30000);
+      await sleep(3000);
+    }
+
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const text = document.body.innerText || '';
+
+        // Extract plan name: "Du hast OpenCode Go abonniert."
+        let plan_name = null;
+        const planMatch = text.match(/(?:Du hast|You have)\s+(.+?)\s+(?:abonniert|subscribed)/i);
+        if (planMatch) {
+          const candidate = planMatch[1].trim();
+          if (candidate.length < 80) plan_name = candidate;
+        }
+
+        // Helper: extract percentage and reset text after a section label.
+        const extractPctAndReset = (labels) => {
+          for (const label of labels) {
+            const re = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%[\\s\\S]{0,200}?(?:Setzt zur|Resets? in)\\s+([^\\n]{1,60})`, 'i');
+            const m = text.match(re);
+            if (m) {
+              return { pct: parseInt(m[1], 10), reset: m[2].trim() };
+            }
+            // Fallback: just the percentage without reset
+            const fallbackRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
+            const fallbackMatch = text.match(fallbackRe);
+            if (fallbackMatch) {
+              return { pct: parseInt(fallbackMatch[1], 10), reset: null };
+            }
+          }
+          return { pct: null, reset: null };
+        };
+
+        // Fortlaufende Nutzung (continuous usage)
+        const continuous = extractPctAndReset([
+          'Fortlaufende Nutzung',
+          'Continuous usage'
+        ]);
+        const continuous_pct = continuous.pct;
+        const continuous_reset_in = continuous.reset;
+
+        // Wöchentliche Nutzung (weekly usage)
+        const weekly = extractPctAndReset([
+          'Wöchentliche Nutzung',
+          'Weekly usage'
+        ]);
+        const weekly_pct = weekly.pct;
+        const weekly_reset_in = weekly.reset;
+
+        // Monatliche Nutzung (monthly usage)
+        const monthly = extractPctAndReset([
+          'Monatliche Nutzung',
+          'Monthly usage'
+        ]);
+        const monthly_pct = monthly.pct;
+        const monthly_reset_in = monthly.reset;
+
+        return {
+          plan_name,
+          continuous_pct,
+          continuous_reset_in,
+          weekly_pct,
+          weekly_reset_in,
+          monthly_pct,
+          monthly_reset_in,
+          scraped_at: new Date().toISOString()
+        };
+      }
+    });
+
+    const data = injection?.result;
+    if (!data) {
+      throw new Error('OpenCode Go scrape returned no result');
+    }
+    if (data.continuous_pct == null && data.weekly_pct == null && data.monthly_pct == null) {
+      console.log('OpenCode-go-sync: page returned no usage figures, skipping POST');
+      return { skipped: true, reason: 'no_data' };
+    }
+
+    const apiBase = await getApiBase();
+    const backendResponse = await authFetch(`${apiBase}/usage/track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'OpenCode Go (Sync)',
+        input_tokens: 0,
+        output_tokens: 0,
+        conversation_id: `opencode-go-sync-${Date.now()}`,
+        source: 'opencode_go_sync',
+        response_metadata: data
+      })
+    });
+
+    if (!backendResponse.ok) {
+      throw new Error('Backend rejected opencode-go-sync: ' + backendResponse.status);
+    }
+
+    await chrome.storage.local.set({
+      last_opencode_go_sync: Date.now(),
+      last_opencode_go_sync_data: data
+    });
+
+    console.log('OpenCode-go-sync ok:', data);
+    return { success: true, data };
+  } catch (error) {
+    console.error('OpenCode-go-sync error:', error);
+    return { success: false, error: error.message };
+  } finally {
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
+  }
+}
+
 function waitForTabComplete(tabId, timeoutMs) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -976,6 +1128,14 @@ async function ensureAlarms() {
       periodInMinutes: CLAUDE_CODE_SYNC_INTERVAL_MIN
     });
   }
+  if (!have.has(OPENCODE_GO_SYNC_ALARM)) {
+    // Stagger a few minutes after the other daily scrapes to spread
+    // hidden-tab-open load across the startup window.
+    chrome.alarms.create(OPENCODE_GO_SYNC_ALARM, {
+      delayInMinutes: 7,
+      periodInMinutes: OPENCODE_GO_SYNC_INTERVAL_MIN
+    });
+  }
   if (!have.has('retry-queue')) {
     chrome.alarms.create('retry-queue', { delayInMinutes: 1, periodInMinutes: 5 });
   }
@@ -1001,6 +1161,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     consoleSync();
   } else if (alarm.name === CLAUDE_CODE_SYNC_ALARM) {
     claudeCodeSync();
+  } else if (alarm.name === OPENCODE_GO_SYNC_ALARM) {
+    opencodeGoSync();
   } else if (alarm.name === 'retry-queue') {
     retryQueuedData();
   } else if (alarm.name === 'refresh-badge') {

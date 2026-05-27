@@ -184,7 +184,8 @@ export enum SourceType {
   ClaudeAiAuto = 'claude_ai_auto',
   ClaudeOfficialSync = 'claude_official_sync',
   AnthropicConsoleSync = 'anthropic_console_sync',
-  ClaudeCodeSync = 'claude_code_sync'
+  ClaudeCodeSync = 'claude_code_sync',
+  OpenCodeGoSync = 'opencode_go_sync'
 }
 
 /**

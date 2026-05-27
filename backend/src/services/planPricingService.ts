@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
+import { convertUsdToEur } from './exchangeRateService.js';
 
 export interface PlanPricingRow {
   plan_name: string;
@@ -17,7 +18,8 @@ const SEED_PLANS: Array<Omit<PlanPricingRow, 'last_updated'>> = [
   { plan_name: 'Pro', monthly_eur: 18, min_seats: 1, source: 'tier_default' },
   { plan_name: 'Max (5x)', monthly_eur: 99, min_seats: 1, source: 'tier_default' },
   { plan_name: 'Max (20x)', monthly_eur: 199, min_seats: 1, source: 'tier_default' },
-  { plan_name: 'Team', monthly_eur: 125, min_seats: 5, source: 'tier_default' }
+  { plan_name: 'Team', monthly_eur: 125, min_seats: 5, source: 'tier_default' },
+  { plan_name: 'OpenCode Go', monthly_eur: 0, min_seats: 1, source: 'tier_default' }
 ];
 
 /**
@@ -106,19 +108,97 @@ export async function refreshPlanPricingFromUpstream(): Promise<{
 }
 
 /**
+ * Scrape the OpenCode Go pricing page to extract the monthly subscription
+ * price and update the DB. Only overwrites rows whose source is not 'manual',
+ * so user edits are preserved.
+ *
+ * The page at https://opencode.ai/go displays:
+ *   "Subscribe to Go $10/month"
+ * Price is in USD; we convert to EUR using the latest exchange rate.
+ */
+export async function refreshOpenCodeGoPricing(): Promise<{
+  updated: boolean;
+  monthly_usd: number | null;
+  monthly_eur: number | null;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('https://opencode.ai/go');
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} fetching opencode.ai/go`);
+    }
+    const html = await res.text();
+
+    // Extract the monthly price: look for "$X/month" after pricing keywords.
+    // The page shows "Subscribe to Go $10/month" and also "$5 first month,
+    // then $10/month."
+    const priceMatch = html.match(/\$(\d+)\s*\/\s*month/i);
+    if (!priceMatch || !priceMatch[1]) {
+      return { updated: false, monthly_usd: null, monthly_eur: null, error: 'price_not_found' };
+    }
+
+    const monthlyUsd = parseFloat(priceMatch[1]);
+    if (!isFinite(monthlyUsd) || monthlyUsd <= 0) {
+      return { updated: false, monthly_usd: null, monthly_eur: null, error: 'invalid_price' };
+    }
+
+    // Convert to EUR using the latest exchange rate.
+    const fx = await convertUsdToEur(monthlyUsd);
+    const monthlyEur = fx.eur;
+
+    // Check if the row exists and is not user-edited (source != 'manual').
+    const existing = await getQuery<{ source: PlanPricingRow['source'] }>(
+      'SELECT source FROM plan_pricing WHERE plan_name = ?',
+      ['OpenCode Go']
+    );
+
+    if (existing && existing.source === 'manual') {
+      console.log(`[openCodeGoPricing] Skipping — "OpenCode Go" is manually edited`);
+      return { updated: false, monthly_usd: monthlyUsd, monthly_eur: monthlyEur, error: 'manual_override' };
+    }
+
+    await runQuery(
+      `INSERT INTO plan_pricing (plan_name, monthly_eur, source, last_updated)
+       VALUES (?, ?, 'auto', CURRENT_TIMESTAMP)
+       ON CONFLICT(plan_name) DO UPDATE SET
+         monthly_eur = excluded.monthly_eur,
+         source = 'auto',
+         last_updated = CURRENT_TIMESTAMP`,
+      ['OpenCode Go', monthlyEur]
+    );
+
+    console.log(`[openCodeGoPricing] Updated "OpenCode Go" to ${monthlyUsd} USD ≈ ${monthlyEur.toFixed(2)} EUR`);
+    return { updated: true, monthly_usd: monthlyUsd, monthly_eur: monthlyEur };
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error('[openCodeGoPricing] Fetch failed:', msg);
+    return { updated: false, monthly_usd: null, monthly_eur: null, error: msg };
+  }
+}
+
+/**
  * Schedule the daily refresh via the same cron pattern the rest of the
- * pricing/analytics jobs use (2 AM server time). Typed as `any` to match
- * the existing schedulePricingCheck signature — the node-cron module exports
- * a structure that isn't trivially expressible in our local types.
+ * pricing/analytics jobs use (2 AM server time). Calls both the existing
+ * Anthropic plan refresh (best-effort) and the OpenCode Go scraper.
+ * Typed as `any` to match the existing schedulePricingCheck signature —
+ * the node-cron module exports a structure that isn't trivially expressible
+ * in our local types.
  */
 export function schedulePlanPricingRefresh(cronJob: any): void {
   cronJob.schedule('0 2 * * *', async () => {
     try {
       console.log('[planPricing] Running scheduled refresh...');
       const result = await refreshPlanPricingFromUpstream();
-      console.log('[planPricing] Refresh result:', result);
+      console.log('[planPricing] Anthropic plans result:', result);
     } catch (error) {
-      console.error('[planPricing] Scheduled refresh failed:', error);
+      console.error('[planPricing] Anthropic plans refresh failed:', error);
+    }
+
+    try {
+      const opencodeResult = await refreshOpenCodeGoPricing();
+      console.log('[planPricing] OpenCode Go result:', opencodeResult);
+    } catch (error) {
+      console.error('[planPricing] OpenCode Go refresh failed:', error);
     }
   });
 }

@@ -123,16 +123,17 @@ export async function refreshOpenCodeGoPricing(): Promise<{
   error?: string;
 }> {
   try {
-    const res = await fetch('https://opencode.ai/go');
+    const res = await fetch('https://opencode.ai/docs/de/go/');
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status} fetching opencode.ai/go`);
+      throw new Error(`HTTP ${res.status} fetching opencode.ai/docs/de/go`);
     }
     const html = await res.text();
 
-    // Extract the monthly price: look for "$X/month" after pricing keywords.
-    // The page shows "Subscribe to Go $10/month" and also "$5 first month,
-    // then $10/month."
-    const priceMatch = html.match(/\$(\d+)\s*\/\s*month/i);
+    // Extract the monthly price. The docs page (German) shows:
+    // "OpenCode Go ist ein kostengünstiges Abonnement — 5 $ für deinen
+    //  ersten Monat, danach 10 $/Monat"
+    const priceMatch = html.match(/\$?(\d+)\s*\$?\s*\/\s*(?:month|Monat)/i)
+      || html.match(/danach\s+\$?(\d+)\s*\$?\s*\/\s*(?:month|Monat)/i);
     if (!priceMatch || !priceMatch[1]) {
       return { updated: false, monthly_usd: null, monthly_eur: null, error: 'price_not_found' };
     }
@@ -167,7 +168,20 @@ export async function refreshOpenCodeGoPricing(): Promise<{
       ['OpenCode Go', monthlyEur]
     );
 
-    console.log(`[openCodeGoPricing] Updated "OpenCode Go" to ${monthlyUsd} USD ≈ ${monthlyEur.toFixed(2)} EUR`);
+    // Also extract the per-period dollar limits for logging.
+    // Docs page: "5-Stunden-Limit — 12 $ Nutzung"
+    //             "Wöchentliches Limit — 30 $ Nutzung"
+    //             "Monatliches Limit — 60 $ Nutzung"
+    const limit5h = html.match(/(?:\d+\s*[-–—]\s*)\$?(\d+)\s*\$/i);
+    const limitWeekly = html.match(/Wöchentliches\s+Limit\s*[-–—]\s*\$?(\d+)\s*\$?/i);
+    const limitMonthly = html.match(/Monatliches\s+Limit\s*[-–—]\s*\$?(\d+)\s*\$?/i);
+
+    console.log(
+      `[openCodeGoPricing] Updated "OpenCode Go" to ${monthlyUsd} USD ≈ ${monthlyEur.toFixed(2)} EUR` +
+      (limit5h ? ` · 5h: ${limit5h[1]} $` : '') +
+      (limitWeekly ? ` · Woche: ${limitWeekly[1]} $` : '') +
+      (limitMonthly ? ` · Monat: ${limitMonthly[1]} $` : '')
+    );
     return { updated: true, monthly_usd: monthlyUsd, monthly_eur: monthlyEur };
   } catch (error) {
     const msg = (error as Error).message;

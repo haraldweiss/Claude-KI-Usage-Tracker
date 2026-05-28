@@ -31,7 +31,7 @@ export function createApp(): Express {
   app.use((req: Request, res: Response, next): void => {
     const origin = req.get('origin') || '';
     const referer = req.get('referer') || '';
-    const knownOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://wolfinisoftware.de'];
+    const knownOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://claudetracker.wolfinisoftware.de'];
     const isKnownOrigin = knownOrigins.includes(origin) || origin.startsWith('chrome-extension://');
     const isProductionDomain = referer.includes('wolfinisoftware.de');
 
@@ -41,7 +41,7 @@ export function createApp(): Express {
       res.set('Access-Control-Allow-Credentials', 'true');
     } else if (!origin && isProductionDomain) {
       // No origin header but same-origin request (production domain): allow credentials
-      res.set('Access-Control-Allow-Origin', 'https://wolfinisoftware.de');
+      res.set('Access-Control-Allow-Origin', 'https://claudetracker.wolfinisoftware.de');
       res.set('Access-Control-Allow-Credentials', 'true');
     } else if (!origin) {
       // No origin header (form submissions, localhost same-origin requests): allow all without credentials

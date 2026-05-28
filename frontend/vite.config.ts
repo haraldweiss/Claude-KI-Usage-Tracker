@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => ({
   // Production builds are served from a subpath on the VPS (Apache Alias
   // /claudetracker → frontend/dist). Dev keeps the default `/` so vite's
   // dev server and HMR work without extra config.
-  base: mode === 'production' ? '/claudetracker/' : '/',
+  base: mode === 'production' ? '/' : '/',
   server: {
     port: FRONTEND_PORT,
     proxy: {

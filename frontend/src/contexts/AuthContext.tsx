@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
   const logout = async (): Promise<void> => {
     await apiLogout();
     setUser(null);
-    window.location.assign('/claudetracker/login');
+    window.location.assign('/login');
   };
 
   useEffect(() => { refresh(); }, []);

@@ -10,7 +10,7 @@ import type { User } from '../types/index.js';
 // Must be the BACKEND verify endpoint (under /api/) so the email link hits the
 // intermediate "Click to log in" HTML page rendered by showVerifyPage, not the
 // SPA route which would just bounce to /login without consuming the token.
-const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://wolfinisoftware.de/claudetracker/api/auth/verify';
+const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://claudetracker.wolfinisoftware.de/api/auth/verify';
 
 // Cookie path must be '/' because frontend calls /api/* at root, not /claudetracker/api/*
 // The Apache proxy routes both paths to the same backend
@@ -81,7 +81,7 @@ export async function showVerifyPage(req: Request, res: Response): Promise<void>
   // NIT N1: reject tokens that don't match our format before rendering any HTML.
   if (!TOKEN_RE.test(token)) {
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(
-      '<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;margin-top:80px"><h1>Ungültiger Link</h1><p><a href="/claudetracker/login">Neuen Login-Link anfordern</a></p></body></html>'
+      '<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;margin-top:80px"><h1>Ungültiger Link</h1><p><a href="/login">Neuen Login-Link anfordern</a></p></body></html>'
     );
     return;
   }
@@ -93,7 +93,7 @@ button{font-size:18px;padding:12px 32px;background:#3B82F6;color:white;border:no
 button:hover{background:#2563EB}</style></head><body>
 <h1>Login bestätigen</h1>
 <p>Klicke auf den Button um dich anzumelden.</p>
-<form method="POST" action="/claudetracker/api/auth/verify">
+<form method="POST" action="/api/auth/verify">
   <input type="hidden" name="token" value="${escapeHtml(token)}">
   <button type="submit">Einloggen</button>
 </form>
@@ -131,14 +131,14 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     res.send(`<!DOCTYPE html><html><head>
     <meta charset="utf-8">
     <title>Anmeldung erfolgreich</title>
-    <script>window.location.href = '/claudetracker/';</script>
+    <script>window.location.href = '/';</script>
     </head><body>
-    Weitergeleitet zu <a href="/claudetracker/">Claude Usage Tracker</a>...
+    Weitergeleitet zu <a href="/">Claude Usage Tracker</a>...
     </body></html>`);
   } catch (err) {
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(
       `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center">
-      <h1>Login fehlgeschlagen</h1><p>${escapeHtml((err as Error).message)}. <a href="/claudetracker/login">Neuen Link anfordern</a></p>
+      <h1>Login fehlgeschlagen</h1><p>${escapeHtml((err as Error).message)}. <a href="/login">Neuen Link anfordern</a></p>
       </body></html>`
     );
   }

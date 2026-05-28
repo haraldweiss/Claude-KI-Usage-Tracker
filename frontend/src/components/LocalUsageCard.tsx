@@ -95,7 +95,7 @@ export default function LocalUsageCard(): React.ReactElement {
         </div>
         <p className="text-sm text-gray-600">
           Noch keine Daten —{' '}
-          <a href="/claudetracker/settings" className="text-blue-600 underline">
+          <a href="/settings" className="text-blue-600 underline">
             konfiguriere den AI-Provider-Service in den Einstellungen
           </a>
           .

@@ -129,4 +129,35 @@ For extension changes: always describe a real round-trip test (open popup → sy
 - Plan-pricing seed includes "OpenCode Go" (editable in Settings)
 - 13 OpenCode Go models added to pricing fallback for recommendations
 - NOT yet stress-tested with multi-user concurrent syncs
+
+### 2026-05-28 — Local LLM sync repair after VPS DB reset
+
+**Problem:** Lokale LLM-Daten (provider-service) kamen nicht mehr an, obwohl der Sync durchlief. `Verbindung testen` zeigte "0 neue Events".
+
+**Zwei Ursachen:**
+
+1. **SECRETS_KEY mismatch** — `service_token_enc` in `user_provider_service_config` war mit altem Key verschlüsselt. Nach VPS-Neuinstallation war ein neuer `SECRETS_KEY` im Einsatz → AES-GCM-Entschlüsselung fehlschlug.  
+   **Fix:** Neuen Encrypted-Token via Node.js mit aktuellem Key erzeugen und in die DB schreiben.
+
+2. **provider_user_ids veraltet** — Die IDs im Tracker (`wolfinisoftware.de`, `bewerbungstracker`, …) existierten im provider-service nicht mehr (frische DB). Der Sync fragte `/usage/events?user_id=<falsche-id>` → 0 Events.  
+   **Fix:** Tatsächliche user_ids aus provider-service lesen (`SELECT DISTINCT user_id FROM usage_events`) und in `provider_service_user_ids` eintragen, `last_sync_cursor=NULL` für vollständigen Neu-Sync.
+
+**Diagnose-SSH-Checker:**
+```bash
+# Läuft der provider-service?
+lsof -i :8767
+# Welche DB nutzt er?
+ls -la /proc/$(pgrep -f "gunicorn.*8767" | head -1)/fd/ | grep storage
+# Events vorhanden?
+sqlite3 /var/www/ai-provider-service/instance/storage.db \
+  "SELECT user_id, COUNT(*) FROM usage_events GROUP BY user_id;"
+# Token-Entschlüsselung testen?
+cd /var/www/wolfinisoftware/claudetracker/backend && node -e "
+  const {decryptSecret}=require('./dist/utils/secretCrypto.js');
+  console.log(decryptSecret('<stored-token>'));
+"
+# Sync triggern:
+systemctl restart claudetracker-backend && sleep 5 && \
+  journalctl -u claudetracker-backend --since "1 minute ago" --no-pager | grep provider-service-sync
+```
 -->

@@ -1040,24 +1040,33 @@ async function opencodeGoSync() {
           return { pct: null, reset: null };
         };
 
-        // Fortlaufende Nutzung (continuous usage)
+        // Continuous / weekly / monthly usage. opencode.ai shortened the
+        // section labels from "Fortlaufende Nutzung" → "Fortlaufend" etc.
+        // The short forms appear directly above the percentage card, so we
+        // prefer them; the negative lookahead `(?![a-zäöüß])` keeps
+        // "Fortlaufend" from greedily matching "Fortlaufende" in older
+        // layouts. The full labels stay as a safety fallback.
         const continuous = extractPctAndReset([
+          'Fortlaufend(?![a-zäöüß])',
+          'Continuous(?![a-z])',
           'Fortlaufende Nutzung',
           'Continuous usage'
         ]);
         const continuous_pct = continuous.pct;
         const continuous_reset_in = continuous.reset;
 
-        // Wöchentliche Nutzung (weekly usage)
         const weekly = extractPctAndReset([
+          'Wöchentlich(?![a-zäöüß])',
+          'Weekly(?![a-z])',
           'Wöchentliche Nutzung',
           'Weekly usage'
         ]);
         const weekly_pct = weekly.pct;
         const weekly_reset_in = weekly.reset;
 
-        // Monatliche Nutzung (monthly usage)
         const monthly = extractPctAndReset([
+          'Monatlich(?![a-zäöüß])',
+          'Monthly(?![a-z])',
           'Monatliche Nutzung',
           'Monthly usage'
         ]);

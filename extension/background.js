@@ -353,8 +353,9 @@ async function autoSync() {
         }
 
         // Extract percentage and optional reset text around a section label.
-        // The new layout puts the reset BEFORE the percentage, older layouts
-        // put it AFTER. We search both directions and accept "Zurücksetzung"
+        // The current layout puts the reset BETWEEN the label and the
+        // percentage, older layouts put it AFTER or BEFORE. Search inside the
+        // match body first, then after, then before. Accept "Zurücksetzung"
         // (with or without "in", e.g. "Zurücksetzung in 5 Min." or
         // "Zurücksetzung Do., 00:00") alongside "Reset" / "Reset in".
         const extractPctAndReset = (labels) => {
@@ -365,18 +366,20 @@ async function autoSync() {
             const pct = parseInt(pctMatch[1], 10);
             const matchEnd = (pctMatch.index ?? 0) + pctMatch[0].length;
 
-            // Search after the percentage
-            const tail = text.slice(matchEnd, matchEnd + 80);
             const resetRe = /(?:Reset(?:\s+in)?|Zurücksetzung(?:\s+in)?)\s+([^\n·•]{1,60})/i;
-            let reset = tail.match(resetRe)?.[1]?.trim() ?? null;
+            // Current layout: reset BETWEEN label and percentage
+            let reset = pctMatch[0].match(resetRe)?.[1]?.trim() ?? null;
 
-            // Search before the percentage if nothing found after
+            // Legacy: reset AFTER the percentage
+            if (!reset) {
+              const tail = text.slice(matchEnd, matchEnd + 80);
+              reset = tail.match(resetRe)?.[1]?.trim() ?? null;
+            }
+
+            // Legacy: reset BEFORE the label
             if (!reset) {
               const head = text.slice(Math.max(0, (pctMatch.index ?? 0) - 120), pctMatch.index ?? 0);
-              const beforeMatch = head.match(resetRe);
-              if (beforeMatch) {
-                reset = beforeMatch[1].trim();
-              }
+              reset = head.match(resetRe)?.[1]?.trim() ?? null;
             }
 
             return { pct, reset };

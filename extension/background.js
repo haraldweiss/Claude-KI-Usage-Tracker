@@ -996,20 +996,33 @@ async function opencodeGoSync() {
           if (candidate.length < 80) plan_name = candidate;
         }
 
-        // Helper: extract percentage and reset text after a section label.
+        // Helper: extract percentage and reset text around a section label.
+        // The opencode.ai layout has shifted: the reset phrase can appear BEFORE
+        // or AFTER the percentage, and the wording drifts between releases
+        // ("Setzt zurück in", "Zurücksetzung in", "Wird zurückgesetzt in",
+        // "Resets in", …). Match all known variants and search both directions,
+        // mirroring the claude.ai scraper above.
+        const resetRe = /(?:Setzt\s+zur(?:ück)?(?:\s+in)?|Zurücksetzung\s+in|Wird\s+zurückgesetzt(?:\s+in)?|Resets?(?:\s+in)?|Endet\s+in)\s+([^\n·•]{1,60})/i;
         const extractPctAndReset = (labels) => {
           for (const label of labels) {
-            const re = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%[\\s\\S]{0,200}?(?:Setzt zur|Resets? in)\\s+([^\\n]{1,60})`, 'i');
-            const m = text.match(re);
-            if (m) {
-              return { pct: parseInt(m[1], 10), reset: m[2].trim() };
+            const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
+            const pctMatch = text.match(pctRe);
+            if (!pctMatch) continue;
+            const pct = parseInt(pctMatch[1], 10);
+            const matchEnd = (pctMatch.index ?? 0) + pctMatch[0].length;
+
+            // Current layout puts the reset phrase BETWEEN the section label
+            // and the percentage — search inside the matched body first.
+            let reset = pctMatch[0].match(resetRe)?.[1]?.trim() ?? null;
+
+            // Legacy layout puts the reset AFTER the percentage — fall back
+            // to scanning a window after the match.
+            if (!reset) {
+              const tail = text.slice(matchEnd, matchEnd + 200);
+              reset = tail.match(resetRe)?.[1]?.trim() ?? null;
             }
-            // Fallback: just the percentage without reset
-            const fallbackRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
-            const fallbackMatch = text.match(fallbackRe);
-            if (fallbackMatch) {
-              return { pct: parseInt(fallbackMatch[1], 10), reset: null };
-            }
+
+            return { pct, reset };
           }
           return { pct: null, reset: null };
         };

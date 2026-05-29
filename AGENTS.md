@@ -160,4 +160,24 @@ cd /var/www/wolfinisoftware/claudetracker/backend && node -e "
 systemctl restart claudetracker-backend && sleep 5 && \
   journalctl -u claudetracker-backend --since "1 minute ago" --no-pager | grep provider-service-sync
 ```
+
+### 2026-05-29 — Session limit + reset time fixes for claude.ai and OpenCode Go
+
+**Problem:** 
+- `session_limit` (das absolute Limit, z.B. "5 Stunden") wurde nie gescraped — nur `session_pct` (Prozent)
+- Reset-Zeiten von claude.ai (Prosa wie "ca. 4 Std.") wurden von `formatResetHint()` nicht erkannt (erwartete Kurzcodes "4h")
+- Deutsche Datumsformate ("1. Mai") führten zu "Reset: Nicht verfügbar"
+- OpenCode Go Reset-Hinweise fehlten komplett im OverviewTab
+
+**Fixes (5 Dateien):**
+
+| Datei | Änderung |
+|---|---|
+| `extension/background.js` | Extrahiert `session_limit_hours` aus "5-Stunden-Limit" via Regex; im `response_metadata`-Payload |
+| `backend/src/controllers/usageController.ts` | `ClaudeAiMeta` um `session_reset_in`, `session_limit_hours`, `weekly_*_reset_in` ergänzt; `parseResetDate()` akzeptiert jetzt "1. Mai"; `SHORT_MONTHS` um dt. Monatsnamen erweitert |
+| `frontend/src/utils/resetDateDisplay.ts` | `parseShortResetDate()` normalisiert deutsche Daten ("1. Mai" → "May 1") via `normalizeGermanResetDate()` |
+| `frontend/src/components/OverviewTab.tsx` | `formatResetHint()` verarbeitet Prosa ("ca. 4 Std." → "Reset in 4 Std."); OpenCode Go Reset-Hinweise unter Balken; `session_limit_hours`-Anzeige |
+| `frontend/src/types/api.ts` | `session_limit_hours` in `ClaudeAiUsageMeta` |
+
+**Deploy-Hinweis:** Nur backend + frontend müssen neu gebaut werden. Extension lädt Änderungen beim nächsten Reload.
 -->

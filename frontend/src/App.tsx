@@ -63,7 +63,7 @@ function ProtectedShell({ children }: { children: React.ReactNode }): React.Reac
 export default function App(): React.ReactElement {
   return (
     <ErrorBoundary>
-      <BrowserRouter basename={import.meta.env.PROD ? '/claudetracker' : ''}>
+      <BrowserRouter basename={'/'}>
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

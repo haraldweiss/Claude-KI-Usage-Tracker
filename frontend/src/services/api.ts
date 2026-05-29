@@ -44,7 +44,7 @@ export async function apiCall<T>(path: string, init: RequestInit = {}): Promise<
     headers: { 'Content-Type': 'application/json', ...(init.headers || {}) }
   });
   if (res.status === 401 && !path.startsWith('/auth/')) {
-    window.location.assign('/claudetracker/login');
+    window.location.assign('/login');
     throw new Error('redirecting to login');
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

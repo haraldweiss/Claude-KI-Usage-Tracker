@@ -173,7 +173,7 @@ systemctl restart claudetracker-backend && sleep 5 && \
 
 | Datei | Änderung |
 |---|---|
-| `extension/background.js` | Extrahiert `session_limit_hours` aus "5-Stunden-Limit" via Regex; im `response_metadata`-Payload |
+| `extension/background.js` | Extrahiert `session_limit_hours` aus "5-Stunden-Limit" via Regex; im `response_metadata`-Payload. **2026-05-29 Patch:** Reset-Regex für neues claude.ai-Layout (`Zurücksetzung(?:\s+in)?` statt `Zurücksetzung\s+in`, da "Zurücksetzung Do., 00:00" ohne "in"). Labels für weekly limits aktualisiert (`Wöchentliche Limits`/`Weekly limits`). "5-Stunden-Limit" aus Session-Labels entfernt (existiert nicht mehr auf der Seite). |
 | `backend/src/controllers/usageController.ts` | `ClaudeAiMeta` um `session_reset_in`, `session_limit_hours`, `weekly_*_reset_in` ergänzt; `parseResetDate()` akzeptiert jetzt "1. Mai"; `SHORT_MONTHS` um dt. Monatsnamen erweitert |
 | `frontend/src/utils/resetDateDisplay.ts` | `parseShortResetDate()` normalisiert deutsche Daten ("1. Mai" → "May 1") via `normalizeGermanResetDate()` |
 | `frontend/src/components/OverviewTab.tsx` | `formatResetHint()` verarbeitet Prosa ("ca. 4 Std." → "Reset in 4 Std."); OpenCode Go Reset-Hinweise unter Balken; `session_limit_hours`-Anzeige |

@@ -355,7 +355,8 @@ async function autoSync() {
         // Extract percentage and optional reset text around a section label.
         // The new layout puts the reset BEFORE the percentage, older layouts
         // put it AFTER. We search both directions and accept "Zurücksetzung"
-        // alongside "Reset" / "Reset in".
+        // (with or without "in", e.g. "Zurücksetzung in 5 Min." or
+        // "Zurücksetzung Do., 00:00") alongside "Reset" / "Reset in".
         const extractPctAndReset = (labels) => {
           for (const label of labels) {
             const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
@@ -366,7 +367,7 @@ async function autoSync() {
 
             // Search after the percentage
             const tail = text.slice(matchEnd, matchEnd + 80);
-            const resetRe = /(?:Reset(?:\s+in)?|Zurücksetzung\s+in)\s+([^\n·•]{1,60})/i;
+            const resetRe = /(?:Reset(?:\s+in)?|Zurücksetzung(?:\s+in)?)\s+([^\n·•]{1,60})/i;
             let reset = tail.match(resetRe)?.[1]?.trim() ?? null;
 
             // Search before the percentage if nothing found after
@@ -384,15 +385,15 @@ async function autoSync() {
         };
 
         const session = extractPctAndReset([
-          '5-Stunden-Limit',
-          '5-hour limit',
           'Aktuelle Sitzung',
           'Current session'
         ]);
         const session_pct = session.pct;
         const session_reset_in = session.reset;
 
-        // Extract the absolute session limit (e.g. "5" from "5-Stunden-Limit")
+        // Extract the absolute session limit (e.g. "5" from "5-Stunden-Limit" or
+        // "5" from "5-hour limit"). The new layout only shows "Aktuelle Sitzung"
+        // without the limit value — will be null unless Anthropic brings it back.
         const session_limit_hours = (() => {
           const m = text.match(/(\d+)\s*-?(?:Stunden[- ]Limit|hour[- ]limit)/i);
           return m ? parseInt(m[1], 10) : null;
@@ -400,7 +401,9 @@ async function autoSync() {
 
         const allModels = extractPctAndReset([
           'Wöchentlich\\s*·\\s*alle Modelle',
+          'Wöchentliche\\s*Limits',
           'Weekly\\s*·\\s*all models',
+          'Weekly\\s*limits',
           'Alle Modelle',
           'All models'
         ]);
@@ -1009,7 +1012,7 @@ async function opencodeGoSync() {
         // ("Setzt zurück in", "Zurücksetzung in", "Wird zurückgesetzt in",
         // "Resets in", …). Match all known variants and search both directions,
         // mirroring the claude.ai scraper above.
-        const resetRe = /(?:Setzt\s+zur(?:ück)?(?:\s+in)?|Zurücksetzung\s+in|Wird\s+zurückgesetzt(?:\s+in)?|Resets?(?:\s+in)?|Endet\s+in)\s+([^\n·•]{1,60})/i;
+        const resetRe = /(?:Setzt\s+zur(?:ück)?(?:\s+in)?|Zurücksetzung(?:\s+in)?|Wird\s+zurückgesetzt(?:\s+in)?|Resets?(?:\s+in)?|Endet\s+in)\s+([^\n·•]{1,60})/i;
         const extractPctAndReset = (labels) => {
           for (const label of labels) {
             const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');

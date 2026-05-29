@@ -52,6 +52,7 @@ export interface ClaudeAiUsageMeta {
   plan_name?: string | null;
   session_pct?: number | null;
   session_reset_in?: string | null;
+  session_limit_hours?: number | null;
   weekly_all_models_pct?: number | null;
   weekly_all_models_reset_in?: string | null;
   weekly_sonnet_pct?: number | null;

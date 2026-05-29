@@ -43,20 +43,26 @@ function dayOfMonth(): number {
 }
 
 /**
- * Convert raw reset hint from claude.ai ("1T", "4h", "30m") into a German
- * label like "Reset in 1 Tag" / "Reset in 4 Std.". Returns undefined for
- * null/empty so the ProgressRow hides the hint row entirely.
+ * Convert raw reset hint into a German label. Handles both short codes
+ * ("1T", "4h", "30m") from OpenCode Go and prose ("ca. 4 Std.", "etwa 1 Tag",
+ * "in 30 Minuten") from claude.ai. Returns undefined for null/empty so the
+ * ProgressRow hides the hint row entirely.
  */
 function formatResetHint(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
-  const m = raw.match(/^(\d+)\s*([a-zA-Z])/);
-  if (!m) return `Reset in ${raw}`;
-  const n = parseInt(m[1], 10);
-  const unit = m[2].toLowerCase();
-  if (unit === 't' || unit === 'd') return `Reset in ${n} ${n === 1 ? 'Tag' : 'Tagen'}`;
-  if (unit === 'h') return `Reset in ${n} Std.`;
-  if (unit === 'm') return `Reset in ${n} Min.`;
-  return `Reset in ${raw}`;
+  // Short code format: "4h", "1T", "30m"
+  const short = raw.match(/^(\d+)\s*([a-zA-Z])/);
+  if (short) {
+    const n = parseInt(short[1], 10);
+    const unit = short[2].toLowerCase();
+    if (unit === 't' || unit === 'd') return `Reset in ${n} ${n === 1 ? 'Tag' : 'Tagen'}`;
+    if (unit === 'h') return `Reset in ${n} Std.`;
+    if (unit === 'm') return `Reset in ${n} Min.`;
+  }
+  // Prose format from claude.ai: already contains "Std.", "Tag", "Minuten" etc.
+  // Strip common prefixes like "ca.", "etwa", "in" for cleaner display
+  const cleaned = raw.replace(/^(ca\.?\s*|etwa\s*|in\s*)/i, '').trim();
+  return `Reset in ${cleaned}`;
 }
 
 interface ProgressProps {
@@ -131,7 +137,6 @@ export default function OverviewTab(): React.ReactElement {
 
   const claudeAi = combined?.claude_ai ?? null;
   const meta = claudeAi?.meta ?? null;
-  const apiTotalUsd = combined?.anthropic_api?.cost_usd ?? 0;
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const additionalEur = claudeAi?.cost_eur ?? 0;
@@ -228,6 +233,11 @@ export default function OverviewTab(): React.ReactElement {
             <ProgressRow label="Alle Modelle" pct={meta?.weekly_all_models_pct} hint={formatResetHint(meta?.weekly_all_models_reset_in)} />
             <ProgressRow label="Nur Sonnet" pct={meta?.weekly_sonnet_pct} hint={formatResetHint(meta?.weekly_sonnet_reset_in)} />
             <ProgressRow label="Aktuelle Sitzung" pct={meta?.session_pct} hint={formatResetHint(meta?.session_reset_in)} />
+            {meta?.session_limit_hours && (
+              <p className="mt-1 text-xs text-gray-500">
+                Limit: {meta.session_limit_hours} Std.
+              </p>
+            )}
           </div>
           {limitWarning && (
             <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
@@ -273,6 +283,11 @@ export default function OverviewTab(): React.ReactElement {
                       style={{ width: `${Math.min(100, opencodeGo.continuous_pct)}%` }}
                     />
                   </div>
+                  {opencodeGo.continuous_reset_in && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {formatResetHint(opencodeGo.continuous_reset_in)}
+                    </p>
+                  )}
                 </div>
               )}
               {opencodeGo.weekly_pct != null && (
@@ -287,6 +302,11 @@ export default function OverviewTab(): React.ReactElement {
                       style={{ width: `${Math.min(100, opencodeGo.weekly_pct)}%` }}
                     />
                   </div>
+                  {opencodeGo.weekly_reset_in && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {formatResetHint(opencodeGo.weekly_reset_in)}
+                    </p>
+                  )}
                 </div>
               )}
               {opencodeGo.monthly_pct != null && (
@@ -301,6 +321,11 @@ export default function OverviewTab(): React.ReactElement {
                       style={{ width: `${Math.min(100, opencodeGo.monthly_pct)}%` }}
                     />
                   </div>
+                  {opencodeGo.monthly_reset_in && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {formatResetHint(opencodeGo.monthly_reset_in)}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

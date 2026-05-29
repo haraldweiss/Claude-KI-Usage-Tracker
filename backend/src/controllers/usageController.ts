@@ -183,8 +183,12 @@ export async function trackUsage(
 interface ClaudeAiMeta {
   plan_name?: string | null;
   session_pct?: number | null;
+  session_reset_in?: string | null;
+  session_limit_hours?: number | null;
   weekly_all_models_pct?: number | null;
+  weekly_all_models_reset_in?: string | null;
   weekly_sonnet_pct?: number | null;
+  weekly_sonnet_reset_in?: string | null;
   spent_eur?: number | null;
   spent_pct?: number | null;
   monthly_limit_eur?: number | null;
@@ -596,7 +600,20 @@ interface MonthSpendRow {
 
 const SHORT_MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+  // German month names (additive — English abbreviations above stay)
+  'Jan.': 0, 'Jän.': 0, Jän: 0, Jänner: 0, Januar: 0,
+  Feber: 1, Februar: 1,
+  Mär: 2, März: 2,
+  April: 3,
+  Mai: 4,
+  Juni: 5,
+  Juli: 6,
+  August: 7,
+  Sept: 8, September: 8,
+  Okt: 9, Oktober: 9,
+  November: 10,
+  Dez: 11, Dezember: 11
 };
 
 /**
@@ -607,11 +624,27 @@ const SHORT_MONTHS: Record<string, number> = {
  */
 function parseResetDate(resetStr: string | null | undefined, recordTs: string): string | null {
   if (!resetStr) return null;
-  const m = resetStr.trim().match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/);
-  if (!m || !m[1] || !m[2]) return null;
-  const monthIdx = SHORT_MONTHS[m[1].slice(0, 3)];
+  const s = resetStr.trim();
+
+  let monthStr: string;
+  let day: number;
+
+  // Try English "May 1" format
+  let m = s.match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/);
+  if (m && m[1] && m[2]) {
+    monthStr = m[1];
+    day = parseInt(m[2], 10);
+  } else {
+    // Try German "1. Mai" format
+    m = s.match(/^(\d{1,2})\.?\s+([A-Za-z]{3,9})$/);
+    if (!m || !m[1] || !m[2]) return null;
+    monthStr = m[2];
+    day = parseInt(m[1], 10);
+  }
+
+  const monthIdx = SHORT_MONTHS[monthStr.slice(0, 3)];
   if (monthIdx === undefined) return null;
-  const day = parseInt(m[2], 10);
+  if (isNaN(day) || day < 1 || day > 31) return null;
 
   const ts = new Date(recordTs.includes('T') ? recordTs : recordTs.replace(' ', 'T') + 'Z');
   let year = ts.getUTCFullYear();

@@ -33,11 +33,44 @@ export function formatResetDateDisplay(
   return `Reset in ${daysFromNow} Tagen (${absoluteDate})`;
 }
 
+const GERMAN_MONTHS: Record<string, string> = {
+  'jan.': 'Jan', 'jän.': 'Jan', 'jänner': 'Jan', 'januar': 'Jan',
+  'feb.': 'Feb', 'feber': 'Feb', 'februar': 'Feb',
+  'mär.': 'Mar', 'märz': 'Mar',
+  'apr.': 'Apr', 'april': 'Apr',
+  'mai': 'May',
+  'jun.': 'Jun', 'juni': 'Jun',
+  'jul.': 'Jul', 'juli': 'Jul',
+  'aug.': 'Aug', 'august': 'Aug',
+  'sep.': 'Sep', 'sept.': 'Sep', 'september': 'Sep',
+  'okt.': 'Oct', 'oktober': 'Oct',
+  'nov.': 'Nov', 'november': 'Nov',
+  'dez.': 'Dec', 'dezember': 'Dec',
+};
+
+function normalizeGermanResetDate(s: string): string | null {
+  // Try "1. Mai" or "1 Mai" → "May 1"
+  const deMatch = s.match(/^(\d{1,2})\.?\s+([A-Za-z]{3,9})$/);
+  if (deMatch) {
+    const engMonth = GERMAN_MONTHS[deMatch[2].toLowerCase().replace(/\.$/, '')];
+    if (engMonth) {
+      return `${engMonth} ${deMatch[1]}`;
+    }
+  }
+  // Already English "May 1"
+  const enMatch = s.match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/);
+  if (enMatch) return s;
+  return null;
+}
+
 function parseShortResetDate(
   resetStr: string,
   recordTimestamp: string
 ): { resetDate: Date; daysFromNow: number } | null {
-  const match = resetStr.match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/);
+  const normalized = normalizeGermanResetDate(resetStr);
+  if (!normalized) return null;
+
+  const match = normalized.match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/);
   if (!match) {
     return null;
   }

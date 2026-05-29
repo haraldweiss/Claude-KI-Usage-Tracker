@@ -392,6 +392,12 @@ async function autoSync() {
         const session_pct = session.pct;
         const session_reset_in = session.reset;
 
+        // Extract the absolute session limit (e.g. "5" from "5-Stunden-Limit")
+        const session_limit_hours = (() => {
+          const m = text.match(/(\d+)\s*-?(?:Stunden[- ]Limit|hour[- ]limit)/i);
+          return m ? parseInt(m[1], 10) : null;
+        })();
+
         const allModels = extractPctAndReset([
           'Wöchentlich\\s*·\\s*alle Modelle',
           'Weekly\\s*·\\s*all models',
@@ -467,6 +473,7 @@ async function autoSync() {
           plan_name,
           session_pct,
           session_reset_in,
+          session_limit_hours,
           weekly_all_models_pct,
           weekly_all_models_reset_in,
           weekly_sonnet_pct,

@@ -958,8 +958,30 @@ async function opencodeGoSync() {
       tabId = tab.id;
       createdTabId = tab.id;
       await waitForTabComplete(tab.id, 30000);
-      await sleep(3000);
     }
+
+    // opencode.ai always bounces through auth.opencode.ai/authorize on first
+    // open, even when the user is logged in. Wait for the redirect chain to
+    // land back on opencode.ai before scraping; otherwise executeScript hits
+    // the auth host (not in manifest) and throws. If we never get back, it's
+    // an actual login expiry — skip cleanly so the log isn't spammed.
+    const landedUrl = await waitForUrlPrefix(tabId, 'https://opencode.ai/', 15000, 250);
+    if (!landedUrl) {
+      let reason = 'unknown';
+      try {
+        const t = await chrome.tabs.get(tabId);
+        reason = t.url?.startsWith('https://auth.opencode.ai/')
+          ? 'login_required'
+          : `unexpected_url: ${t.url || '(none)'}`;
+      } catch {}
+      await chrome.storage.local.set({
+        last_opencode_go_sync: Date.now(),
+        last_opencode_go_sync_status: reason
+      });
+      console.log('OpenCode-go-sync skipped:', reason);
+      return { skipped: true, reason };
+    }
+    await sleep(2000); // give React a moment to render the workspace view
 
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -1058,7 +1080,8 @@ async function opencodeGoSync() {
 
     await chrome.storage.local.set({
       last_opencode_go_sync: Date.now(),
-      last_opencode_go_sync_data: data
+      last_opencode_go_sync_data: data,
+      last_opencode_go_sync_status: 'ok'
     });
 
     console.log('OpenCode-go-sync ok:', data);
@@ -1089,6 +1112,27 @@ function waitForTabComplete(tabId, timeoutMs) {
     };
     chrome.tabs.onUpdated.addListener(listener);
   });
+}
+
+// Polls a tab until its URL starts with `prefix` AND it's done loading, or
+// until the budget expires. Needed for sites that OAuth-bounce through a
+// foreign auth domain on first open (opencode.ai → auth.opencode.ai →
+// callback → workspace). waitForTabComplete alone resolves at the FIRST
+// 'complete' event, which can be the auth-host intermediate state; trying
+// to executeScript there throws "manifest must request permission".
+// Returns the final URL on success, null on timeout.
+async function waitForUrlPrefix(tabId, prefix, budgetMs = 15000, pollMs = 250) {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      if (t.url?.startsWith(prefix) && t.status === 'complete') return t.url;
+    } catch {
+      return null;
+    }
+    await sleep(pollMs);
+  }
+  return null;
 }
 
 function sleep(ms) {

@@ -59,6 +59,10 @@ function formatResetHint(raw: string | null | undefined): string | undefined {
     if (unit === 'h') return `Reset in ${n} Std.`;
     if (unit === 'm') return `Reset in ${n} Min.`;
   }
+  // Calendar-time format from claude.ai weekly: "Do., 00:00", "Thu., 00:00"
+  if (/^[A-Za-zÄÖÜäöü]+[.,]\s*\d{1,2}:\d{2}/.test(raw.trim())) {
+    return `Reset: ${raw.trim()}`;
+  }
   // Prose format from claude.ai: already contains "Std.", "Tag", "Minuten" etc.
   // Strip common prefixes like "ca.", "etwa", "in" for cleaner display
   const cleaned = raw.replace(/^(ca\.?\s*|etwa\s*|in\s*)/i, '').trim();

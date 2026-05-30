@@ -8,6 +8,7 @@ import {
   addProviderUserId,
   removeProviderUserId,
   updateProviderUserId,
+  discoverProviderUsers,
   type ProviderServiceConfig,
   type ProviderUserIdRow,
 } from '../../services/localUsageApi';
@@ -25,6 +26,8 @@ export default function ProviderServiceSettings(): React.ReactElement {
   const [newLabelInput, setNewLabelInput] = useState('');
   const [addingId, setAddingId] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void reload();
@@ -179,6 +182,35 @@ export default function ProviderServiceSettings(): React.ReactElement {
       {/* user_ids list */}
       <div>
         <h3 className="text-sm font-medium text-gray-700 mb-2">Verbundene user_ids</h3>
+
+        {cfg?.configured && (
+          <div className="mb-3">
+            <button
+              onClick={async () => {
+                setImporting(true);
+                setImportMsg(null);
+                try {
+                  const r = await discoverProviderUsers();
+                  setImportMsg(
+                    r.added.length + ' User importiert' +
+                    (r.skipped.length ? ', ' + r.skipped.length + ' bereits vorhanden' : '') +
+                    ' (von ' + r.total + ' total).'
+                  );
+                  await reload();
+                } catch (e) {
+                  setImportMsg('Fehler: ' + (e as Error).message);
+                } finally {
+                  setImporting(false);
+                }
+              }}
+              disabled={importing}
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+            >
+              {importing ? 'Importiere…' : 'User importieren'}
+            </button>
+            {importMsg && <div className="mt-1 text-sm text-gray-700">{importMsg}</div>}
+          </div>
+        )}
 
         <div className="bg-gray-50 border border-gray-200 rounded p-3 mb-3">
           <div className="flex flex-col sm:flex-row gap-2">

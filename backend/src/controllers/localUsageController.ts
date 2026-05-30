@@ -14,7 +14,7 @@ import {
   updateProviderUserIdLabel,
   getProviderUserIdRow,
 } from '../data/localUsageRepo.js';
-import { encryptSecret } from '../utils/secretCrypto.js';
+import { encryptSecret, decryptSecret } from '../utils/secretCrypto.js';
 import { syncProviderServiceEvents } from '../services/providerServiceSyncService.js';
 
 function isUniqueViolation(e: unknown): boolean {
@@ -214,4 +214,57 @@ export async function patchUserId(req: Request, res: Response): Promise<void> {
     last_sync_at: fresh.last_sync_at,
     last_sync_error: fresh.last_sync_error,
   });
+}
+
+export async function discoverUsers(req: Request, res: Response): Promise<void> {
+  const userId = req.user!.id;
+  const cfg = await getProviderServiceConfig(userId);
+  if (!cfg) {
+    res.status(400).json({ error: 'provider service not configured' });
+    return;
+  }
+  if (cfg.enabled !== 1) {
+    res.status(400).json({ error: 'provider service is disabled' });
+    return;
+  }
+
+  let token: string;
+  try {
+    // static import('../utils/secretCrypto.js');
+    token = decryptSecret(cfg.service_token_enc);
+  } catch {
+    res.status(500).json({ error: 'cannot decrypt token' });
+    return;
+  }
+
+  try {
+    const baseUrl = cfg.service_url.replace(/\/+$/, '');
+    const overviewUrl = baseUrl + '/admin/overview';
+    const resp = await fetch(overviewUrl, {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' from ' + overviewUrl);
+    const data = (await resp.json()) as { users: Array<{ user_id: string; alias?: string | null }> };
+    const existing = await listProviderUserIds(userId);
+    const existingIds = new Set(existing.map((r) => r.provider_user_id));
+    const added: Array<{ provider_user_id: string; label: string | null }> = [];
+    const skipped: Array<{ provider_user_id: string; reason: string }> = [];
+
+    for (const u of data.users ?? []) {
+      if (existingIds.has(u.user_id)) {
+        skipped.push({ provider_user_id: u.user_id, reason: 'already configured' });
+        continue;
+      }
+      try {
+        await addProviderUserId(userId, u.user_id, u.alias ?? null);
+        added.push({ provider_user_id: u.user_id, label: u.alias ?? null });
+      } catch {
+        skipped.push({ provider_user_id: u.user_id, reason: 'unique violation (race)' });
+      }
+    }
+
+    res.json({ added, skipped, total: data.users?.length ?? 0 });
+  } catch (e) {
+    res.status(502).json({ error: (e as Error).message });
+  }
 }

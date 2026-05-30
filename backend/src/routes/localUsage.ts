@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { requireUser } from '../middleware/auth.js';
 import {
   getSummary, getSyncStatus, triggerSync, getConfig, putConfig,
-  postUserId, deleteUserId, patchUserId,
+  postUserId, deleteUserId, patchUserId, discoverUsers,
 } from '../controllers/localUsageController.js';
 
 const router = Router();
@@ -17,4 +17,5 @@ router.put('/config', putConfig);
 router.post('/user-ids', postUserId);
 router.delete('/user-ids/:id', deleteUserId);
 router.patch('/user-ids/:id', patchUserId);
+router.post('/discover', discoverUsers);
 export default router;

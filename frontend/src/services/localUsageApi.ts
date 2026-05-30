@@ -121,6 +121,10 @@ export function removeProviderUserId(id: number): Promise<{ ok: boolean }> {
   return apiCall<{ ok: boolean }>(`/local-usage/user-ids/${id}`, { method: 'DELETE' });
 }
 
+export function discoverProviderUsers(): Promise<{ added: Array<{provider_user_id: string; label: string | null}>; skipped: Array<{provider_user_id: string; reason: string}>; total: number }> {
+  return apiCall('/local-usage/discover', { method: 'POST' });
+}
+
 export function updateProviderUserId(
   id: number,
   patch: { label?: string | null; enabled?: boolean },

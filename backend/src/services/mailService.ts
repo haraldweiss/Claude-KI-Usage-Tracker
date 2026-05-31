@@ -4,16 +4,23 @@ import nodemailer from 'nodemailer';
 
 const SMTP_HOST = process.env.SMTP_HOST || 'localhost';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '25', 10);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
 const FROM_ADDRESS = process.env.MAIL_FROM || 'Claude Usage Tracker <noreply@wolfinisoftware.de>';
+
+// Talking to local Postfix on port 25 uses plaintext (Postfix's self-signed
+// cert would fail STARTTLS validation); the Postfix → IONOS hop still uses
+// proper TLS. Talking to a real SMTP submission service (e.g. smtp.ionos.de
+// from inside a container) requires STARTTLS + SASL.
+const isLocalRelay = SMTP_HOST === 'localhost' || SMTP_HOST === '127.0.0.1' || SMTP_HOST === '::1';
 
 const transport = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
   secure: false,
-  // Talking to Postfix on localhost — STARTTLS would hit Postfix's self-signed
-  // cert (cert validation fails). The relay path Postfix → Ionos still uses
-  // proper TLS, only the localhost hop is plaintext.
-  ignoreTLS: true
+  requireTLS: !isLocalRelay,
+  ignoreTLS: isLocalRelay,
+  auth: SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
 });
 
 export async function sendMagicLinkMail(

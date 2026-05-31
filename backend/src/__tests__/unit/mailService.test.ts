@@ -24,3 +24,38 @@ describe('sendMagicLinkMail', () => {
     }));
   });
 });
+
+describe('createTransport options', () => {
+  afterEach(() => {
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_PORT;
+    delete process.env.SMTP_USER;
+    delete process.env.SMTP_PASS;
+  });
+
+  test('createTransport is called with auth + STARTTLS when SMTP_USER and SMTP_PASS are set', async () => {
+    process.env.SMTP_HOST = 'smtp.example.com';
+    process.env.SMTP_PORT = '587';
+    process.env.SMTP_USER = 'mailer';
+    process.env.SMTP_PASS = 'sekret';
+
+    let captured: unknown = null;
+    jest.resetModules();
+    jest.unstable_mockModule('nodemailer', () => ({
+      default: {
+        createTransport: (opts: unknown) => {
+          captured = opts;
+          return { sendMail: jest.fn() };
+        },
+      },
+    }));
+    await import('../../services/mailService.js');
+
+    expect(captured).not.toBeNull();
+    expect((captured as Record<string, unknown>).host).toBe('smtp.example.com');
+    expect((captured as Record<string, unknown>).port).toBe(587);
+    expect((captured as Record<string, unknown>).requireTLS).toBe(true);
+    expect((captured as Record<string, unknown>).ignoreTLS).toBe(false);
+    expect((captured as Record<string, unknown>).auth).toEqual({ user: 'mailer', pass: 'sekret' });
+  });
+});

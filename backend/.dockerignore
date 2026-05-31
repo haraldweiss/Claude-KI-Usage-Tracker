@@ -1,0 +1,12 @@
+node_modules
+dist
+*.log
+.env
+.env.*
+database.sqlite*
+__tests__
+*.test.ts
+coverage
+.git
+.dockerignore
+Dockerfile

@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © 2026 Harald Weiss
+#
+# Quadlet for the Claude Usage Tracker backend.
+# Install on the VPS by copying to /etc/containers/systemd/ and running
+# `systemctl daemon-reload && systemctl start claudetracker.service`.
+#
+# Apache reverse-proxies https://claudetracker.wolfinisoftware.de/api/
+# to 127.0.0.1:3001 (this PublishPort).
+
+[Unit]
+Description=Claude Usage Tracker (Express backend)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/claudetracker:latest
+ContainerName=claudetracker
+
+# Bind to host loopback only — Apache is the only client.
+PublishPort=127.0.0.1:3001:3001
+
+# Persistent SQLite DB outside the image.
+Volume=/opt/claudetracker-data:/app/data:Z
+
+# Secrets file lives on the host (root:root, mode 0600). Never in git.
+EnvironmentFile=/etc/claudetracker/claudetracker.env
+
+# Non-secret defaults.
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=DATABASE_PATH=/app/data/database.sqlite
+Environment=LOG_LEVEL=info
+Environment=SMTP_HOST=smtp.ionos.de
+Environment=SMTP_PORT=587
+Environment=TZ=Europe/Berlin
+
+Memory=512m
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

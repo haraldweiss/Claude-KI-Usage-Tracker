@@ -18,12 +18,13 @@ RUN npm run build && npm prune --production
 
 # ─── Stage 2: runtime ───
 FROM docker.io/library/node:22-bookworm-slim
-RUN groupadd -r app -g 1000 && useradd -r -u 1000 -g app app
+# The base image already ships a non-root `node` user at UID/GID 1000.
+# Reuse it instead of creating a duplicate (groupadd would fail on GID conflict).
 WORKDIR /app
-COPY --from=builder --chown=app:app /app/node_modules ./node_modules
-COPY --from=builder --chown=app:app /app/dist ./dist
-COPY --from=builder --chown=app:app /app/package.json ./
-USER app
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/package.json ./
+USER node
 EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('net').createConnection(3001,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"

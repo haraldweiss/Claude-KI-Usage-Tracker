@@ -12,7 +12,7 @@ const FROM_ADDRESS = process.env.MAIL_FROM || 'Claude Usage Tracker <noreply@wol
 // cert would fail STARTTLS validation); the Postfix → IONOS hop still uses
 // proper TLS. Talking to a real SMTP submission service (e.g. smtp.ionos.de
 // from inside a container) requires STARTTLS + SASL.
-const isLocalRelay = SMTP_HOST === 'localhost' || SMTP_HOST === '127.0.0.1';
+const isLocalRelay = SMTP_HOST === 'localhost' || SMTP_HOST === '127.0.0.1' || SMTP_HOST === '::1';
 
 const transport = nodemailer.createTransport({
   host: SMTP_HOST,

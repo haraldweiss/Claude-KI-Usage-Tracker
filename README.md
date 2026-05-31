@@ -174,6 +174,58 @@ See [docs/superpowers/specs/2026-04-29-console-api-tracking-design.md](./docs/su
 
 ---
 
+## Container deployment (production)
+
+The production deploy on the IONOS VPS runs the backend as a
+podman-managed container, driven by a Quadlet at
+`/etc/containers/systemd/claudetracker.container`. The frontend
+stays statically served by Apache from `frontend/dist/`.
+
+**First-time setup on the VPS:**
+
+```bash
+# 1. Data dir (UID/GID 1000 matches the container's `app` user)
+mkdir -p /opt/claudetracker-data
+chown -R 1000:1000 /opt/claudetracker-data
+chcon -Rt container_file_t /opt/claudetracker-data
+
+# 2. Secrets file (never in git)
+mkdir -p /etc/claudetracker && chmod 700 /etc/claudetracker
+cat > /etc/claudetracker/claudetracker.env <<'EOF'
+SECRETS_KEY=...
+SMTP_USER=...
+SMTP_PASS=...
+MAIL_FROM=Claude Usage Tracker <claudetracker@wolfinisoftware.de>
+EOF
+chmod 600 /etc/claudetracker/claudetracker.env
+
+# 3. Install the Quadlet
+cp /var/www/wolfinisoftware/claudetracker/deploy/claudetracker.container \
+   /etc/containers/systemd/
+systemctl daemon-reload
+
+# 4. Build the image and start
+cd /var/www/wolfinisoftware/claudetracker/backend
+podman build -t localhost/claudetracker:latest .
+systemctl start claudetracker.service
+```
+
+**Re-deploy after a code change:**
+
+```bash
+cd /var/www/wolfinisoftware/claudetracker
+git pull
+cd backend
+podman build -t localhost/claudetracker:latest .
+systemctl restart claudetracker.service
+```
+
+**Logs:** `journalctl -u claudetracker.service -f`
+
+**Backup:** `/opt/claudetracker-data/database.sqlite` is the only stateful path.
+
+---
+
 ## 🏗️ Project Structure
 
 ```

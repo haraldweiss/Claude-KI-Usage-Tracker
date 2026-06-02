@@ -732,7 +732,11 @@ async function discoverWorkspaces(tabId) {
   });
   const probeResult = probe[0]?.result || {};
   if (probeResult.error || !(probeResult.options?.length)) {
-    if (probeResult.error) errors.push(`probe: ${probeResult.error}`);
+    if (probeResult.error) {
+      const msg = `probe: ${probeResult.error}`;
+      errors.push(msg);
+      console.warn(`discoverWorkspaces: ${msg}`);
+    }
     return {
       workspaces: [{ id: activeId, name: 'Default' }],
       errors
@@ -914,9 +918,12 @@ async function consoleSync() {
     }
 
     await chrome.storage.local.set({ last_console_sync: Date.now() });
+    const extras = [];
+    if (workspaceFailures.length) extras.push(`failures: ${workspaceFailures.join(' | ')}`);
+    if (discoveryErrors.length) extras.push(`discovery: ${discoveryErrors.join('; ')}`);
     console.log(
       `Console-sync ok: ${totalPosted}/${totalRows} rows across ${workspaces.length} workspaces` +
-        (workspaceFailures.length ? ` — failures: ${workspaceFailures.join(' | ')}` : '')
+        (extras.length ? ` — ${extras.join(' | ')}` : '')
     );
     return {
       success: true,

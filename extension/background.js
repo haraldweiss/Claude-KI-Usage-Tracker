@@ -755,6 +755,47 @@ async function waitForUrlChange(tabId, oldUrl, budgetMs = 15000, pollMs = 250) {
   return null;
 }
 
+// Injected page diagnostic: returns a summary of interactive elements found
+// on the platform.claude.com page to help debug missing workspace switcher.
+function diagnosePage() {
+  const result = { currentUrl: location.href, elements: [] };
+
+  // Collect buttons with their attributes + visible text (max 20)
+  const buttons = document.querySelectorAll('button, [role="button"]');
+  let btnCount = 0;
+  for (const b of buttons) {
+    const text = (b.textContent || '').trim().slice(0, 80);
+    if (!text) continue;
+    if (btnCount++ >= 20) break;
+    const attrs = {};
+    for (const attr of ['aria-haspopup', 'aria-expanded', 'aria-controls', 'role', 'type']) {
+      const v = b.getAttribute(attr);
+      if (v) attrs[attr] = v;
+    }
+    result.elements.push({ tag: b.tagName, text, attrs });
+  }
+
+  // Find nav / aside / select / role=listbox elements
+  for (const sel of ['nav', 'aside', 'select', '[role="listbox"]', '[role="navigation"]',
+    '[role="tablist"]', '[role="tree"]', '[role="menu"]']) {
+    const el = document.querySelector(sel);
+    if (el) {
+      const text = (el.textContent || '').trim().slice(0, 120);
+      result.elements.push({ tag: el.tagName, sel, text, found: true });
+    }
+  }
+
+  // Look for workspace-like links anywhere in the DOM
+  const links = document.querySelectorAll('a[href*="workspace"], a[href*="wrkspc"]');
+  for (const a of links) {
+    result.elements.push({
+      tag: 'a', href: a.getAttribute('href'), text: (a.textContent || '').trim().slice(0, 80)
+    });
+  }
+
+  return result;
+}
+
 // Returns { workspaces: [{id, name}], errors: [...] }.
 // Caller owns the tab and is responsible for closing it.
 async function discoverWorkspaces(tabId) {
@@ -786,6 +827,15 @@ async function discoverWorkspaces(tabId) {
       errors.push(msg);
       console.warn(`discoverWorkspaces: ${msg}`);
     }
+    // Diagnostic: dump page structure to understand the UI
+    try {
+      const diag = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: diagnosePage
+      });
+      const info = diag[0]?.result;
+      if (info) console.warn('Page diagnostic:', JSON.stringify(info));
+    } catch {}
     const activeId = extractWorkspaceId(settledUrl);
     if (activeId) {
       return { workspaces: [{ id: activeId, name: 'Default' }], errors };

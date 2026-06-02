@@ -823,23 +823,41 @@ function diagnosePage() {
   return result;
 }
 
-// Poll the tab's DOM for workspace links. Re-injects the scraper every
-// `pollMs` until links are found or `budgetMs` expires.
+// Poll the tab's DOM for workspace links. First tries to expand the sidebar
+// "Workspaces" section by clicking its nav link, then polls every `pollMs`
+// until links are found or `budgetMs` expires.
 async function pollWorkspaceLinks(tabId, budgetMs = 30000, pollMs = 1000) {
+  // Phase 1: inject an expander that clicks the "Workspaces" nav link to
+  // reveal individual workspace sub-links, then waits for rendering.
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        for (const a of document.querySelectorAll('nav a[href="/settings/workspaces"]')) {
+          a.click();
+          break;
+        }
+      }
+    });
+    await sleep(2000);
+  } catch {}
+
+  // Phase 2: poll for workspace <a> tags in the entire DOM.
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     try {
       const result = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
-          const links = document.querySelectorAll('a[href*="/settings/workspaces/"]');
+          const links = document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]');
           const seen = new Map();
           for (const a of links) {
             const href = a.getAttribute('href');
             if (!href) continue;
             const m = href.match(/\/settings\/workspaces\/([^/]+)/);
             if (!m) continue;
-            const id = m[1], name = (a.textContent || '').trim();
+            const id = m[1];
+            const name = (a.textContent || '').trim();
             if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
             seen.set(name, id);
           }

@@ -255,3 +255,17 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
 - `chrome.tabs.query` nutzt jetzt `${WORKSPACE_KEYS_PREFIX}*` als Pattern. Wenn der User aktiv auf `/workspaces/<id>/cost` ist (nicht /settings/), greift der Reuse nicht und wir öffnen einen neuen Tab. Akzeptabel.
 
 **Letzte gewünschte Antwort (an User, falls neuer Sync läuft):** Output von `chrome.storage.local.get(...)` sollte zeigen wie viele Workspaces im Cache sind. Dann entweder fertig (5 Einträge) oder Click-Selektor tunen.
+
+#### 2026-06-02 18:00 — Edge-Case gefixt + Branch gepusht (opencode)
+
+**Neuer Commit:** `f257735 fix(extension): surface discovery fallback errors in console.warn + sync log`
+- Stiller Fallback (`[{ id: activeId, name: 'Default' }]` bei fehlendem Switcher-Trigger) erzeugt jetzt `console.warn` im SW-Console
+- `discoveryErrors` werden in der `consoleSync`-Erfolgsmeldung mit ausgegeben, falls vorhanden
+- Branch `claude/crazy-jang-63096d` auf origin gepusht
+
+**Nächste Schritte (unverändert, manuell im Chrome):**
+1. Extension togglen (AUS/AN) → Service-Worker hart neustarten
+2. Popup → "Jetzt synchronisieren" (Code ist jetzt garantiert frisch)
+3. SW-Console: auf `Console-sync ok: ...` + eventuelle `discovery:` Meldung achten
+4. `chrome.storage.local.get(['workspace_ids_cache'])` — bei 5 Einträgen ist Discovery komplett
+   - Bei <5 Einträgen: `discovery:`-Log zeigt den Fehler → Click-Selektoren in `openSwitcherAndReadOptions` / `clickOptionByName` tunen

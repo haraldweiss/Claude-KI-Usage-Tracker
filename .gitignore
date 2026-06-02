@@ -55,6 +55,9 @@ coverage/
 # contain a full checkout of the repo and must never be committed.
 .claude/worktrees/
 
+# Serena MCP scratch / language-server cache (per-clone, not portable).
+.serena/
+
 # Compiled TS output that lives next to .ts source (now using tsx for dev,
 # dist/ for prod). Keep .js test files (jest still runs them).
 backend/src/**/*.js

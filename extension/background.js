@@ -615,7 +615,7 @@ async function openSwitcherAndReadOptions() {
     const m = href.match(/\/settings\/workspaces\/([^/]+)/);
     if (!m) continue;
     const id = m[1];
-    const name = (a.textContent || '').trim();
+    const name = (a.textContent || '').trim().replace(/[^\w\s\-_.]/g, '');
     if (!name || seen.has(name)) continue;
     seen.set(name, id);
   }
@@ -828,13 +828,11 @@ function diagnosePage() {
 // renders them). Returns {workspaces: [{id, name}], errors: [...]}.
 async function discoverWorkspaces(tabId) {
   const errors = [];
-  console.error('DWD_ENTER tabId=' + tabId);
 
   // Step 1: load the keys page (the workspace links are in the sidebar nav
   // but rendered dynamically by React).
   await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
-  const readyUrl = await waitForTabReady(tabId, 30000);
-  console.error('DWD_READY url=' + (readyUrl || 'NULL'));
+  await waitForTabReady(tabId, 30000);
 
   // Step 2: inject observer + wait for React to render workspace links.
   // We inject, wait 15s for React to settle, then read results once.
@@ -850,7 +848,7 @@ async function discoverWorkspaces(tabId) {
             if (!href) continue;
             const m = href.match(/\/settings\/workspaces\/([^/]+)/);
             if (!m) continue;
-            const name = (a.textContent || '').trim();
+            const name = (a.textContent || '').trim().replace(/[^\w\s\-_.]/g, '');
             if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
             seen.set(name, m[1]);
           }
@@ -868,14 +866,12 @@ async function discoverWorkspaces(tabId) {
         setTimeout(scan, 12000);
       }
     });
-    console.error('DWD_INJECT_OK');
   } catch (e) {
-    console.error('DWD_INJECT_ERR', e.message);
+    errors.push('inject: ' + e.message);
   }
 
   // Wait for React to render, then read once
-  await sleep(15000);
-  console.error('DWD_WAIT_DONE');
+  await sleep(8000);
   let entries = [];
   try {
     const poll = await chrome.scripting.executeScript({
@@ -883,54 +879,47 @@ async function discoverWorkspaces(tabId) {
       func: () => window.__wsLinks || []
     });
     entries = (poll[0]?.result || []);
-    console.error('DWD_READ entries=' + entries.length);
   } catch (e) {
-    console.error('DWD_READ_ERR', e.message);
+    errors.push('read: ' + e.message);
   }
-  console.log('discoverWorkspaces: keys page found', entries.length, 'links:', JSON.stringify(entries));
 
   // Step 2b: if keys page didn't have workspace links, try the workspace
   // list page (/settings/workspaces) with the same observer approach.
   if (entries.length === 0) {
     await chrome.tabs.update(tabId, { url: 'https://platform.claude.com/settings/workspaces' });
     await sleep(3000);
-    const wsResult = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        return new Promise((resolve) => {
-          const found = new Map();
-          const deadline = Date.now() + 25000;
-          function scan() {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          window.__wsLinks = [];
+          const seen = new Map();
+          function wsScan() {
             for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
               const href = a.getAttribute('href');
               if (!href) continue;
               const m = href.match(/\/settings\/workspaces\/([^/]+)/);
               if (!m) continue;
-              const name = (a.textContent || '').trim();
-              if (!name || found.has(name) || /^Workspaces?$/i.test(name)) continue;
-              found.set(name, m[1]);
+              const name = (a.textContent || '').trim().replace(/[^\w\s\-_.]/g, '');
+              if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
+              seen.set(name, m[1]);
             }
-            if (found.size > 0) {
-              resolve([...found.entries()].map(([n, i]) => ({ name: n, id: i })));
-              return true;
-            }
-            return false;
+            if (seen.size > 0) window.__wsLinks = [...seen.entries()].map(([n, i]) => ({ name: n, id: i }));
           }
-          if (scan()) return;
-          const observer = new MutationObserver(() => { if (scan()) observer.disconnect(); });
-          observer.observe(document.body, { childList: true, subtree: true });
-          const interval = setInterval(() => {
-            if (scan()) { clearInterval(interval); observer.disconnect(); }
-            if (Date.now() >= deadline) {
-              clearInterval(interval); observer.disconnect(); resolve([]);
-            }
-          }, 500);
-        });
-      }
-    });
-    const wsEntries = (wsResult[0]?.result || []);
-    console.log('discoverWorkspaces: workspace-list page found', wsEntries.length, 'links:', JSON.stringify(wsEntries));
-    if (wsEntries.length > 0) entries.push(...wsEntries);
+          wsScan();
+          new MutationObserver(() => wsScan()).observe(document.body, { childList: true, subtree: true });
+          setTimeout(wsScan, 10000);
+        }
+      });
+    } catch {}
+    await sleep(12000);
+    try {
+      const wsPoll = await chrome.scripting.executeScript({
+        target: { tabId }, func: () => window.__wsLinks || []
+      });
+      const wsEntries = (wsPoll[0]?.result || []);
+      if (wsEntries.length > 0) entries.push(...wsEntries);
+    } catch {}
   }
 
   if (entries.length === 0) {

@@ -609,6 +609,8 @@ async function openSwitcherAndReadOptions() {
     '[role="combobox"]',
     'button[aria-haspopup="listbox"]',
     '[aria-haspopup="listbox"]',
+    'button[aria-haspopup="menu"]',
+    '[aria-haspopup="menu"]',
     'button[aria-expanded][aria-controls]'
   ];
   let trigger = null;
@@ -654,6 +656,8 @@ async function clickOptionByName(targetName) {
     '[role="combobox"]',
     'button[aria-haspopup="listbox"]',
     '[aria-haspopup="listbox"]',
+    'button[aria-haspopup="menu"]',
+    '[aria-haspopup="menu"]',
     'button[aria-expanded][aria-controls]'
   ];
   let trigger = null;

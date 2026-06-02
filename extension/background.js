@@ -835,21 +835,23 @@ async function discoverWorkspaces(tabId) {
   await waitForTabReady(tabId, 30000);
 
   // Step 2: inject an observer that watches the DOM for up to 20s for
-  // workspace links to appear.
+  // workspace links to appear. First, a synchronous probe to verify
+  // the page is interactive.
+  const quickProbe = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => document.title
+  });
+  console.log('discoverWorkspaces: page title =', quickProbe[0]?.result);
+
   const result = await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
       return new Promise((resolve) => {
-        const found = new Map();
-        const deadline = Date.now() + 20000;
+          const found = new Map();
+          const deadline = Date.now() + 20000;
 
-        function scan() {
-          const allLinks = [...document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')].map(a => ({
-            href: a.getAttribute('href'),
-            text: (a.textContent || '').trim().slice(0, 40)
-          }));
-          console.log('observer scan:', allLinks.length, 'raw links:', JSON.stringify(allLinks));
-          for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
+          function scan() {
+            for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
             const href = a.getAttribute('href');
             if (!href) continue;
             const m = href.match(/\/settings\/workspaces\/([^/]+)/);

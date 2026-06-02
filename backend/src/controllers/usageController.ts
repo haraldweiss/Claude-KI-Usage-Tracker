@@ -85,9 +85,17 @@ export async function trackUsage(
       );
     }
 
-    // Console scraping appends a fresh row per key per sync. The dashboard
-    // takes the latest snapshot per (workspace, key_id_suffix) for current
-    // totals and diffs consecutive snapshots for trends. No dedupe here.
+    // Console scraping: DELETE old rows for today before inserting fresh ones.
+    // Each sync replaces the entire day's snapshot per user.
+    if (source === 'anthropic_console_sync') {
+      await runQuery(
+        `DELETE FROM usage_records
+         WHERE source = 'anthropic_console_sync'
+           AND date(timestamp) = date('now')
+           AND user_id = ?`,
+        [req.user!.id]
+      );
+    }
 
     // Normalize the incoming model id/name against existing pricing rows
     const allRows = (await allQuery('SELECT * FROM pricing')) as KnownRow[];

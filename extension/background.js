@@ -601,12 +601,35 @@ async function autoSync() {
 // (id, name) map for a week so we don't repeat clicking on every daily sync.
 // ---------------------------------------------------------------------------
 
-// Injected into the platform.claude.com page. Tries several candidate
-// selectors for the switcher trigger, then tries each candidate until
-// one opens a role=listbox (workspace switcher) or role=menu with
-// workspace-like options. Returns the visible option names + which one
-// is selected, or an error.
+// Injected into the platform.claude.com page. Tries to read workspace
+// options from an already-visible dropdown, then falls back to clicking
+// candidate triggers until one opens a workspace switcher. Returns the
+// visible option names + which one is selected, or an error.
 async function openSwitcherAndReadOptions() {
+  // 1) Check if a dropdown is already rendered in the DOM (e.g. was left
+  //    open from a previous interaction, or is always-visible).
+  const dropdownRoles = ['[role="listbox"]', '[role="menu"]'];
+  function readDropdown(dd) {
+    const items = [...dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]')]
+      .filter((el) => !el.hasAttribute('data-disabled'))
+      .map((el) => ({
+        name: el.textContent.trim().split('\n')[0].trim(),
+        selected: el.getAttribute('aria-selected') === 'true' ||
+                  el.getAttribute('aria-checked') === 'true'
+      }))
+      .filter((o) => o.name && !/^(Alle (Workspaces|Arbeitsbereiche)|Loading|Laden)/i.test(o.name));
+    return items.length > 0 ? items : null;
+  }
+  for (const sel of dropdownRoles) {
+    const dd = document.querySelector(sel);
+    if (dd) {
+      const items = readDropdown(dd);
+      if (items) return { options: items };
+    }
+  }
+
+  // 2) No dropdown found pre-rendered. Try all candidate trigger buttons:
+  //    click, check for dropdown, close via Escape if wrong one.
   const triggerSelectors = [
     '[role="combobox"]',
     'button[aria-haspopup="listbox"]',
@@ -630,43 +653,24 @@ async function openSwitcherAndReadOptions() {
     return { error: `switcher trigger not found; sample aria-haspopup: ${interactiveSample || '(none)'}` };
   }
 
-  const dropdownRoles = ['[role="listbox"]', '[role="menu"]'];
   for (const trigger of candidates) {
     trigger.click();
-    // Wait up to 1.5 s for a dropdown with options to appear
     let found = false;
     for (let i = 0; i < 15; i++) {
       for (const sel of dropdownRoles) {
         const dd = document.querySelector(sel);
-        if (dd) {
-          const items = dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]');
-          if (items.length > 0) {
-            const optName = items[0].textContent.trim();
-            // If the first item looks like a workspace name (not generic UI),
-            // accept this trigger.
-            if (optName.length > 0 && optName.length < 60) {
-              found = true;
-              break;
-            }
-          }
+        if (dd && dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]').length > 0) {
+          found = true;
+          break;
         }
       }
       if (found) break;
       await new Promise((r) => setTimeout(r, 100));
     }
     if (found) {
-      // Read items via the role that matched
       const dd = document.querySelector(dropdownRoles[0]) || document.querySelector(dropdownRoles[1]);
-      const items = dd ? [...dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]')] : [];
-      const options = items
-        .filter((el) => !el.hasAttribute('data-disabled'))
-        .map((el) => ({
-          name: el.textContent.trim().split('\n')[0].trim(),
-          selected: el.getAttribute('aria-selected') === 'true' ||
-                    el.getAttribute('aria-checked') === 'true'
-        }))
-        .filter((o) => o.name && !/^(Alle (Workspaces|Arbeitsbereiche)|Loading|Laden)/i.test(o.name));
-      if (options.length > 0) return { options };
+      const items = readDropdown(dd);
+      if (items) return { options: items };
     }
     // Close any opened menu by pressing Escape
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

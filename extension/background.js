@@ -828,101 +828,105 @@ function diagnosePage() {
 async function discoverWorkspaces(tabId) {
   const errors = [];
 
-  // Step 1: load the entry page. It may or may not redirect from
-  // /settings/keys to /settings/workspaces/<id>/keys — either is fine;
-  // we just need the page fully loaded.
-  await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+  // Step 1: load the workspace list page. This page shows all workspaces
+  // with direct links to /settings/workspaces/<id>.
+  await chrome.tabs.update(tabId, { url: 'https://platform.claude.com/settings/workspaces' });
   const settledUrl = await waitForTabReady(tabId, 30000);
   if (!settledUrl) {
-    return {
-      workspaces: [],
-      errors: ['entry page never finished loading']
-    };
+    return { workspaces: [], errors: ['workspaces page never loaded'] };
   }
 
-  // Step 2: open the switcher, read the option names + which one is selected.
-  // If no switcher is rendered (e.g. user has only one workspace), fall back
-  // to a synthetic single-entry list if we can extract an ID from the URL.
-  const probe = await chrome.scripting.executeScript({
+  // Step 2: extract workspace links from the entire page DOM.
+  // Search broadly: any <a> with href matching the workspace URL pattern,
+  // inside or outside a <nav>.
+  const result = await chrome.scripting.executeScript({
     target: { tabId },
-    func: openSwitcherAndReadOptions
+    func: () => {
+      const links = document.querySelectorAll('a[href*="/settings/workspaces/"]');
+      const seen = new Map();
+      for (const a of links) {
+        const href = a.getAttribute('href');
+        if (!href) continue;
+        const m = href.match(/\/settings\/workspaces\/([^/]+)/);
+        if (!m) continue;
+        const id = m[1];
+        const name = (a.textContent || '').trim();
+        if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
+        seen.set(name, id);
+      }
+      return [...seen.entries()].map(([name, id]) => ({ name, id }));
+    }
   });
-  const probeResult = probe[0]?.result || {};
-  if (probeResult.error || !(probeResult.options?.length)) {
-    if (probeResult.error) {
-      const msg = `probe: ${probeResult.error}`;
-      errors.push(msg);
-      console.warn(`discoverWorkspaces: ${msg}`);
-    }
-    // Diagnostic: dump page structure to understand the UI
-    try {
-      const diag = await chrome.scripting.executeScript({
+  const entries = (result[0]?.result || []);
+
+  if (entries.length === 0) {
+    // Fallback: try the keys page (maybe sidebar nav is expanded there)
+    await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+    const settledUrl2 = await waitForTabReady(tabId, 30000);
+    if (!settledUrl2) {
+      // Last resort: navigate to /settings/workspaces with a longer wait
+      await chrome.tabs.update(tabId, { url: 'https://platform.claude.com/settings/workspaces' });
+      await waitForTabReady(tabId, 60000);
+      const fallbackResult = await chrome.scripting.executeScript({
         target: { tabId },
-        func: diagnosePage
+        func: () => {
+          const links = document.querySelectorAll('a[href*="/settings/workspaces/"]');
+          const seen = new Map();
+          for (const a of links) {
+            const href = a.getAttribute('href');
+            if (!href) continue;
+            const m = href.match(/\/settings\/workspaces\/([^/]+)/);
+            if (!m) continue;
+            const name = (a.textContent || '').trim();
+            if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
+            seen.set(name, m[1]);
+          }
+          return [...seen.entries()].map(([name, id]) => ({ name, id }));
+        }
       });
-      const info = diag[0]?.result;
-      if (info) console.warn('Page diagnostic:', JSON.stringify(info));
-    } catch {}
-    const activeId = extractWorkspaceId(settledUrl);
-    if (activeId) {
-      return { workspaces: [{ id: activeId, name: 'Default' }], errors };
+      const fallbackEntries = (fallbackResult[0]?.result || []);
+      if (fallbackEntries.length === 0) {
+        return { workspaces: [], errors: ['no workspace links found on any page'] };
+      }
+      return {
+        workspaces: await resolveWorkspaceIds(tabId, fallbackEntries, errors),
+        errors
+      };
     }
-    return { workspaces: [], errors };
+    return { workspaces: [], errors: ['keys page loaded but no workspace links found'] };
   }
-  const options = probeResult.options;
-
-  // Step 3: build workspace list from nav-link IDs. Options with an `id`
-  // can be used directly. Options without an id (e.g. "default" keyword or
-  // click-simulation fallback) need a navigation to resolve the real ID.
-  const discovered = [];
-  const needsUrlResolve = [];
-
-  // 3a — options that already have a wrkspc_ ID
-  for (const opt of options) {
-    if (opt.id && opt.id.startsWith('wrkspc_')) {
-      discovered.push({ id: opt.id, name: opt.name });
-      continue;
-    }
-    needsUrlResolve.push(opt);
-  }
-
-  // 3b — check if current URL already has a workspace ID for selected
-  const tab = await chrome.tabs.get(tabId);
-  const currentId = extractWorkspaceId(tab.url);
-  if (currentId) {
-    const selected = options.find((o) => o.selected);
-    if (selected && !discovered.find((d) => d.name === selected.name)) {
-      discovered.push({ id: currentId, name: selected.name });
-      const idx = needsUrlResolve.findIndex((o) => o.name === selected.name);
-      if (idx >= 0) needsUrlResolve.splice(idx, 1);
-    }
-  }
-
-  // 3c — resolve remaining (e.g. "default") by navigating to their URL
-  for (const opt of needsUrlResolve) {
-    const wsUrl = `${WORKSPACE_KEYS_PREFIX}${opt.id || opt.name.toLowerCase()}/keys`;
-    await chrome.tabs.update(tabId, { url: wsUrl });
-    const resolved = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 15000);
-    if (!resolved) {
-      errors.push(`could not resolve workspace URL for "${opt.name}"`);
-      continue;
-    }
-    const resolvedId = extractWorkspaceId(resolved);
-    if (!resolvedId) {
-      errors.push(`no wrkspc_ in resolved URL for "${opt.name}"`);
-      continue;
-    }
-    discovered.push({ id: resolvedId, name: opt.name });
-  }
-
-  // 3d — navigate back to the entry page so caller can scrape it
-  await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
-  await waitForTabReady(tabId, 15000);
 
   return {
-    workspaces: discovered,
+    workspaces: await resolveWorkspaceIds(tabId, entries, errors),
     errors
   };
+}
+
+// Resolve workspace IDs: for entries with real wrkspc_ IDs, use directly.
+// For keyword IDs (e.g. 'default'), navigate to confirm the real ID.
+async function resolveWorkspaceIds(tabId, entries, errors) {
+  const resolved = [];
+  for (const e of entries) {
+    if (e.id.startsWith('wrkspc_')) {
+      resolved.push({ id: e.id, name: e.name });
+    } else {
+      // Navigate to the workspace page to resolve the real ID
+      const wsUrl = `${WORKSPACE_KEYS_PREFIX}${e.id}/keys`;
+      await chrome.tabs.update(tabId, { url: wsUrl });
+      const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 15000);
+      if (!settled) {
+        errors.push(`could not resolve workspace URL for "${e.name}"`);
+        continue;
+      }
+      const realId = extractWorkspaceId(settled);
+      if (realId) {
+        resolved.push({ id: realId, name: e.name });
+      } else {
+        resolved.push({ id: e.id, name: e.name });
+      }
+    }
+  }
+  return resolved;
 }
 
 // Single-workspace keys scrape. Navigates the tab to the workspace's keys

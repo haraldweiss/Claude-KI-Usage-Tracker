@@ -709,23 +709,21 @@ async function waitForUrlChange(tabId, oldUrl, budgetMs = 15000, pollMs = 250) {
 async function discoverWorkspaces(tabId) {
   const errors = [];
 
-  // Step 1: load the entry page; it redirects to /settings/workspaces/<active_id>/keys.
+  // Step 1: load the entry page. It may or may not redirect from
+  // /settings/keys to /settings/workspaces/<id>/keys — either is fine;
+  // we just need the page fully loaded.
   await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
-  const settledUrl = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
+  const settledUrl = await waitForTabReady(tabId, 30000);
   if (!settledUrl) {
     return {
       workspaces: [],
-      errors: [`entry page never settled on ${WORKSPACE_KEYS_PREFIX}`]
+      errors: ['entry page never finished loading']
     };
-  }
-  const activeId = extractWorkspaceId(settledUrl);
-  if (!activeId) {
-    return { workspaces: [], errors: [`no wrkspc_ in URL ${settledUrl}`] };
   }
 
   // Step 2: open the switcher, read the option names + which one is selected.
   // If no switcher is rendered (e.g. user has only one workspace), fall back
-  // to a synthetic single-entry list with the active workspace.
+  // to a synthetic single-entry list if we can extract an ID from the URL.
   const probe = await chrome.scripting.executeScript({
     target: { tabId },
     func: openSwitcherAndReadOptions
@@ -737,61 +735,60 @@ async function discoverWorkspaces(tabId) {
       errors.push(msg);
       console.warn(`discoverWorkspaces: ${msg}`);
     }
-    return {
-      workspaces: [{ id: activeId, name: 'Default' }],
-      errors
-    };
+    const activeId = extractWorkspaceId(settledUrl);
+    if (activeId) {
+      return { workspaces: [{ id: activeId, name: 'Default' }], errors };
+    }
+    return { workspaces: [], errors };
   }
   const options = probeResult.options;
 
+  // Step 3: click each option and extract workspace ID from the resulting
+  // URL. We use two passes:
+  //   Pass 1 — click every option. Those that trigger a URL navigation
+  //     (almost all of them) get detected immediately.
+  //   Pass 2 — re-click options that were not discovered in pass 1.
+  //     By now we are on a different workspace's page so clicking the
+  //     previously-active workspace triggers a navigation.
   const discovered = new Map();
-  const selected = options.find((o) => o.selected);
-  if (selected) discovered.set(selected.name, activeId);
+  for (let pass = 0; pass < 2; pass++) {
+    const targets = options.filter((o) => !discovered.has(o.name));
+    if (targets.length === 0) break;
+    for (const opt of targets) {
+      let currentUrl;
+      try {
+        const t = await chrome.tabs.get(tabId);
+        currentUrl = t.url;
+      } catch {
+        currentUrl = null;
+      }
 
-  // Step 3: click each non-discovered option, read the new wrkspc_ from
-  // wherever the tab lands. Re-load the entry page between iterations so
-  // the switcher trigger is always in a known state.
-  const remaining = options.filter((o) => !discovered.has(o.name));
-  for (const opt of remaining) {
-    let currentUrl;
-    try {
-      const t = await chrome.tabs.get(tabId);
-      currentUrl = t.url;
-    } catch {
-      currentUrl = null;
-    }
-    if (!currentUrl?.startsWith(WORKSPACE_KEYS_PREFIX)) {
-      await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
-      const resettled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
-      if (!resettled) {
-        errors.push(`re-settle before clicking "${opt.name}" timed out`);
+      const clickResult = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: clickOptionByName,
+        args: [opt.name]
+      });
+      const click = clickResult[0]?.result || {};
+      if (click.error) {
+        errors.push(`pass ${pass + 1} click "${opt.name}": ${click.error}`);
         continue;
       }
-      currentUrl = resettled;
-    }
 
-    const clickResult = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: clickOptionByName,
-      args: [opt.name]
-    });
-    const click = clickResult[0]?.result || {};
-    if (click.error) {
-      errors.push(`click "${opt.name}": ${click.error}`);
-      continue;
+      const newUrl = await waitForUrlChange(tabId, currentUrl, 15000);
+      if (!newUrl) {
+        // Still no navigation — this is the currently active workspace
+        // from the page's perspective. On pass 2 we are on a different
+        // workspace so this should only happen if the workspace has a
+        // single option or all clicks fail.
+        continue;
+      }
+      const newId = extractWorkspaceId(newUrl);
+      if (!newId) {
+        errors.push(`no wrkspc_ in URL ${newUrl} after clicking "${opt.name}"`);
+        continue;
+      }
+      discovered.set(opt.name, newId);
     }
-
-    const newUrl = await waitForUrlChange(tabId, currentUrl, 15000);
-    if (!newUrl) {
-      errors.push(`URL didn't change after clicking "${opt.name}"`);
-      continue;
-    }
-    const newId = extractWorkspaceId(newUrl);
-    if (!newId) {
-      errors.push(`no wrkspc_ in URL ${newUrl} after clicking "${opt.name}"`);
-      continue;
-    }
-    discovered.set(opt.name, newId);
   }
 
   return {
@@ -840,7 +837,7 @@ async function consoleSync() {
       const tab = await chrome.tabs.create({ url: CONSOLE_KEYS_URL, active: false });
       tabId = tab.id;
       createdTabId = tab.id;
-      await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
+      await waitForTabReady(tabId, 30000);
     }
 
     // Load the cached workspace list. Re-discover via click-simulation if
@@ -1458,6 +1455,21 @@ async function waitForUrlPrefix(tabId, prefix, budgetMs = 15000, pollMs = 250) {
     try {
       const t = await chrome.tabs.get(tabId);
       if (t.url?.startsWith(prefix) && t.status === 'complete') return t.url;
+    } catch {
+      return null;
+    }
+    await sleep(pollMs);
+  }
+  return null;
+}
+
+// Like waitForUrlPrefix but accepts ANY URL as long as the tab is complete.
+async function waitForTabReady(tabId, budgetMs = 30000, pollMs = 250) {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      if (t.url && t.status === 'complete') return t.url;
     } catch {
       return null;
     }

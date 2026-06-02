@@ -896,6 +896,49 @@ async function discoverWorkspaces(tabId) {
   });
   const entries = (result[0]?.result || []);
 
+  // Step 2b: if keys page didn't have workspace links, try the workspace
+  // list page (/settings/workspaces) with the same observer approach.
+  if (entries.length === 0) {
+    await chrome.tabs.update(tabId, { url: 'https://platform.claude.com/settings/workspaces' });
+    await sleep(3000);
+    const wsResult = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        return new Promise((resolve) => {
+          const found = new Map();
+          const deadline = Date.now() + 25000;
+          function scan() {
+            for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
+              const href = a.getAttribute('href');
+              if (!href) continue;
+              const m = href.match(/\/settings\/workspaces\/([^/]+)/);
+              if (!m) continue;
+              const name = (a.textContent || '').trim();
+              if (!name || found.has(name) || /^Workspaces?$/i.test(name)) continue;
+              found.set(name, m[1]);
+            }
+            if (found.size > 0) {
+              resolve([...found.entries()].map(([n, i]) => ({ name: n, id: i })));
+              return true;
+            }
+            return false;
+          }
+          if (scan()) return;
+          const observer = new MutationObserver(() => { if (scan()) observer.disconnect(); });
+          observer.observe(document.body, { childList: true, subtree: true });
+          const interval = setInterval(() => {
+            if (scan()) { clearInterval(interval); observer.disconnect(); }
+            if (Date.now() >= deadline) {
+              clearInterval(interval); observer.disconnect(); resolve([]);
+            }
+          }, 500);
+        });
+      }
+    });
+    const wsEntries = (wsResult[0]?.result || []);
+    if (wsEntries.length > 0) entries.push(...wsEntries);
+  }
+
   if (entries.length === 0) {
     return { workspaces: [], errors: ['no workspace links found via observer'] };
   }

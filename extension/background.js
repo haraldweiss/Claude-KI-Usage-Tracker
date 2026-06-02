@@ -834,75 +834,54 @@ async function discoverWorkspaces(tabId) {
   await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
   await waitForTabReady(tabId, 30000);
 
-  // Step 2: inject an observer that watches the DOM for up to 20s for
-  // workspace links to appear. First, a synchronous probe to verify
-  // the page is interactive.
-  const quickProbe = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => document.title
-  });
-  console.log('discoverWorkspaces: page title =', quickProbe[0]?.result);
-
-  const result = await chrome.scripting.executeScript({
+  // Step 2: inject an observer that stores workspace links in a global
+  // variable as they appear in the DOM, then poll that variable.
+  await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
-      return new Promise((resolve) => {
-          const found = new Map();
-          const deadline = Date.now() + 20000;
-
-          function scan() {
-            for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
-            const href = a.getAttribute('href');
-            if (!href) continue;
-            const m = href.match(/\/settings\/workspaces\/([^/]+)/);
-            if (!m) continue;
-            const id = m[1];
-            const name = (a.textContent || '').trim();
-            if (!name || found.has(name) || /^Workspaces?$/i.test(name)) continue;
-            found.set(name, id);
-          }
-          if (found.size > 0) {
-            resolve([...found.entries()].map(([n, i]) => ({ name: n, id: i })));
-            return true;
-          }
-          return false;
+      window.__wsLinks = [];
+      const found = new Map();
+      function scan() {
+        for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
+          const href = a.getAttribute('href');
+          if (!href) continue;
+          const m = href.match(/\/settings\/workspaces\/([^/]+)/);
+          if (!m) continue;
+          const name = (a.textContent || '').trim();
+          if (!name || found.has(name) || /^Workspaces?$/i.test(name)) continue;
+          found.set(name, m[1]);
         }
-
-        // Immediate scan
-        if (scan()) return;
-
-        // Try clicking the "Workspaces" nav link to expand the sidebar
-        for (const a of document.querySelectorAll('nav a[href*="/workspaces"]')) {
-          if (a.getAttribute('href') === '/settings/workspaces' || a.textContent.includes('Workspaces')) {
-            a.click();
-            break;
-          }
+        if (found.size > 0) {
+          window.__wsLinks = [...found.entries()].map(([n, i]) => ({ name: n, id: i }));
         }
-
-        // Set up MutationObserver on the nav (or body as fallback)
-        const target = document.querySelector('nav') || document.body;
-        const observer = new MutationObserver(() => {
-          if (scan()) observer.disconnect();
-        });
-        observer.observe(target, { childList: true, subtree: true });
-
-        // Fallback: scan every 500ms until deadline
-        const interval = setInterval(() => {
-          if (scan()) {
-            clearInterval(interval);
-            observer.disconnect();
-          }
-          if (Date.now() >= deadline) {
-            clearInterval(interval);
-            observer.disconnect();
-            resolve([]);
-          }
-        }, 500);
-      });
+      }
+      scan();
+      // Click Workspaces nav link to expand sidebar
+      for (const a of document.querySelectorAll('nav a[href*="/workspaces"]')) {
+        if (a.getAttribute('href') === '/settings/workspaces' || /workspaces/i.test(a.textContent)) {
+          a.click(); break;
+        }
+      }
+      const target = document.querySelector('nav') || document.body;
+      new MutationObserver(() => scan()).observe(target, { childList: true, subtree: true });
+      setInterval(scan, 1000);
     }
   });
-  const entries = (result[0]?.result || []);
-  console.log('discoverWorkspaces: keys page found', entries.length, 'workspace links:', JSON.stringify(entries));
+
+  // Poll the global variable for up to 20s
+  let entries = [];
+  for (let i = 0; i < 40; i++) {
+    try {
+      const poll = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => window.__wsLinks || []
+      });
+      entries = (poll[0]?.result || []);
+      if (entries.length > 0) break;
+    } catch {}
+    await sleep(500);
+  }
+  console.log('discoverWorkspaces: keys page found', entries.length, 'links:', JSON.stringify(entries.slice(0, 10)));
 
   // Step 2b: if keys page didn't have workspace links, try the workspace
   // list page (/settings/workspaces) with the same observer approach.

@@ -193,3 +193,65 @@ systemctl restart claudetracker-backend && sleep 5 && \
 
 **Deploy-Hinweis:** Nur backend + frontend müssen neu gebaut werden. Extension lädt Änderungen beim nächsten Reload.
 -->
+
+### 2026-06-02 — Console-Sync entdeckt jetzt alle Workspaces
+
+**Problem:** `consoleSync()` öffnete nur `console.anthropic.com/settings/keys` und scrapte die Key-Tabelle dort — Anthropic redirected diese URL inzwischen auf `platform.claude.com/settings/keys`, und die zeigt nur Keys des aktuell aktiven Workspaces. User mit mehreren Workspaces sahen im Dashboard nur Default-Workspace-Keys.
+
+**Discovery-Recherche (Sackgassen für nächstes Mal):**
+- Anthropic hat **keinen** REST/tRPC-Endpoint für Workspaces. Probings auf `/api/workspaces`, `/api/organizations/<uuid>/workspaces`, `/v1/organizations` etc. → alle 404. `/api/organizations/<uuid>/members` → 403 (Endpoint existiert, aber RBAC).
+- Workspace-Liste wird **nur via React Server Components** ausgeliefert. IDs leben in React-Closures, nicht im DOM. `__NEXT_DATA__` existiert nicht. `[role="listbox"]` zeigt nur Namen (Default/Claude Code/…), die `<div role="option">`-Elemente haben *keine* `data-workspace-id`-Attribute.
+- Organization-UUID ist aber im Page-Lifecycle sichtbar (z.B. `/api/organizations/<uuid>/console_onboarding/tasks`). Für unsere Org: `00bdd997-83e7-4c43-97ac-2ee405b0a1ab`.
+
+**Lösung (Click-Simulation Auto-Discovery):**
+- `discoverWorkspaces(tabId)` öffnet `platform.claude.com/settings/keys` (redirected auf `/settings/workspaces/<active_id>/keys`), liest die initiale Workspace-ID aus der URL.
+- Injiziert via `chrome.scripting.executeScript` zwei Helper: `openSwitcherAndReadOptions()` (klickt den Switcher-Trigger via `[role="combobox"]` / `[aria-haspopup="listbox"]`, liest die Option-Namen) und `clickOptionByName(name)` (öffnet Dropdown erneut, klickt Option mit passendem Text).
+- Pro unbekanntem Workspace: Klick → `waitForUrlChange()` → wrkspc_ aus neuer URL extrahieren.
+- Ergebnis (id, name) cached in `chrome.storage.local.workspace_ids_cache` mit TTL 7 Tage (`workspace_discovery_last_run`). Tägliche `consoleSync`-Läufe iterieren nur den Cache, scrapen pro Workspace `/settings/workspaces/<id>/keys`.
+
+**Robustheits-Caveats für künftige UI-Updates:**
+- Trigger-Selektoren in Reihenfolge probiert; `base-ui` (verwendet auf platform.claude.com) generiert IDs wie `base-ui-_r_12_-N`, die *nicht* stabil sind — daher keine ID-Selektoren.
+- Per-Workspace Keys-Tabelle hat **keine** "Workspace"-Spalte (redundant). Backend-Field bekommt den Switcher-Namen als Fallback.
+- Anthropic könnte den Switcher-Subtitle "Nur in Cost and Logs verfügbar" ernst nehmen und das Switchen aus `/settings/keys` heraus blockieren — dann müsste Discovery aus `/workspaces/<id>/cost` heraus laufen.
+
+**Manifest:** `host_permissions` enthielt bereits `https://platform.claude.com/*`. Konstanten `CONSOLE_KEYS_URL` und `chrome.tabs.query` aktualisiert von `console.anthropic.com` → `platform.claude.com`.
+
+**Noch zu tun (siehe Tasks): Manueller Round-Trip-Test fehlt** — Extension neu laden, Sync triggern, Dashboard auf alle 5 Workspaces prüfen.
+
+---
+
+#### 2026-06-02 17:30 — Test-Status & offene Diagnose (Session-Abbruch)
+
+**Code-Status:** `extension/background.js` + `AGENTS.md` modifiziert, **nicht committed**. `git status` zeigt beide als `M`. Implementierung syntaktisch OK (`node --check` grün).
+
+**Was im Dashboard sichtbar war nach `chrome://extensions → Aktualisieren`:**
+- Alte Snapshots vom 31.5.2026 (5 Keys mit Workspace=Default, summiert ~$35.79 — Mai-Daten)
+- **EINE neue Zeile vom heutigen Sync (~17:09):** `openwebui · wolfinisoftware_de · $1.40` ← das war vorher unsichtbar, Discovery hat also mindestens diesen Workspace gefunden!
+- `OverviewTab "Gesamt diesen Monat"` = $1.40 ≈ 1.20€ (nur Juni, alte Mai-Daten fallen korrekt raus)
+
+**Aber: `chrome.storage.local` zeigt KEIN `workspace_ids_cache`:**
+```json
+{ "last_console_sync": 1780413003530 }
+```
+Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_discovery_last_run` existieren.
+
+**Das ist widersprüchlich:** Wenn Discovery 0 zurückgegeben hätte, würde [extension/background.js:868](extension/background.js:868) (`if (workspaces.length === 0) return { skipped: true }`) sofort returnen und KEINE Zeile posten. Es wurde aber eine gepostet → Discovery muss ≥1 Workspace geliefert haben → der `chrome.storage.local.set({ workspace_ids_cache, ... })` Block (Zeile 860-863) hätte laufen müssen.
+
+**Wahrscheinlichste Erklärung (zu verifizieren):** Der Sync von 17:09 lief noch mit dem **ALTEN Code** — User hat zwar `Aktualisieren` geklickt, aber der Sync wurde durch den Alarm-Scheduler (`CONSOLE_SYNC_ALARM`, 24h Cadence) parallel/davor getriggert. Old code schrieb nur `last_console_sync`. Wäre erklärbar wenn `wolfinisoftware_de` als Workspace-Spalte im Aggregat-Scrape rüberkam (alte URL `console.anthropic.com/settings/keys` → redirect platform.claude.com → Tabelle mit Workspace-Column).
+
+**Nächste Schritte (für Folge-Session):**
+
+1. **Service-Worker hart neu starten** statt nur "Aktualisieren":
+   - `chrome://extensions` → Toggle der Extension AUS → wieder AN
+   - Oder: Service-Worker im DevTools-Fenster manuell stoppen + Extension-Icon klicken (Wake-Up)
+2. Im Popup **"Jetzt synchronisieren"** klicken → diesmal ist Code garantiert frisch
+3. SW-Console offen halten und auf `Console-sync ok: N/M rows across X workspaces` warten
+4. Dann nochmal `chrome.storage.local.get(['workspace_ids_cache', ...])` — sollte jetzt einen Array mit 1-5 Einträgen zeigen
+5. **Erwartung:** Wenn discovery sauber läuft, alle 5 Workspaces gecached. Wenn nur 1-2 da sind → `openSwitcherAndReadOptions`/`clickOptionByName` Selektoren müssen getunt werden (base-ui-spezifisch); Diagnose über `discoveryErrors`-Feld im Sync-Result
+
+**Bekannte Edge-Cases im aktuellen Code (alle Theorie, ungetestet):**
+- Wenn Switcher-Trigger nicht gefunden wird → Fallback auf `[{ id: activeId, name: 'Default' }]` ([extension/background.js:719](extension/background.js:719)). Diskutabel: könnte stillen Daten-Verlust kaschieren, wenn der User tatsächlich mehrere Workspaces hat aber unser Selektor versagt — User sieht dann nur "Default" und denkt alles ist gut.
+- "Lädt..." / "Loading" Einträge im API-Keys-Detail aus claudeCodeSync sind ein **separates Problem** (Race-Condition beim claude-code/usage scrape), kein Workspace-Discovery-Issue.
+- `chrome.tabs.query` nutzt jetzt `${WORKSPACE_KEYS_PREFIX}*` als Pattern. Wenn der User aktiv auf `/workspaces/<id>/cost` ist (nicht /settings/), greift der Reuse nicht und wir öffnen einen neuen Tab. Akzeptabel.
+
+**Letzte gewünschte Antwort (an User, falls neuer Sync läuft):** Output von `chrome.storage.local.get(...)` sollte zeigen wie viele Workspaces im Cache sind. Dann entweder fertig (5 Einträge) oder Click-Selektor tunen.

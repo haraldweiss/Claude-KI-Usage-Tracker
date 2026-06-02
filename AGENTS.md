@@ -269,3 +269,42 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
 3. SW-Console: auf `Console-sync ok: ...` + eventuelle `discovery:` Meldung achten
 4. `chrome.storage.local.get(['workspace_ids_cache'])` — bei 5 Einträgen ist Discovery komplett
    - Bei <5 Einträgen: `discovery:`-Log zeigt den Fehler → Click-Selektoren in `openSwitcherAndReadOptions` / `clickOptionByName` tunen
+
+### 2026-06-02 — Workspace-Discovery endlich gelöst (opencode)
+
+**Problem:** `consoleSync()` konnte nur den aktiven Workspace scrapen. Der Click-Simulation-Ansatz (`openSwitcherAndReadOptions`, `clickOptionByName`) scheiterte an platform.claude.com's dynamischem React-Sidebar-Nav — die ARIA-Rollen (`aria-haspopup="menu"`, `role="combobox"`) passten nicht, Click auf falsche Buttons, `executeScript` mit Promise-Rückgabe funktionierte nicht.
+
+**Gelöst durch:** MutationsObserver + globale Variable + Warten + einmaliges Auslesen.
+
+**Fixes (in chronologischer Reihenfolge, 11 Commits):**
+
+| Commit | Änderung |
+|---|---|
+| `c46fce7` | Erster Wurf: Click-Simulation auf `role="combobox"` etc. |
+| `f257735` | Fehler-Logging für silent fallback |
+| `c2ceb71` | `waitForTabReady` statt `waitForUrlPrefix` (kein Redirect nötig) |
+| `dde70fd` | `aria-haspopup="menu"` als Selektor |
+| `4cfc86c` | Alle Kandidaten-Buttons durchprobieren |
+| `4d344cb` | Pre-rendered Dropdown check |
+| `97084f2` | Fallback: active workspace scrapen |
+| `a552d2f` | Nav-Links aus `<nav>` statt Click-Simulation |
+| `d757b96` | DOM-Polling für dynamisch gerenderte Links |
+| `5ec898f` | Page Diagnostic (zeigte `<nav>` + Workspace-Links) |
+| `d4dd1b9` | MutationObserver + 20s Wartezeit |
+| `22cdb4a` | `window.__wsLinks` globale Variable |
+| `55c976e` | 15s warten, einmal lesen |
+| `fd4b74a` | `console.error`-Marker zum Debuggen (zeigte: Worker wird NIE aufgerufen weil Cache gültig) |
+| `beb53cf` | Cache manuell geleert → Discovery lief durch! |
+| `f6bee6f` | Finale Version: 8s Wartezeit, Name-Bereinigung, Dead Code entfernt |
+
+**Endresultat:** 5 Workspaces werden zuverlässig erkannt (Default, Claude Code, Bewerbungstracker, wolfinisoftware_de, Claude_tracker). Cache 7 Tage. Nur bei Cache-Miss 8s Wartezeit.
+
+**Erkenntnisse:**
+- `chrome.scripting.executeScript` mit `func: () => new Promise(...)` funktioniert NICHT zuverlässig. Lösung: globale Variable setzen, von Background-Seite aus nach WAIT lesen.
+- workspace.name muss via `.replace(/[^\w\s\-_.]/g, '')` von Icon-Zeichen befreit werden.
+- platform.claude.com rendert Workspace-Links erst ~5-8s nach Page-Load via React.
+- Der 18:06er Cache (vor meinen Änderungen) blockierte alle Discovery-Aufrufe — erst nach `chrome.storage.local.remove(...)` lief die neue Discovery.
+
+**Noch offen:**
+- Dashboard-Duplikate: `openwebui`-Key taucht in `Claude_tracker` UND `wolfinisoftware_de` auf (Backend-Dedup fehlt)
+- Dead Code in `extension/background.js` wurde entfernt (alle Click-Simulation-Funktionen)

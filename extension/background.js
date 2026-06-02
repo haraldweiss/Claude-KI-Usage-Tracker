@@ -828,11 +828,13 @@ function diagnosePage() {
 // renders them). Returns {workspaces: [{id, name}], errors: [...]}.
 async function discoverWorkspaces(tabId) {
   const errors = [];
+  console.error('DWD_ENTER tabId=' + tabId);
 
   // Step 1: load the keys page (the workspace links are in the sidebar nav
   // but rendered dynamically by React).
   await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
-  await waitForTabReady(tabId, 30000);
+  const readyUrl = await waitForTabReady(tabId, 30000);
+  console.error('DWD_READY url=' + (readyUrl || 'NULL'));
 
   // Step 2: inject observer + wait for React to render workspace links.
   // We inject, wait 15s for React to settle, then read results once.
@@ -866,12 +868,14 @@ async function discoverWorkspaces(tabId) {
         setTimeout(scan, 12000);
       }
     });
+    console.error('DWD_INJECT_OK');
   } catch (e) {
-    console.warn('discoverWorkspaces: inject error', e);
+    console.error('DWD_INJECT_ERR', e.message);
   }
 
   // Wait for React to render, then read once
   await sleep(15000);
+  console.error('DWD_WAIT_DONE');
   let entries = [];
   try {
     const poll = await chrome.scripting.executeScript({
@@ -879,8 +883,9 @@ async function discoverWorkspaces(tabId) {
       func: () => window.__wsLinks || []
     });
     entries = (poll[0]?.result || []);
+    console.error('DWD_READ entries=' + entries.length);
   } catch (e) {
-    console.warn('discoverWorkspaces: read error', e);
+    console.error('DWD_READ_ERR', e.message);
   }
   console.log('discoverWorkspaces: keys page found', entries.length, 'links:', JSON.stringify(entries));
 

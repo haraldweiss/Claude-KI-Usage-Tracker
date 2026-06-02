@@ -49,7 +49,25 @@ const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
 // don't change minute-to-minute, so 24h is plenty.
 const CONSOLE_SYNC_ALARM = 'auto-sync-console';
 const CONSOLE_SYNC_INTERVAL_MIN = 24 * 60;
-const CONSOLE_KEYS_URL = 'https://console.anthropic.com/settings/keys';
+// Anthropic redirects console.anthropic.com/settings/keys → platform.claude.com,
+// so we go straight there. Old console.anthropic.com host_permission stays as
+// a fallback in case Anthropic flips the redirect back.
+const CONSOLE_KEYS_URL = 'https://platform.claude.com/settings/keys';
+const WORKSPACE_KEYS_PREFIX = 'https://platform.claude.com/settings/workspaces/';
+// Re-run workspace discovery (click through switcher) at most once a week.
+// Daily sync uses the cached list of workspace IDs so we don't pay the
+// click-simulation cost every day.
+const WORKSPACE_DISCOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function workspaceKeysUrl(workspaceId) {
+  return `${WORKSPACE_KEYS_PREFIX}${workspaceId}/keys`;
+}
+
+function extractWorkspaceId(url) {
+  if (!url) return null;
+  const m = url.match(/\/workspaces\/(wrkspc_[A-Za-z0-9]+)/);
+  return m ? m[1] : null;
+}
 
 // Claude Code has its own usage page that reports per-key spend and lines-of-
 // code metrics. The settings/keys page reports 0 USD for claude_code_*-keys
@@ -568,11 +586,248 @@ async function autoSync() {
 // the "Cost" column of /settings/keys.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Workspace discovery (click-simulation on the platform.claude.com switcher).
+//
+// Anthropic doesn't expose a JSON endpoint for the workspaces visible to the
+// logged-in user — they're rendered via React Server Components and the IDs
+// only live in React closures, not the DOM. The workspace switcher dropdown
+// shows the names; clicking an option navigates the tab to
+// /workspaces/<id>/... which lets us read the ID off the URL.
+//
+// Strategy: open the keys entry page (which always lands on the active
+// workspace's keys), capture that ID, then for each remaining option in the
+// switcher, click → wait for URL change → capture wrkspc_ ID. Cache the
+// (id, name) map for a week so we don't repeat clicking on every daily sync.
+// ---------------------------------------------------------------------------
+
+// Injected into the platform.claude.com page. Tries several candidate
+// selectors for the switcher trigger, clicks it, polls for the listbox to
+// render, then returns the visible option names + which one is selected.
+async function openSwitcherAndReadOptions() {
+  const triggerSelectors = [
+    '[role="combobox"]',
+    'button[aria-haspopup="listbox"]',
+    '[aria-haspopup="listbox"]',
+    'button[aria-expanded][aria-controls]'
+  ];
+  let trigger = null;
+  for (const sel of triggerSelectors) {
+    const candidates = document.querySelectorAll(sel);
+    for (const c of candidates) {
+      if (c.closest('[role="listbox"]')) continue;
+      trigger = c;
+      break;
+    }
+    if (trigger) break;
+  }
+  if (!trigger) {
+    const interactiveSample = [...document.querySelectorAll('[aria-haspopup]')]
+      .slice(0, 5)
+      .map((el) => `${el.tagName}[aria-haspopup="${el.getAttribute('aria-haspopup')}"]`)
+      .join(', ');
+    return { error: `switcher trigger not found; sample aria-haspopup: ${interactiveSample || '(none)'}` };
+  }
+  trigger.click();
+  for (let i = 0; i < 40; i++) {
+    const lb = document.querySelector('[role="listbox"]');
+    if (lb && lb.querySelector('[role="option"]')) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const lb = document.querySelector('[role="listbox"]');
+  if (!lb) return { error: 'listbox did not open after clicking trigger' };
+  const options = [...lb.querySelectorAll('[role="option"]')]
+    .filter((el) => !el.hasAttribute('data-disabled'))
+    .map((el) => ({
+      name: el.textContent.trim().split('\n')[0].trim(),
+      selected: el.getAttribute('aria-selected') === 'true'
+    }))
+    .filter((o) => o.name && o.name !== 'Alle Workspaces');
+  return { options };
+}
+
+// Injected: opens the switcher (same logic as above), then clicks the
+// option whose first-line text matches `targetName`. Returns whether
+// the click landed; the caller watches the tab URL for the actual ID.
+async function clickOptionByName(targetName) {
+  const triggerSelectors = [
+    '[role="combobox"]',
+    'button[aria-haspopup="listbox"]',
+    '[aria-haspopup="listbox"]',
+    'button[aria-expanded][aria-controls]'
+  ];
+  let trigger = null;
+  for (const sel of triggerSelectors) {
+    const candidates = document.querySelectorAll(sel);
+    for (const c of candidates) {
+      if (c.closest('[role="listbox"]')) continue;
+      trigger = c;
+      break;
+    }
+    if (trigger) break;
+  }
+  if (!trigger) return { error: 'switcher trigger not found' };
+  trigger.click();
+  for (let i = 0; i < 40; i++) {
+    const lb = document.querySelector('[role="listbox"]');
+    if (lb && lb.querySelector('[role="option"]')) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const lb = document.querySelector('[role="listbox"]');
+  if (!lb) return { error: 'listbox did not open' };
+  const options = [...lb.querySelectorAll('[role="option"]')].filter(
+    (el) => !el.hasAttribute('data-disabled')
+  );
+  const target = options.find(
+    (el) => el.textContent.trim().split('\n')[0].trim() === targetName
+  );
+  if (!target) {
+    const seen = options.map((o) => o.textContent.trim().split('\n')[0].trim()).join(', ');
+    return { error: `option "${targetName}" not in listbox (saw: ${seen})` };
+  }
+  target.click();
+  return { clicked: true };
+}
+
+// Waits for the tab URL to differ from `oldUrl` AND for loading to complete.
+async function waitForUrlChange(tabId, oldUrl, budgetMs = 15000, pollMs = 250) {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      if (t.url && t.url !== oldUrl && t.status === 'complete') return t.url;
+    } catch {
+      return null;
+    }
+    await sleep(pollMs);
+  }
+  return null;
+}
+
+// Returns { workspaces: [{id, name}], errors: [...] }.
+// Caller owns the tab and is responsible for closing it.
+async function discoverWorkspaces(tabId) {
+  const errors = [];
+
+  // Step 1: load the entry page; it redirects to /settings/workspaces/<active_id>/keys.
+  await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+  const settledUrl = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
+  if (!settledUrl) {
+    return {
+      workspaces: [],
+      errors: [`entry page never settled on ${WORKSPACE_KEYS_PREFIX}`]
+    };
+  }
+  const activeId = extractWorkspaceId(settledUrl);
+  if (!activeId) {
+    return { workspaces: [], errors: [`no wrkspc_ in URL ${settledUrl}`] };
+  }
+
+  // Step 2: open the switcher, read the option names + which one is selected.
+  // If no switcher is rendered (e.g. user has only one workspace), fall back
+  // to a synthetic single-entry list with the active workspace.
+  const probe = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: openSwitcherAndReadOptions
+  });
+  const probeResult = probe[0]?.result || {};
+  if (probeResult.error || !(probeResult.options?.length)) {
+    if (probeResult.error) errors.push(`probe: ${probeResult.error}`);
+    return {
+      workspaces: [{ id: activeId, name: 'Default' }],
+      errors
+    };
+  }
+  const options = probeResult.options;
+
+  const discovered = new Map();
+  const selected = options.find((o) => o.selected);
+  if (selected) discovered.set(selected.name, activeId);
+
+  // Step 3: click each non-discovered option, read the new wrkspc_ from
+  // wherever the tab lands. Re-load the entry page between iterations so
+  // the switcher trigger is always in a known state.
+  const remaining = options.filter((o) => !discovered.has(o.name));
+  for (const opt of remaining) {
+    let currentUrl;
+    try {
+      const t = await chrome.tabs.get(tabId);
+      currentUrl = t.url;
+    } catch {
+      currentUrl = null;
+    }
+    if (!currentUrl?.startsWith(WORKSPACE_KEYS_PREFIX)) {
+      await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+      const resettled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
+      if (!resettled) {
+        errors.push(`re-settle before clicking "${opt.name}" timed out`);
+        continue;
+      }
+      currentUrl = resettled;
+    }
+
+    const clickResult = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: clickOptionByName,
+      args: [opt.name]
+    });
+    const click = clickResult[0]?.result || {};
+    if (click.error) {
+      errors.push(`click "${opt.name}": ${click.error}`);
+      continue;
+    }
+
+    const newUrl = await waitForUrlChange(tabId, currentUrl, 15000);
+    if (!newUrl) {
+      errors.push(`URL didn't change after clicking "${opt.name}"`);
+      continue;
+    }
+    const newId = extractWorkspaceId(newUrl);
+    if (!newId) {
+      errors.push(`no wrkspc_ in URL ${newUrl} after clicking "${opt.name}"`);
+      continue;
+    }
+    discovered.set(opt.name, newId);
+  }
+
+  return {
+    workspaces: [...discovered.entries()].map(([name, id]) => ({ id, name })),
+    errors
+  };
+}
+
+// Single-workspace keys scrape. Navigates the tab to the workspace's keys
+// page, polls for the table, and returns { rows, diag }. Pure data — the
+// caller decides what to do with the rows.
+async function scrapeWorkspaceKeys(tabId, workspaceId) {
+  await chrome.tabs.update(tabId, { url: workspaceKeysUrl(workspaceId) });
+  const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
+  if (!settled) {
+    return { rows: [], reason: `keys page never loaded for ${workspaceId}` };
+  }
+  return await pollForConsoleRows(tabId, 30000, 500);
+}
+
+function formatScrapeFailure(diag) {
+  diag = diag || {};
+  if (diag.reason) return diag.reason;
+  if (diag.tables_seen === 0) return 'keine Tabelle gefunden';
+  if (!diag.candidate_headers) {
+    const seen = (diag.all_headers || []).map((h) => `[${h.join(' | ')}]`).join(' / ');
+    return `keine Kosten-Spalte. Headers: ${seen || '(leer)'}`;
+  }
+  if (diag.body_row_count === 0) return 'Tabelle leer (Zeilen rendern noch?)';
+  if (diag.rows_skipped_no_cost > 0) {
+    return `alle ${diag.body_row_count} Zeilen ohne Kosten. Beispiele: ${(diag.cost_samples || []).join(' | ')}`;
+  }
+  return 'unbekannt';
+}
+
 async function consoleSync() {
   let createdTabId = null;
 
   try {
-    const existing = await chrome.tabs.query({ url: 'https://console.anthropic.com/settings/keys*' });
+    const existing = await chrome.tabs.query({ url: `${WORKSPACE_KEYS_PREFIX}*` });
     let tabId;
 
     if (existing.length > 0) {
@@ -581,62 +836,96 @@ async function consoleSync() {
       const tab = await chrome.tabs.create({ url: CONSOLE_KEYS_URL, active: false });
       tabId = tab.id;
       createdTabId = tab.id;
-      await waitForTabComplete(tab.id, 30000);
+      await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
     }
 
-    // Poll the page for the keys table. The Console SPA hydrates async after
-    // navigation/load, and reused tabs may also be mid-render. We retry the
-    // scrape every 500 ms until either rows are returned or we hit a 30 s
-    // budget. Returns the scrape result of the last successful call.
-    const data = await pollForConsoleRows(tabId, 30000, 500);
+    // Load the cached workspace list. Re-discover via click-simulation if
+    // the cache is empty or older than the TTL.
+    const cached = await chrome.storage.local.get([
+      'workspace_ids_cache',
+      'workspace_discovery_last_run'
+    ]);
+    let workspaces = Array.isArray(cached.workspace_ids_cache)
+      ? cached.workspace_ids_cache
+      : [];
+    const cacheStale =
+      !cached.workspace_discovery_last_run ||
+      Date.now() - cached.workspace_discovery_last_run > WORKSPACE_DISCOVERY_TTL_MS;
 
-    if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
-      const diag = data || {};
-      let reason;
-      if (diag.tables_seen === 0) {
-        reason = 'keine Tabelle gefunden';
-      } else if (!diag.candidate_headers) {
-        const seen = (diag.all_headers || []).map((h) => `[${h.join(' | ')}]`).join(' / ');
-        reason = `keine Kosten-Spalte. Headers: ${seen || '(leer)'}`;
-      } else if (diag.body_row_count === 0) {
-        reason = 'Tabelle leer (Zeilen rendern noch?)';
-      } else if (diag.rows_skipped_no_cost > 0) {
-        reason = `alle ${diag.body_row_count} Zeilen ohne Kosten. Beispiele: ${(diag.cost_samples || []).join(' | ')}`;
-      } else {
-        reason = 'unbekannt';
-      }
-      return { skipped: true, reason };
-    }
-
-    // Post one record per key. The backend appends each one — diffing
-    // happens at query time on the dashboard.
-    const apiBase = await getApiBase();
-    let posted = 0;
-    for (const row of data.rows) {
-      try {
-        await authFetch(`${apiBase}/usage/track`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: row.key_name ? `Anthropic API (${row.key_name})` : 'Anthropic API',
-            input_tokens: 0,
-            output_tokens: 0,
-            source: 'anthropic_console_sync',
-            workspace: row.workspace || undefined,
-            key_name: row.key_name || undefined,
-            key_id_suffix: row.key_id_suffix || undefined,
-            cost_usd: row.cost_usd
-          })
+    const discoveryErrors = [];
+    if (workspaces.length === 0 || cacheStale) {
+      const discovery = await discoverWorkspaces(tabId);
+      if (discovery.workspaces.length > 0) {
+        workspaces = discovery.workspaces;
+        await chrome.storage.local.set({
+          workspace_ids_cache: workspaces,
+          workspace_discovery_last_run: Date.now()
         });
-        posted += 1;
-      } catch (err) {
-        console.error('Console-sync row failed:', err);
+      }
+      discoveryErrors.push(...discovery.errors);
+    }
+
+    if (workspaces.length === 0) {
+      return {
+        skipped: true,
+        reason: `keine Workspaces entdeckt: ${discoveryErrors.join('; ') || 'unbekannt'}`
+      };
+    }
+
+    // Scrape each workspace's keys page; post one record per row. Backend
+    // appends; ApiKeysDetailTable in the dashboard groups by
+    // source+workspace+key_id_suffix at render time.
+    const apiBase = await getApiBase();
+    let totalPosted = 0;
+    let totalRows = 0;
+    const workspaceFailures = [];
+
+    for (const ws of workspaces) {
+      const data = await scrapeWorkspaceKeys(tabId, ws.id);
+      if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
+        workspaceFailures.push(`${ws.name}: ${formatScrapeFailure(data)}`);
+        continue;
+      }
+      totalRows += data.rows.length;
+      for (const row of data.rows) {
+        try {
+          await authFetch(`${apiBase}/usage/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: row.key_name ? `Anthropic API (${row.key_name})` : 'Anthropic API',
+              input_tokens: 0,
+              output_tokens: 0,
+              source: 'anthropic_console_sync',
+              // Per-workspace keys pages drop the Workspace column from the
+              // table (it's redundant). Fall back to the switcher-name we
+              // already captured so every row still gets a workspace tag.
+              workspace: row.workspace || ws.name,
+              key_name: row.key_name || undefined,
+              key_id_suffix: row.key_id_suffix || undefined,
+              cost_usd: row.cost_usd
+            })
+          });
+          totalPosted += 1;
+        } catch (err) {
+          console.error(`Console-sync row failed (${ws.name}):`, err);
+        }
       }
     }
 
     await chrome.storage.local.set({ last_console_sync: Date.now() });
-    console.log(`Console-sync ok: ${posted}/${data.rows.length} rows posted`);
-    return { success: true, posted, total: data.rows.length };
+    console.log(
+      `Console-sync ok: ${totalPosted}/${totalRows} rows across ${workspaces.length} workspaces` +
+        (workspaceFailures.length ? ` — failures: ${workspaceFailures.join(' | ')}` : '')
+    );
+    return {
+      success: true,
+      posted: totalPosted,
+      total: totalRows,
+      workspaces: workspaces.length,
+      workspaceFailures,
+      discoveryErrors
+    };
   } catch (error) {
     console.error('Console-sync error:', error);
     return { success: false, error: error.message };

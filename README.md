@@ -222,6 +222,15 @@ systemctl restart claudetracker.service
 
 **Logs:** `journalctl -u claudetracker.service -f`
 
+**Health check:** The Quadlet configures a TCP-connect health check against port 3001 via the Node.js `net` module (no `curl` in the image) every 30 s. Inspect with:
+
+```bash
+podman healthcheck run claudetracker     # one-shot probe, exits 0 if healthy
+podman inspect claudetracker --format '{{.State.Health.Status}}'
+```
+
+The check lives in the Quadlet (`HealthCmd=`) rather than the Dockerfile because Podman builds the image in OCI format by default, under which Dockerfile `HEALTHCHECK` directives are silently ignored.
+
 **Backup:** `/opt/claudetracker-data/database.sqlite` is the only stateful path.
 
 ---

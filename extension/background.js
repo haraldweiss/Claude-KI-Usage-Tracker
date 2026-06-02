@@ -823,105 +823,82 @@ function diagnosePage() {
   return result;
 }
 
-// Poll the tab's DOM for workspace links. First tries to expand the sidebar
-// "Workspaces" section by clicking its nav link, then polls every `pollMs`
-// until links are found or `budgetMs` expires.
-async function pollWorkspaceLinks(tabId, budgetMs = 30000, pollMs = 1000) {
-  // Phase 1: inject an expander that clicks the "Workspaces" nav link to
-  // reveal individual workspace sub-links, then waits for rendering.
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        for (const a of document.querySelectorAll('nav a[href="/settings/workspaces"]')) {
-          a.click();
-          break;
-        }
-      }
-    });
-    await sleep(2000);
-  } catch {}
-
-  // Phase 2: poll for workspace <a> tags in the entire DOM.
-  const deadline = Date.now() + budgetMs;
-  while (Date.now() < deadline) {
-    try {
-      const result = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const links = document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]');
-          const seen = new Map();
-          for (const a of links) {
-            const href = a.getAttribute('href');
-            if (!href) continue;
-            const m = href.match(/\/settings\/workspaces\/([^/]+)/);
-            if (!m) continue;
-            const id = m[1];
-            const name = (a.textContent || '').trim();
-            if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
-            seen.set(name, id);
-          }
-          return [...seen.entries()].map(([n, i]) => ({ name: n, id: i }));
-        }
-      });
-      const entries = (result[0]?.result || []);
-      if (entries.length > 0) return entries;
-    } catch {}
-    await sleep(pollMs);
-  }
-  return [];
-}
-
-// Returns { workspaces: [{id, name}], errors: [...] }.
-// Caller owns the tab and is responsible for closing it.
-async function discoverWorkspaces(tabId) {
+// Discover workspaces by fetching the settings pages directly (the
+// extension has host_permission for platform.claude.com, so fetch with
+// credentials works from the background script). Returns {workspaces, errors}.
+async function discoverWorkspaces(tabIdIgnored) {
   const errors = [];
 
-  // Step 1: load the keys page (sidebar nav has workspace links).
-  await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
-  await waitForTabReady(tabId, 30000);
+  // Attempt 1: fetch the workspace settings page and extract links from HTML
+  try {
+    const html = await fetchPage('https://platform.claude.com/settings/workspaces');
+    if (html) {
+      const ws = extractWorkspacesFromHtml(html);
+      if (ws.length > 0) return { workspaces: ws, errors };
+    }
+  } catch (e) { errors.push(`fetch workspaces page: ${e.message}`); }
 
-  // Step 2: poll the DOM for workspace links (the sidebar nav may take
-  // time to render its workspace list dynamically).
-  let entries = await pollWorkspaceLinks(tabId, 30000, 1000);
+  // Attempt 2: try the keys page
+  try {
+    const html = await fetchPage('https://platform.claude.com/settings/keys');
+    if (html) {
+      const ws = extractWorkspacesFromHtml(html);
+      if (ws.length > 0) return { workspaces: ws, errors };
+    }
+  } catch (e) { errors.push(`fetch keys page: ${e.message}`); }
 
-  // Step 3: if not found on keys page, try the workspace list page.
-  if (entries.length === 0) {
-    await chrome.tabs.update(tabId, { url: 'https://platform.claude.com/settings/workspaces' });
-    await sleep(5000);
-    entries = await pollWorkspaceLinks(tabId, 30000, 1000);
+  return { workspaces: [], errors };
+}
+
+// Fetch a page URL with credentials (cookies). Returns HTML string or null.
+async function fetchPage(url) {
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) return null;
+  return await response.text();
+}
+
+// Find workspace links in server-rendered HTML.
+function extractWorkspacesFromHtml(html) {
+  const seen = new Map();
+  // Match <a ... href="/settings/workspaces/<id>">...</a>
+  const linkRe = /<a[^>]*href="\/settings\/workspaces\/([^"/]+)(?:\/[^"]*)?"[^>]*>([^<]*)<\/a>/gi;
+  let m;
+  while ((m = linkRe.exec(html)) !== null) {
+    const id = m[1], name = m[2].trim();
+    if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
+    seen.set(name, id);
   }
-
-  // Step 4: last resort — longer wait on keys page.
-  if (entries.length === 0) {
-    await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
-    await sleep(10000);
-    entries = await pollWorkspaceLinks(tabId, 45000, 1500);
+  // Also look for data attributes that might contain workspace info
+  const dataRe = /data-workspace-id="([^"]+)"[^>]*data-workspace-name="([^"]+)"/gi;
+  while ((m = dataRe.exec(html)) !== null) {
+    const name = m[2].trim();
+    if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
+    seen.set(name, m[1]);
   }
+  return [...seen.entries()].map(([name, id]) => ({ name, id }));
+}
 
-  if (entries.length === 0) {
-    return { workspaces: [], errors: ['no workspace links found (sidebar not rendered)'] };
-  }
-
-  // Step 5: resolve IDs (keyword IDs like 'default' → real wrkspc_ ID)
+// Resolve workspace IDs: for entries with real wrkspc_ IDs, use directly.
+// For keyword IDs (e.g. 'default'), fetch the page URL to get the real ID.
+async function resolveWorkspaceIds(tabId, entries) {
   const resolved = [];
   for (const e of entries) {
-    if (e.id.startsWith('wrkspc_')) {
+    if (e.id && e.id.startsWith('wrkspc_')) {
       resolved.push({ id: e.id, name: e.name });
     } else {
-      const wsUrl = `${WORKSPACE_KEYS_PREFIX}${e.id}/keys`;
-      await chrome.tabs.update(tabId, { url: wsUrl });
-      const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 15000);
-      if (settled) {
-        const realId = extractWorkspaceId(settled);
-        resolved.push({ id: realId || e.id, name: e.name });
-      } else {
-        errors.push(`could not resolve workspace URL for "${e.name}"`);
+      // Try fetching the keys URL and see if the URL redirects
+      try {
+        const resp = await fetch(workspaceKeysUrl(e.id || e.name.toLowerCase()), {
+          credentials: 'include', redirect: 'follow'
+        });
+        const realId = extractWorkspaceId(resp.url);
+        resolved.push({ id: realId || e.id || 'fallback', name: e.name });
+      } catch {
+        resolved.push({ id: e.id || 'fallback', name: e.name });
       }
     }
   }
-
-  return { workspaces: resolved, errors };
+  return resolved;
 }
 
 // Single-workspace keys scrape. Navigates the tab to the workspace's keys

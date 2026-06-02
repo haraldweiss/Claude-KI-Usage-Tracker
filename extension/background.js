@@ -601,13 +601,43 @@ async function autoSync() {
 // (id, name) map for a week so we don't repeat clicking on every daily sync.
 // ---------------------------------------------------------------------------
 
-// Injected into the platform.claude.com page. Tries to read workspace
-// options from an already-visible dropdown, then falls back to clicking
-// candidate triggers until one opens a workspace switcher. Returns the
-// visible option names + which one is selected, or an error.
+// Injected into the platform.claude.com page. Reads workspace names and IDs
+// from the sidebar navigation (`<nav>` element) which contains direct links
+// to each workspace's settings page: /settings/workspaces/<id>.
+// Returns the visible option names + which one is selected, or an error.
 async function openSwitcherAndReadOptions() {
-  // 1) Check if a dropdown is already rendered in the DOM (e.g. was left
-  //    open from a previous interaction, or is always-visible).
+  // Collect workspace links from the sidebar nav
+  const links = document.querySelectorAll('nav a[href*="/settings/workspaces/"]');
+  const seen = new Map();
+  for (const a of links) {
+    const href = a.getAttribute('href');
+    if (!href) continue;
+    const m = href.match(/\/settings\/workspaces\/([^/]+)/);
+    if (!m) continue;
+    const id = m[1];
+    const name = (a.textContent || '').trim();
+    if (!name || seen.has(name)) continue;
+    seen.set(name, id);
+  }
+  const options = [...seen.entries()]
+    .filter(([name, id]) => name && id && !/^Workspaces?$/i.test(name))
+    .map(([name, id]) => ({
+      name,
+      // 'default' is a reserved keyword, not a wrkspc_ ID; the active
+      // workspace's real ID can be read from the URL once navigated there.
+      id: id === 'default' ? null : id,
+      selected: location.href.includes(`/workspaces/${id}`)
+    }));
+  if (options.length > 0) return { options };
+  // Fallback: try the dropdown click-simulation
+  return await openSwitcherByClick();
+}
+
+// Fallback: click-simulation approach used when sidebar nav links are not
+// available (e.g. the page has a different layout). Tries candidate trigger
+// buttons until one opens a [role=listbox] or [role=menu] dropdown with
+// workspace options.
+async function openSwitcherByClick() {
   const dropdownRoles = ['[role="listbox"]', '[role="menu"]'];
   function readDropdown(dd) {
     const items = [...dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]')]
@@ -628,8 +658,6 @@ async function openSwitcherAndReadOptions() {
     }
   }
 
-  // 2) No dropdown found pre-rendered. Try all candidate trigger buttons:
-  //    click, check for dropdown, close via Escape if wrong one.
   const triggerSelectors = [
     '[role="combobox"]',
     'button[aria-haspopup="listbox"]',
@@ -672,7 +700,6 @@ async function openSwitcherAndReadOptions() {
       const items = readDropdown(dd);
       if (items) return { options: items };
     }
-    // Close any opened menu by pressing Escape
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -844,56 +871,56 @@ async function discoverWorkspaces(tabId) {
   }
   const options = probeResult.options;
 
-  // Step 3: click each option and extract workspace ID from the resulting
-  // URL. We use two passes:
-  //   Pass 1 — click every option. Those that trigger a URL navigation
-  //     (almost all of them) get detected immediately.
-  //   Pass 2 — re-click options that were not discovered in pass 1.
-  //     By now we are on a different workspace's page so clicking the
-  //     previously-active workspace triggers a navigation.
-  const discovered = new Map();
-  for (let pass = 0; pass < 2; pass++) {
-    const targets = options.filter((o) => !discovered.has(o.name));
-    if (targets.length === 0) break;
-    for (const opt of targets) {
-      let currentUrl;
-      try {
-        const t = await chrome.tabs.get(tabId);
-        currentUrl = t.url;
-      } catch {
-        currentUrl = null;
-      }
+  // Step 3: build workspace list from nav-link IDs. Options with an `id`
+  // can be used directly. Options without an id (e.g. "default" keyword or
+  // click-simulation fallback) need a navigation to resolve the real ID.
+  const discovered = [];
+  const needsUrlResolve = [];
 
-      const clickResult = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: clickOptionByName,
-        args: [opt.name]
-      });
-      const click = clickResult[0]?.result || {};
-      if (click.error) {
-        errors.push(`pass ${pass + 1} click "${opt.name}": ${click.error}`);
-        continue;
-      }
+  // 3a — options that already have a wrkspc_ ID
+  for (const opt of options) {
+    if (opt.id && opt.id.startsWith('wrkspc_')) {
+      discovered.push({ id: opt.id, name: opt.name });
+      continue;
+    }
+    needsUrlResolve.push(opt);
+  }
 
-      const newUrl = await waitForUrlChange(tabId, currentUrl, 15000);
-      if (!newUrl) {
-        // Still no navigation — this is the currently active workspace
-        // from the page's perspective. On pass 2 we are on a different
-        // workspace so this should only happen if the workspace has a
-        // single option or all clicks fail.
-        continue;
-      }
-      const newId = extractWorkspaceId(newUrl);
-      if (!newId) {
-        errors.push(`no wrkspc_ in URL ${newUrl} after clicking "${opt.name}"`);
-        continue;
-      }
-      discovered.set(opt.name, newId);
+  // 3b — check if current URL already has a workspace ID for selected
+  const tab = await chrome.tabs.get(tabId);
+  const currentId = extractWorkspaceId(tab.url);
+  if (currentId) {
+    const selected = options.find((o) => o.selected);
+    if (selected && !discovered.find((d) => d.name === selected.name)) {
+      discovered.push({ id: currentId, name: selected.name });
+      const idx = needsUrlResolve.findIndex((o) => o.name === selected.name);
+      if (idx >= 0) needsUrlResolve.splice(idx, 1);
     }
   }
 
+  // 3c — resolve remaining (e.g. "default") by navigating to their URL
+  for (const opt of needsUrlResolve) {
+    const wsUrl = `${WORKSPACE_KEYS_PREFIX}${opt.id || opt.name.toLowerCase()}/keys`;
+    await chrome.tabs.update(tabId, { url: wsUrl });
+    const resolved = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 15000);
+    if (!resolved) {
+      errors.push(`could not resolve workspace URL for "${opt.name}"`);
+      continue;
+    }
+    const resolvedId = extractWorkspaceId(resolved);
+    if (!resolvedId) {
+      errors.push(`no wrkspc_ in resolved URL for "${opt.name}"`);
+      continue;
+    }
+    discovered.push({ id: resolvedId, name: opt.name });
+  }
+
+  // 3d — navigate back to the entry page so caller can scrape it
+  await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+  await waitForTabReady(tabId, 15000);
+
   return {
-    workspaces: [...discovered.entries()].map(([name, id]) => ({ id, name })),
+    workspaces: discovered,
     errors
   };
 }

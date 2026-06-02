@@ -823,82 +823,103 @@ function diagnosePage() {
   return result;
 }
 
-// Discover workspaces by fetching the settings pages directly (the
-// extension has host_permission for platform.claude.com, so fetch with
-// credentials works from the background script). Returns {workspaces, errors}.
-async function discoverWorkspaces(tabIdIgnored) {
+// Discover workspaces by navigating a tab and injecting a MutationObserver
+// that watches for workspace links to appear in the DOM (React dynamically
+// renders them). Returns {workspaces: [{id, name}], errors: [...]}.
+async function discoverWorkspaces(tabId) {
   const errors = [];
 
-  // Attempt 1: fetch the workspace settings page and extract links from HTML
-  try {
-    const html = await fetchPage('https://platform.claude.com/settings/workspaces');
-    if (html) {
-      const ws = extractWorkspacesFromHtml(html);
-      if (ws.length > 0) return { workspaces: ws, errors };
+  // Step 1: load the keys page (the workspace links are in the sidebar nav
+  // but rendered dynamically by React).
+  await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+  await waitForTabReady(tabId, 30000);
+
+  // Step 2: inject an observer that watches the DOM for up to 20s for
+  // workspace links to appear.
+  const result = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      return new Promise((resolve) => {
+        const found = new Map();
+        const deadline = Date.now() + 20000;
+
+        function scan() {
+          for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
+            const href = a.getAttribute('href');
+            if (!href) continue;
+            const m = href.match(/\/settings\/workspaces\/([^/]+)/);
+            if (!m) continue;
+            const id = m[1];
+            const name = (a.textContent || '').trim();
+            if (!name || found.has(name) || /^Workspaces?$/i.test(name)) continue;
+            found.set(name, id);
+          }
+          if (found.size > 0) {
+            resolve([...found.entries()].map(([n, i]) => ({ name: n, id: i })));
+            return true;
+          }
+          return false;
+        }
+
+        // Immediate scan
+        if (scan()) return;
+
+        // Try clicking the "Workspaces" nav link to expand the sidebar
+        for (const a of document.querySelectorAll('nav a[href*="/workspaces"]')) {
+          if (a.getAttribute('href') === '/settings/workspaces' || a.textContent.includes('Workspaces')) {
+            a.click();
+            break;
+          }
+        }
+
+        // Set up MutationObserver on the nav (or body as fallback)
+        const target = document.querySelector('nav') || document.body;
+        const observer = new MutationObserver(() => {
+          if (scan()) observer.disconnect();
+        });
+        observer.observe(target, { childList: true, subtree: true });
+
+        // Fallback: scan every 500ms until deadline
+        const interval = setInterval(() => {
+          if (scan()) {
+            clearInterval(interval);
+            observer.disconnect();
+          }
+          if (Date.now() >= deadline) {
+            clearInterval(interval);
+            observer.disconnect();
+            resolve([]);
+          }
+        }, 500);
+      });
     }
-  } catch (e) { errors.push(`fetch workspaces page: ${e.message}`); }
+  });
+  const entries = (result[0]?.result || []);
 
-  // Attempt 2: try the keys page
-  try {
-    const html = await fetchPage('https://platform.claude.com/settings/keys');
-    if (html) {
-      const ws = extractWorkspacesFromHtml(html);
-      if (ws.length > 0) return { workspaces: ws, errors };
-    }
-  } catch (e) { errors.push(`fetch keys page: ${e.message}`); }
-
-  return { workspaces: [], errors };
-}
-
-// Fetch a page URL with credentials (cookies). Returns HTML string or null.
-async function fetchPage(url) {
-  const response = await fetch(url, { credentials: 'include' });
-  if (!response.ok) return null;
-  return await response.text();
-}
-
-// Find workspace links in server-rendered HTML.
-function extractWorkspacesFromHtml(html) {
-  const seen = new Map();
-  // Match <a ... href="/settings/workspaces/<id>">...</a>
-  const linkRe = /<a[^>]*href="\/settings\/workspaces\/([^"/]+)(?:\/[^"]*)?"[^>]*>([^<]*)<\/a>/gi;
-  let m;
-  while ((m = linkRe.exec(html)) !== null) {
-    const id = m[1], name = m[2].trim();
-    if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
-    seen.set(name, id);
+  if (entries.length === 0) {
+    return { workspaces: [], errors: ['no workspace links found via observer'] };
   }
-  // Also look for data attributes that might contain workspace info
-  const dataRe = /data-workspace-id="([^"]+)"[^>]*data-workspace-name="([^"]+)"/gi;
-  while ((m = dataRe.exec(html)) !== null) {
-    const name = m[2].trim();
-    if (!name || seen.has(name) || /^Workspaces?$/i.test(name)) continue;
-    seen.set(name, m[1]);
-  }
-  return [...seen.entries()].map(([name, id]) => ({ name, id }));
-}
 
-// Resolve workspace IDs: for entries with real wrkspc_ IDs, use directly.
-// For keyword IDs (e.g. 'default'), fetch the page URL to get the real ID.
-async function resolveWorkspaceIds(tabId, entries) {
-  const resolved = [];
+  // Step 3: resolve IDs (keyword IDs like 'default' → real wrkspc_ ID)
+  // by navigating to each workspace's keys page and extracting the URL.
+  const workspaces = [];
   for (const e of entries) {
     if (e.id && e.id.startsWith('wrkspc_')) {
-      resolved.push({ id: e.id, name: e.name });
+      workspaces.push({ id: e.id, name: e.name });
     } else {
-      // Try fetching the keys URL and see if the URL redirects
-      try {
-        const resp = await fetch(workspaceKeysUrl(e.id || e.name.toLowerCase()), {
-          credentials: 'include', redirect: 'follow'
-        });
-        const realId = extractWorkspaceId(resp.url);
-        resolved.push({ id: realId || e.id || 'fallback', name: e.name });
-      } catch {
-        resolved.push({ id: e.id || 'fallback', name: e.name });
+      const wsUrl = `${WORKSPACE_KEYS_PREFIX}${e.id}/keys`;
+      await chrome.tabs.update(tabId, { url: wsUrl });
+      const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 15000);
+      if (settled) {
+        const realId = extractWorkspaceId(settled);
+        workspaces.push({ id: realId || e.id, name: e.name });
+      } else {
+        errors.push(`could not resolve workspace URL for "${e.name}"`);
       }
     }
   }
-  return resolved;
+
+  return { workspaces, errors };
 }
 
 // Single-workspace keys scrape. Navigates the tab to the workspace's keys

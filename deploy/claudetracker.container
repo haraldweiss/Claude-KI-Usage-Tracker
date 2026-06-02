@@ -23,6 +23,15 @@ PublishPort=127.0.0.1:3001:3001
 # Persistent SQLite DB outside the image.
 Volume=/opt/claudetracker-data:/app/data:Z
 
+# Health check via node net module (no curl in the image).
+# Note: the Dockerfile HEALTHCHECK is silently ignored under the OCI image
+# format, so the check must live here in the Quadlet.
+HealthCmd=node -e 'require("net").createConnection(3001,"127.0.0.1").on("connect",()=>process.exit(0)).on("error",()=>process.exit(1))'
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=20s
+
 # Secrets file lives on the host (root:root, mode 0600). Never in git.
 EnvironmentFile=/etc/claudetracker/claudetracker.env
 

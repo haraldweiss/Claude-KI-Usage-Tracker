@@ -602,8 +602,10 @@ async function autoSync() {
 // ---------------------------------------------------------------------------
 
 // Injected into the platform.claude.com page. Tries several candidate
-// selectors for the switcher trigger, clicks it, polls for the listbox to
-// render, then returns the visible option names + which one is selected.
+// selectors for the switcher trigger, then tries each candidate until
+// one opens a role=listbox (workspace switcher) or role=menu with
+// workspace-like options. Returns the visible option names + which one
+// is selected, or an error.
 async function openSwitcherAndReadOptions() {
   const triggerSelectors = [
     '[role="combobox"]',
@@ -613,44 +615,70 @@ async function openSwitcherAndReadOptions() {
     '[aria-haspopup="menu"]',
     'button[aria-expanded][aria-controls]'
   ];
-  let trigger = null;
+  const candidates = [];
   for (const sel of triggerSelectors) {
-    const candidates = document.querySelectorAll(sel);
-    for (const c of candidates) {
-      if (c.closest('[role="listbox"]')) continue;
-      trigger = c;
-      break;
+    for (const c of document.querySelectorAll(sel)) {
+      if (c.closest('[role="listbox"]') || c.closest('[role="menu"]')) continue;
+      if (!candidates.includes(c)) candidates.push(c);
     }
-    if (trigger) break;
   }
-  if (!trigger) {
+  if (candidates.length === 0) {
     const interactiveSample = [...document.querySelectorAll('[aria-haspopup]')]
       .slice(0, 5)
       .map((el) => `${el.tagName}[aria-haspopup="${el.getAttribute('aria-haspopup')}"]`)
       .join(', ');
     return { error: `switcher trigger not found; sample aria-haspopup: ${interactiveSample || '(none)'}` };
   }
-  trigger.click();
-  for (let i = 0; i < 40; i++) {
-    const lb = document.querySelector('[role="listbox"]');
-    if (lb && lb.querySelector('[role="option"]')) break;
-    await new Promise((r) => setTimeout(r, 100));
+
+  const dropdownRoles = ['[role="listbox"]', '[role="menu"]'];
+  for (const trigger of candidates) {
+    trigger.click();
+    // Wait up to 1.5 s for a dropdown with options to appear
+    let found = false;
+    for (let i = 0; i < 15; i++) {
+      for (const sel of dropdownRoles) {
+        const dd = document.querySelector(sel);
+        if (dd) {
+          const items = dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]');
+          if (items.length > 0) {
+            const optName = items[0].textContent.trim();
+            // If the first item looks like a workspace name (not generic UI),
+            // accept this trigger.
+            if (optName.length > 0 && optName.length < 60) {
+              found = true;
+              break;
+            }
+          }
+        }
+      }
+      if (found) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (found) {
+      // Read items via the role that matched
+      const dd = document.querySelector(dropdownRoles[0]) || document.querySelector(dropdownRoles[1]);
+      const items = dd ? [...dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]')] : [];
+      const options = items
+        .filter((el) => !el.hasAttribute('data-disabled'))
+        .map((el) => ({
+          name: el.textContent.trim().split('\n')[0].trim(),
+          selected: el.getAttribute('aria-selected') === 'true' ||
+                    el.getAttribute('aria-checked') === 'true'
+        }))
+        .filter((o) => o.name && !/^(Alle (Workspaces|Arbeitsbereiche)|Loading|Laden)/i.test(o.name));
+      if (options.length > 0) return { options };
+    }
+    // Close any opened menu by pressing Escape
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 200));
   }
-  const lb = document.querySelector('[role="listbox"]');
-  if (!lb) return { error: 'listbox did not open after clicking trigger' };
-  const options = [...lb.querySelectorAll('[role="option"]')]
-    .filter((el) => !el.hasAttribute('data-disabled'))
-    .map((el) => ({
-      name: el.textContent.trim().split('\n')[0].trim(),
-      selected: el.getAttribute('aria-selected') === 'true'
-    }))
-    .filter((o) => o.name && o.name !== 'Alle Workspaces');
-  return { options };
+  return { error: 'no trigger opened a workspace-switcher dropdown' };
 }
 
-// Injected: opens the switcher (same logic as above), then clicks the
-// option whose first-line text matches `targetName`. Returns whether
-// the click landed; the caller watches the tab URL for the actual ID.
+// Injected: finds the workspace-switcher trigger (trying all candidates),
+// opens the dropdown, then clicks the option whose first-line text matches
+// `targetName`. Returns whether the click landed; the caller watches the
+// tab URL for the actual ID.
 async function clickOptionByName(targetName) {
   const triggerSelectors = [
     '[role="combobox"]',
@@ -660,37 +688,52 @@ async function clickOptionByName(targetName) {
     '[aria-haspopup="menu"]',
     'button[aria-expanded][aria-controls]'
   ];
-  let trigger = null;
+  const candidates = [];
   for (const sel of triggerSelectors) {
-    const candidates = document.querySelectorAll(sel);
-    for (const c of candidates) {
-      if (c.closest('[role="listbox"]')) continue;
-      trigger = c;
-      break;
+    for (const c of document.querySelectorAll(sel)) {
+      if (c.closest('[role="listbox"]') || c.closest('[role="menu"]')) continue;
+      if (!candidates.includes(c)) candidates.push(c);
     }
-    if (trigger) break;
   }
-  if (!trigger) return { error: 'switcher trigger not found' };
-  trigger.click();
-  for (let i = 0; i < 40; i++) {
-    const lb = document.querySelector('[role="listbox"]');
-    if (lb && lb.querySelector('[role="option"]')) break;
-    await new Promise((r) => setTimeout(r, 100));
+  if (candidates.length === 0) return { error: 'switcher trigger not found' };
+
+  const dropdownRoles = ['[role="listbox"]', '[role="menu"]'];
+  for (const trigger of candidates) {
+    trigger.click();
+    let dropdown = null;
+    for (let i = 0; i < 15; i++) {
+      for (const sel of dropdownRoles) {
+        const dd = document.querySelector(sel);
+        if (dd) {
+          const items = dd.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]');
+          if (items.length > 0) {
+            dropdown = dd;
+            break;
+          }
+        }
+      }
+      if (dropdown) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!dropdown) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await new Promise((r) => setTimeout(r, 200));
+      continue;
+    }
+    const items = [...dropdown.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"]')];
+    const target = items.find(
+      (el) => !el.hasAttribute('data-disabled') &&
+        el.textContent.trim().split('\n')[0].trim() === targetName
+    );
+    if (target) {
+      target.click();
+      return { clicked: true };
+    }
+    // Wrong dropdown — close and try next trigger
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 200));
   }
-  const lb = document.querySelector('[role="listbox"]');
-  if (!lb) return { error: 'listbox did not open' };
-  const options = [...lb.querySelectorAll('[role="option"]')].filter(
-    (el) => !el.hasAttribute('data-disabled')
-  );
-  const target = options.find(
-    (el) => el.textContent.trim().split('\n')[0].trim() === targetName
-  );
-  if (!target) {
-    const seen = options.map((o) => o.textContent.trim().split('\n')[0].trim()).join(', ');
-    return { error: `option "${targetName}" not in listbox (saw: ${seen})` };
-  }
-  target.click();
-  return { clicked: true };
+  return { error: `option "${targetName}" not found in any dropdown` };
 }
 
 // Waits for the tab URL to differ from `oldUrl` AND for loading to complete.

@@ -844,6 +844,11 @@ async function discoverWorkspaces(tabId) {
         const deadline = Date.now() + 20000;
 
         function scan() {
+          const allLinks = [...document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')].map(a => ({
+            href: a.getAttribute('href'),
+            text: (a.textContent || '').trim().slice(0, 40)
+          }));
+          console.log('observer scan:', allLinks.length, 'raw links:', JSON.stringify(allLinks));
           for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"], a[href*="wrkspc_"]')) {
             const href = a.getAttribute('href');
             if (!href) continue;
@@ -895,6 +900,7 @@ async function discoverWorkspaces(tabId) {
     }
   });
   const entries = (result[0]?.result || []);
+  console.log('discoverWorkspaces: keys page found', entries.length, 'workspace links:', JSON.stringify(entries));
 
   // Step 2b: if keys page didn't have workspace links, try the workspace
   // list page (/settings/workspaces) with the same observer approach.
@@ -936,6 +942,7 @@ async function discoverWorkspaces(tabId) {
       }
     });
     const wsEntries = (wsResult[0]?.result || []);
+    console.log('discoverWorkspaces: workspace-list page found', wsEntries.length, 'links:', JSON.stringify(wsEntries));
     if (wsEntries.length > 0) entries.push(...wsEntries);
   }
 

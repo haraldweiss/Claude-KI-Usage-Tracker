@@ -918,9 +918,53 @@ async function consoleSync() {
     }
 
     if (workspaces.length === 0) {
+      // Fallback: scrape the current page (still showing the active workspace's
+      // keys table from the initial load). This gives us at least one
+      // workspace's data, even without successful discovery.
+      const data = await pollForConsoleRows(tabId, 30000, 500);
+      if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
+        return {
+          skipped: true,
+          reason: `keine Workspaces entdeckt: ${discoveryErrors.join('; ') || 'unbekannt'}` +
+            (data ? ', scrape: ' + formatScrapeFailure(data) : '')
+        };
+      }
+      workspaces = [{ id: 'fallback', name: 'Default' }];
+      // The scraped rows already contain workspace info from the table column.
+      // Post them directly under a synthetic workspace entry.
+      const apiBase = await getApiBase();
+      let totalPosted = 0;
+      for (const row of data.rows) {
+        try {
+          await authFetch(`${apiBase}/usage/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: row.key_name ? `Anthropic API (${row.key_name})` : 'Anthropic API',
+              input_tokens: 0,
+              output_tokens: 0,
+              source: 'anthropic_console_sync',
+              workspace: row.workspace || 'Default',
+              key_name: row.key_name || undefined,
+              key_id_suffix: row.key_id_suffix || undefined,
+              cost_usd: row.cost_usd
+            })
+          });
+          totalPosted += 1;
+        } catch (err) {
+          console.error('Console-sync fallback row failed:', err);
+        }
+      }
+      const diagStr = discoveryErrors.length ? ` (discovery: ${discoveryErrors.join('; ')})` : '';
+      console.log(`Console-sync fallback: ${totalPosted}/${data.rows.length} rows from active workspace${diagStr}`);
+      await chrome.storage.local.set({ last_console_sync: Date.now() });
       return {
-        skipped: true,
-        reason: `keine Workspaces entdeckt: ${discoveryErrors.join('; ') || 'unbekannt'}`
+        success: true,
+        posted: totalPosted,
+        total: data.rows.length,
+        workspaces: 1,
+        fallback: true,
+        discoveryErrors
       };
     }
 

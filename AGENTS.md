@@ -98,6 +98,18 @@ For extension changes: always describe a real round-trip test (open popup → sy
 
 ---
 
+## 5.1 Sync discipline — git, AGENTS.md, README must stay current
+
+Cross-project rule (canonical statement in `wolfini_de_web` AGENTS.md §5.1). Every non-trivial change in this repo must update three artifacts in lockstep:
+
+1. **Git** — commit the change. Don't end a session with uncommitted operational work in the tree. If a session can't commit (blocked hook, etc.), say so in the handoff entry (§7).
+2. **AGENTS.md** — update whenever the change adds/modifies/invalidates a hard rule (§3), a deploy/verify procedure (§4-§6), or a follow-up the next session needs (§7). Includes *removing* stale entries in the same commit they go obsolete.
+3. **README** — update when the change affects setup, env vars, ports, deploy steps, the Quadlet on the VPS, the Chrome extension manifest, or known caveats. Create one if missing AND the change warrants it.
+
+If a sibling repo is touched in the same session (`wolfini_de_web`, `ai-provider-service`, `Bewerbungstracker`), the same three artifacts must be updated *there too* — link the sibling PR from the handoff entry.
+
+---
+
 ## 6. Quick reference
 
 | What | Path / command |

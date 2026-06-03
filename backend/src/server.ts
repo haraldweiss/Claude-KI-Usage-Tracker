@@ -229,6 +229,8 @@ async function start(): Promise<void> {
       console.log('  POST   /api/recommend');
       console.log('  GET    /api/recommend/analysis/models');
       console.log('  GET    /api/recommend/analysis/opportunities');
+      console.log('  GET    /api/health');
+      console.log('  GET    /health');
     });
   } catch (error) {
     console.error('Failed to start server:', error);

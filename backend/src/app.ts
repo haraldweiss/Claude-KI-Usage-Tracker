@@ -83,6 +83,9 @@ export function createApp(): Express {
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok' });
   });
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok' });
+  });
 
   // Global error handler must be LAST
   app.use(errorHandler);

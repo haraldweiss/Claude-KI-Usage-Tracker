@@ -1,0 +1,1 @@
+cd backend && npm run type-check && echo "✓ backend type-check" && cd ../frontend && npm run type-check && echo "✓ frontend type-check"

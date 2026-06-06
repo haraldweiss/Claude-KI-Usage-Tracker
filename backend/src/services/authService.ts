@@ -120,9 +120,10 @@ export async function createApiToken(
   const random = crypto.randomBytes(32).toString('hex');
   const plaintext = `${TOKEN_PREFIX}${random}`;
   const hash = await bcrypt.hash(plaintext, BCRYPT_ROUNDS);
+  const hashPrefix = crypto.createHash('sha256').update(plaintext).digest('hex').slice(0, 16);
   const result = await runQuery(
-    `INSERT INTO api_tokens (user_id, token_hash, label) VALUES (?, ?, ?)`,
-    [userId, hash, label]
+    `INSERT INTO api_tokens (user_id, token_hash, token_hash_prefix, label) VALUES (?, ?, ?, ?)`,
+    [userId, hash, hashPrefix, label]
   );
   return { plaintext, id: result.lastID };
 }
@@ -144,15 +145,36 @@ export async function revokeApiToken(userId: number, tokenId: number): Promise<v
 
 export async function findUserByApiToken(plaintext: string): Promise<User | null> {
   if (!plaintext.startsWith(TOKEN_PREFIX)) return null;
-  // Iterate non-revoked tokens; bcrypt.compare against each.
-  // Acceptable at < ~1k active tokens. Switch to prefix-indexed lookup if scale grows.
+  // First try prefix-indexed lookup (token_hash_prefix column added in a
+  // migration). If the column has a value, we narrow to one candidate and
+  // verify with bcrypt — avoids O(n) bcrypt compares as token count grows.
+  // If no prefix match (legacy rows, or column not yet populated), fall back
+  // to the legacy full scan.
+  const hash = crypto.createHash('sha256').update(plaintext).digest('hex');
+  const prefixHash = hash.slice(0, 16);
+  const prefixMatch = await getQuery<ApiTokenRow>(
+    `SELECT * FROM api_tokens WHERE revoked_at IS NULL AND token_hash_prefix = ?`,
+    [prefixHash]
+  );
+  if (prefixMatch && await bcrypt.compare(plaintext, prefixMatch.token_hash)) {
+    // Throttle last_used_at writes to once per 5 minutes
+    const last = prefixMatch.last_used_at ? new Date(prefixMatch.last_used_at + 'Z').getTime() : 0;
+    if (Date.now() - last > 5 * 60 * 1000) {
+      await runQuery(
+        `UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?`,
+        [prefixMatch.id]
+      );
+    }
+    return await getQuery<User>('SELECT * FROM users WHERE id = ?', [prefixMatch.user_id]) ?? null;
+  }
+  // Legacy fallback: iterate non-revoked tokens.
   const candidates = await allQuery<ApiTokenRow>(
     `SELECT * FROM api_tokens WHERE revoked_at IS NULL`
   );
   for (const row of candidates) {
     if (await bcrypt.compare(plaintext, row.token_hash)) {
       // Throttle last_used_at writes to once per 5 minutes
-      const last = row.last_used_at ? new Date(row.last_used_at + ' UTC').getTime() : 0;
+      const last = row.last_used_at ? new Date(row.last_used_at + 'Z').getTime() : 0;
       if (Date.now() - last > 5 * 60 * 1000) {
         await runQuery(
           `UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?`,

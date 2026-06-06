@@ -9,6 +9,7 @@ import {
   refreshPlanPricingFromUpstream
 } from '../services/planPricingService.js';
 import type { PricingRecord, UpdatePricingRequest } from '../types/index.js';
+import logger from '../utils/logger.js';
 
 interface PricingRow {
   id?: number;
@@ -39,7 +40,7 @@ export async function getPricing(_req: Request, res: Response): Promise<void> {
       pricing: (pricing as PricingRecord[]) || []
     });
   } catch (error) {
-    console.error('Error getting pricing:', error);
+logger.error({ err: error }, 'Error getting pricing:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -80,7 +81,7 @@ export async function updatePricing(
       message: 'Pricing updated successfully'
     });
   } catch (error) {
-    console.error('Error updating pricing:', error);
+logger.error({ err: error }, 'Error updating pricing:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -96,7 +97,7 @@ export async function getPlans(_req: Request, res: Response): Promise<void> {
     const plans = await getAllPlans();
     res.json({ plans });
   } catch (error) {
-    console.error('Error getting plan pricing:', error);
+logger.error({ err: error }, 'Error getting plan pricing:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -117,7 +118,7 @@ export async function updatePlan(
     await updatePlanPrice(planName, monthly_eur, 'manual');
     res.json({ success: true, plan_name: planName, monthly_eur, source: 'manual' });
   } catch (error) {
-    console.error('Error updating plan pricing:', error);
+logger.error({ err: error }, 'Error updating plan pricing:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -127,7 +128,7 @@ export async function triggerPlanRefresh(_req: Request, res: Response): Promise<
     const result = await refreshPlanPricingFromUpstream();
     res.json({ success: true, ...result });
   } catch (error) {
-    console.error('Error refreshing plan pricing:', error);
+logger.error({ err: error }, 'Error refreshing plan pricing:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -168,7 +169,7 @@ export async function confirmPricing(
     try {
       await recalculateCosts(model);
     } catch (recalcErr) {
-      console.error(`Failed to recalculate costs for ${model}:`, (recalcErr as Error).message);
+      logger.error({ err: recalcErr }, `Failed to recalculate costs for ${model}`);
     }
 
     res.json({
@@ -177,7 +178,7 @@ export async function confirmPricing(
       pricing: { input_price: finalInput, output_price: finalOutput, source: 'manual', status: 'active' }
     });
   } catch (error) {
-    console.error('Error confirming pricing:', error);
+logger.error({ err: error }, 'Error confirming pricing:');
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 }

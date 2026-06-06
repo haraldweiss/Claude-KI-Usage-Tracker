@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import nodemailer from 'nodemailer';
+import logger from '../utils/logger.js';
 
 const SMTP_HOST = process.env.SMTP_HOST || 'localhost';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '25', 10);
@@ -45,16 +46,16 @@ export async function sendMagicLinkMail(
   ].join('\n');
 
   try {
-    console.log(`[Email] Attempting to send magic link to ${email}`);
+    logger.info(`[Email] Attempting to send magic link to ${email}`);
     const info = await transport.sendMail({
       from: FROM_ADDRESS,
       to: email,
       subject: 'Dein Login-Link für Claude Usage Tracker',
       text: body
     });
-    console.log(`[Email] Successfully sent to ${email}, response: ${info.response}`);
+    logger.info(`[Email] Successfully sent to ${email}, response: ${info.response}`);
   } catch (error) {
-    console.error(`[Email] Failed to send to ${email}:`, error);
+logger.error({ err: error }, `[Email] Failed to send to ${email}`)
     throw error;
   }
 }

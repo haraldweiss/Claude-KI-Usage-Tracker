@@ -234,16 +234,6 @@ export function initDatabase(): Promise<void> {
             { name: 'task_description', ddl: 'TEXT' },
             { name: 'success_status', ddl: "TEXT DEFAULT 'unknown'" },
             { name: 'response_metadata', ddl: 'TEXT' },
-            // DEAD COLUMNS — added for an abandoned per-message Haiku
-            // categorization design (claude.ai's web UI doesn't expose
-            // per-message data anymore). No code reads or writes these,
-            // they're left behind to avoid a destructive migration on
-            // user databases. Drop in a future major release.
-            { name: 'category', ddl: "TEXT DEFAULT 'Pending'" },
-            { name: 'effectiveness_score', ddl: 'REAL' },
-            { name: 'effectiveness_confirmed', ddl: 'INTEGER DEFAULT 0' },
-            { name: 'user_category_override', ddl: 'TEXT' },
-            { name: 'haiku_reasoning', ddl: 'TEXT' },
             // Plan B: combined claude.ai + Console API tracking. Console
             // sync rows fill workspace/key_name/key_id_suffix/cost_usd;
             // claude.ai sync rows leave them NULL.
@@ -253,19 +243,6 @@ export function initDatabase(): Promise<void> {
             { name: 'cost_usd', ddl: 'REAL' },
             { name: 'user_id', ddl: 'INTEGER REFERENCES users(id)' }
           ]);
-          // Indexes for the new categorization columns
-          await new Promise<void>((res, rej) => {
-            database.run(
-              'CREATE INDEX IF NOT EXISTS idx_usage_category ON usage_records(category)',
-              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
-            );
-          });
-          await new Promise<void>((res, rej) => {
-            database.run(
-              'CREATE INDEX IF NOT EXISTS idx_usage_effectiveness_confirmed ON usage_records(effectiveness_confirmed)',
-              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res())
-            );
-          });
           await new Promise<void>((res, rej) => {
             database.run(
               'CREATE INDEX IF NOT EXISTS idx_usage_workspace ON usage_records(workspace)',
@@ -301,11 +278,32 @@ export function initDatabase(): Promise<void> {
               'CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_token_per_user ON api_tokens(user_id) WHERE revoked_at IS NULL',
               (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
           });
+          await addMissingColumns('api_tokens', [
+            { name: 'token_hash_prefix', ddl: 'TEXT' },
+          ]);
+          await new Promise<void>((res, rej) => {
+            database.run(
+              'CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix ON api_tokens(token_hash_prefix) WHERE revoked_at IS NULL',
+              (idxErr: Error | null) => (idxErr ? rej(idxErr) : res()));
+          });
           await addMissingColumns('pricing', [
             { name: 'api_id', ddl: 'TEXT' },
             { name: 'status', ddl: "TEXT DEFAULT 'active'" },
             { name: 'tier', ddl: 'TEXT' }
           ]);
+          // Rate limit tracking — survives restarts so magic-link spam can't
+          // bypass the limit by cycling the backend process.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS rate_limits (
+                key TEXT PRIMARY KEY,
+                hits TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
           await addMissingColumns('plan_pricing', [
             { name: 'min_seats', ddl: 'INTEGER DEFAULT 1' }
           ]);
@@ -519,11 +517,21 @@ export function initDatabase(): Promise<void> {
  * @param tableName - Name of the table to migrate
  * @param required - Array of required column definitions
  */
+const ALLOWED_TABLES = new Set([
+  'usage_records', 'pricing', 'plan_pricing', 'model_analysis',
+  'users', 'sessions', 'magic_link_tokens', 'api_tokens',
+  'catalog_hf_cache', 'catalog_latest_uploads', 'catalog_local_pros_cons',
+  'model_pros_cons', 'provider_service_events', 'provider_service_user_ids',
+]);
+
 function addMissingColumns(
   tableName: string,
   required: ColumnDefinition[]
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (!ALLOWED_TABLES.has(tableName)) {
+      return reject(new Error(`Unknown table: ${tableName}`));
+    }
     const database = getDb();
     database.all(`PRAGMA table_info(${tableName})`, (err: Error | null, rows: TableInfo[] | undefined) => {
       if (err) return reject(err);

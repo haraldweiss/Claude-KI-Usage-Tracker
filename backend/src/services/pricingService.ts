@@ -6,6 +6,7 @@ import { decideUpdateAction } from './pricingUpdatePolicy.js';
 import { inferTier } from './modelNormalizer.js';
 import type { PricingUpdateResult, RecalculateCostsResult } from '../types/index.js';
 import { pricingFallback } from '../data/pricing-fallback.js';
+import logger from '../utils/logger.js';
 
 interface PricingRecord {
   model: string;
@@ -163,9 +164,9 @@ export async function seedFromFallbackIfEmpty(): Promise<void> {
         apiId: m.api_id
       });
     }
-    console.log(`Seeded ${pricingFallback.models.length} pricing rows from fallback`);
+    logger.info(`Seeded ${pricingFallback.models.length} pricing rows from fallback`);
   } catch (err) {
-    console.error('Failed to seed pricing from fallback:', (err as Error).message);
+    logger.error({ err }, 'Failed to seed pricing from fallback');
   }
 }
 
@@ -193,7 +194,7 @@ export async function seedOpenCodeGoPricing(): Promise<void> {
         tier: m.tier,
         apiId: m.api_id
       });
-      console.log(`[openCodeGoPricing] Seeded model: ${m.displayName}`);
+      logger.info(`[openCodeGoPricing] Seeded model: ${m.displayName}`);
     }
   }
 }
@@ -201,7 +202,7 @@ export async function seedOpenCodeGoPricing(): Promise<void> {
 export async function checkAndUpdatePricing(): Promise<boolean> {
   const upstream = await fetchLiteLLMPricing();
   if (!upstream) {
-    console.log('LiteLLM fetch returned null — skipping update cycle');
+    logger.info('LiteLLM fetch returned null — skipping update cycle');
     return false;
   }
 
@@ -225,7 +226,7 @@ export async function checkAndUpdatePricing(): Promise<boolean> {
           "UPDATE pricing SET status = 'deprecated', last_updated = CURRENT_TIMESTAMP WHERE model = ?",
           [row.model]
         );
-        console.log(`Marked deprecated: ${row.model}`);
+        logger.info(`Marked deprecated: ${row.model}`);
         changed = true;
         continue;
       }
@@ -239,12 +240,12 @@ export async function checkAndUpdatePricing(): Promise<boolean> {
           tier: up.tier,
           apiId: up.api_id
         });
-        console.log(`${action} ${row.model}: ${up.inputPrice}/${up.outputPrice}`);
+        logger.info(`${action} ${row.model}: ${up.inputPrice}/${up.outputPrice}`);
         await recalculateCosts(row.model);
         changed = true;
       }
     } catch (err) {
-      console.error(`Failed to update pricing for ${row.model}:`, (err as Error).message);
+      logger.error({ err }, `Failed to update pricing for ${row.model}`);
     }
   }
 
@@ -261,10 +262,10 @@ export async function checkAndUpdatePricing(): Promise<boolean> {
         tier: m.tier,
         apiId: m.api_id
       });
-      console.log(`Added new model from upstream: ${m.displayName}`);
+      logger.info(`Added new model from upstream: ${m.displayName}`);
       changed = true;
     } catch (err) {
-      console.error(`Failed to insert new model ${m.displayName}:`, (err as Error).message);
+      logger.error({ err }, `Failed to insert new model ${m.displayName}`);
     }
   }
 
@@ -289,7 +290,7 @@ export async function recalculateCosts(model: string): Promise<RecalculateCostsR
           1_000_000;
         await runQuery('UPDATE usage_records SET cost = ? WHERE id = ?', [cost, r.id]);
       }
-      console.log(`Recalculated costs for ${records.length} records of ${model}`);
+      logger.info(`Recalculated costs for ${records.length} records of ${model}`);
     }
     return {
       success: true,
@@ -298,7 +299,7 @@ export async function recalculateCosts(model: string): Promise<RecalculateCostsR
       message: `Recalculated costs for ${records.length} records`
     };
   } catch (error) {
-    console.error('Error recalculating costs:', error);
+logger.error({ err: error }, 'Error recalculating costs:');
     throw error;
   }
 }
@@ -307,7 +308,7 @@ export async function getAllPricing(): Promise<PricingRecord[]> {
   try {
     return (await allQuery('SELECT * FROM pricing ORDER BY model ASC')) as PricingRecord[];
   } catch (error) {
-    console.error('Error getting pricing:', error);
+logger.error({ err: error }, 'Error getting pricing:');
     return [];
   }
 }
@@ -315,13 +316,13 @@ export async function getAllPricing(): Promise<PricingRecord[]> {
 export function schedulePricingCheck(cronJob: any): void {
   try {
     cronJob.schedule('0 2 * * *', async () => {
-      console.log('Running scheduled pricing check...');
+      logger.info('Running scheduled pricing check...');
       const updated = await checkAndUpdatePricing();
-      console.log(updated ? 'Pricing was updated' : 'No pricing changes detected');
+      logger.info(updated ? 'Pricing was updated' : 'No pricing changes detected');
     });
-    console.log('Pricing check scheduled for daily at 2 AM');
+    logger.info('Pricing check scheduled for daily at 2 AM');
   } catch (error) {
-    console.error('Error scheduling pricing check:', error);
+logger.error({ err: error }, 'Error scheduling pricing check:');
   }
 }
 

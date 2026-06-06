@@ -4,32 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
-import { CombinedSpendBreakdown, OpenCodeGoSpend, PlanPricingRow, SpendingTotal } from '../types/api';
-
-function formatEur(value: number): string {
-  return new Intl.NumberFormat('de-DE', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
-
-function formatRelativeTime(iso: string): string {
-  const ts = new Date(iso).getTime();
-  if (!isFinite(ts)) return iso;
-  const diffMin = Math.round((Date.now() - ts) / 60_000);
-  if (diffMin < 1) return 'gerade eben';
-  if (diffMin < 60) return `vor ${diffMin} Min.`;
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return `vor ${diffH} Std.`;
-  return new Date(iso).toLocaleString('de-DE');
-}
-
-function subscriptionEur(plans: PlanPricingRow[], planName: string | null | undefined): number {
-  if (!planName) return 0;
-  return plans.find((p) => p.plan_name === planName)?.monthly_eur ?? 0;
-}
+import { formatEur, formatRelativeTime, subscriptionEur } from '../utils/format';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
 
 /** Days remaining in the current month, including today. */
 function daysRemainingInMonth(): number {

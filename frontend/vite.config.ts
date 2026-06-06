@@ -3,7 +3,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const API_URL = process.env.VITE_API_URL || 'http://localhost:3000';
+const API_URL = process.env.VITE_API_URL || 'http://localhost:3001';
 const FRONTEND_PORT = parseInt(process.env.FRONTEND_PORT || '5173', 10);
 
 export default defineConfig(({ mode }) => ({

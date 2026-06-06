@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import { deriveDisplayName, inferTier, type Tier } from './modelNormalizer.js';
+import logger from '../utils/logger.js';
 
 const LITELLM_URL =
   'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
@@ -59,7 +60,7 @@ export async function fetchLiteLLMPricing(): Promise<UpstreamModel[] | null> {
   try {
     const response = await fetch(LITELLM_URL, { signal: controller.signal });
     if (!response.ok) {
-      console.warn(`LiteLLM fetch failed: HTTP ${response.status}`);
+      logger.warn(`LiteLLM fetch failed: HTTP ${response.status}`);
       return null;
     }
     const json: unknown = await response.json();
@@ -77,7 +78,7 @@ export async function fetchLiteLLMPricing(): Promise<UpstreamModel[] | null> {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn('LiteLLM fetch error:', msg);
+logger.warn({ err: msg }, 'LiteLLM fetch error:');
     return null;
   } finally {
     clearTimeout(timer);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import cron from 'node-cron';
+import logger from './utils/logger.js';
 import { initDatabase, closeDatabase, runQuery } from './database/sqlite.js';
 import {
   schedulePricingCheck,
@@ -37,40 +38,40 @@ import type { ModelCard } from './services/catalogService.js';
 import { createApp } from './app.js';
 
 const app = createApp();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Initialize database and start server
 async function start(): Promise<void> {
   try {
     await initDatabase();
-    console.log('Database initialized');
+    logger.info('Database initialized');
 
     await seedFromFallbackIfEmpty();
-    console.log('Pricing seeded if empty');
+    logger.info('Pricing seeded if empty');
 
     await seedPlanPricingIfEmpty();
-    console.log('Plan pricing seeded if empty');
+    logger.info('Plan pricing seeded if empty');
 
     await seedOpenCodeGoPricing();
-    console.log('OpenCode Go model pricing seeded');
+    logger.info('OpenCode Go model pricing seeded');
 
     // Kick off a one-time OpenCode Go price fetch at startup (non-blocking).
     refreshOpenCodeGoPricing()
       .then((r) =>
-        console.log(r.updated
+        logger.info(r.updated
           ? `Startup OpenCode Go pricing: ${r.monthly_usd} USD ≈ ${r.monthly_eur?.toFixed(2)} EUR`
           : `Startup OpenCode Go pricing skipped: ${r.error || 'no update'}`
         )
       )
-      .catch((err) => console.error('Startup OpenCode Go pricing error:', (err as Error).message));
+      .catch((err: Error) => logger.error({ err }, 'Startup OpenCode Go pricing error'));
 
     // Kick off a one-time fetch at startup, but don't block the server on it.
     // If LiteLLM is unreachable, log and continue — the daily cron will retry.
     checkAndUpdatePricing()
       .then((updated) =>
-        console.log(updated ? 'Startup pricing fetch updated rows' : 'Startup pricing fetch found no changes')
+        logger.info(updated ? 'Startup pricing fetch updated rows' : 'Startup pricing fetch found no changes')
       )
-      .catch((err) => console.error('Startup pricing fetch error:', (err as Error).message));
+      .catch((err: Error) => logger.error({ err }, 'Startup pricing fetch error'));
 
     // Schedule daily pricing check (model prices via LiteLLM)
     schedulePricingCheck(cron);
@@ -79,14 +80,14 @@ async function start(): Promise<void> {
     cron.schedule('5 0 * * *', async () => {
       try {
         const synced = await applyDuePlanChanges();
-        if (synced > 0) console.log(`[planSchedule] ${synced} user(s) synced`);
+        if (synced > 0) logger.info(`[planSchedule] ${synced} user(s) synced`);
       } catch (err) {
-        console.error('Scheduled plan-change apply failed:', err);
+        logger.error({ err }, 'Scheduled plan-change apply failed');
       }
     });
     // Run once at startup in case the server was down during the cron tick.
-    applyDuePlanChanges().catch((err) =>
-      console.error('Startup plan-schedule apply failed:', (err as Error).message)
+    applyDuePlanChanges().catch((err: Error) =>
+      logger.error({ err }, 'Startup plan-schedule apply failed')
     );
 
     // Schedule daily refresh of plan subscription pricing (best-effort)
@@ -97,17 +98,17 @@ async function start(): Promise<void> {
     // before the first dashboard load — don't await it, the cron will
     // backfill if startup fails.
     scheduleExchangeRateRefresh(cron);
-    refreshExchangeRate().catch((err) =>
-      console.error('Startup exchange-rate refresh failed:', (err as Error).message)
+    refreshExchangeRate().catch((err: Error) =>
+      logger.error({ err }, 'Startup exchange-rate refresh failed')
     );
 
     // Schedule daily model analytics refresh at 2 AM
     cron.schedule('0 2 * * *', async () => {
       try {
-        console.log('Running scheduled model analytics refresh...');
+        logger.info('Running scheduled model analytics refresh...');
         await refreshModelAnalytics();
       } catch (error) {
-        console.error('Scheduled analytics refresh failed:', error);
+        logger.error({ err: error }, 'Scheduled analytics refresh failed');
       }
     });
 
@@ -117,13 +118,13 @@ async function start(): Promise<void> {
         const sessions = await runQuery(`DELETE FROM sessions WHERE expires_at < datetime('now')`);
         const tokens = await runQuery(`DELETE FROM magic_link_tokens WHERE expires_at < datetime('now')`);
         if (sessions.changes || tokens.changes) {
-          console.log(`[cleanup] sessions: ${sessions.changes}, magic_link_tokens: ${tokens.changes}`);
+          logger.info(`[cleanup] sessions: ${sessions.changes}, magic_link_tokens: ${tokens.changes}`);
         }
       } catch (err) {
-        console.error('[cleanup] error:', (err as Error).message);
+        logger.error({ err }, '[cleanup] error');
       }
     });
-    console.log('Hourly cleanup scheduled for expired sessions and magic-link tokens');
+    logger.info('Hourly cleanup scheduled for expired sessions and magic-link tokens');
 
     // Pull usage events from each configured ai-provider-service every 15 min.
     // Iterates per tracker-user; sync internally fans out across that user's
@@ -136,48 +137,48 @@ async function start(): Promise<void> {
           const r = await syncProviderServiceEvents(uid);
           for (const p of r.perId) {
             if (p.newEvents > 0) {
-              console.log(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} new=${p.newEvents}`);
+              logger.info(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} new=${p.newEvents}`);
             }
             if (!p.ok) {
-              console.warn(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} error=${p.error}`);
+              logger.warn(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} error=${p.error}`);
             }
           }
         } catch (err) {
-          console.error('[provider-service-sync] unexpected', uid, err);
+          logger.error({ uid, err }, '[provider-service-sync] unexpected');
         }
       }
     }
     cron.schedule('*/15 * * * *', () => {
       runProviderServiceSyncTick().catch((err) =>
-        console.error('[provider-service-sync] cron tick error:', err)
+        logger.error({ err }, '[provider-service-sync] cron tick error')
       );
     });
     // Kick off one tick on startup so the dashboard has data without waiting.
     runProviderServiceSyncTick().catch((err) =>
-      console.error('[provider-service-sync] startup tick error:', err)
+      logger.error({ err }, '[provider-service-sync] startup tick error')
     );
-    console.log('Provider-service sync scheduled every 15 minutes');
+    logger.info('Provider-service sync scheduled every 15 minutes');
 
     // Sub-B.1: Daily refresh of HF metadata for curated catalog models at 04:00.
     // Offset from the 02:00 pricing cron to avoid network spikes.
     cron.schedule('0 4 * * *', async () => {
       try {
-        console.log('[catalog-cache] starting daily refresh');
+        logger.info('[catalog-cache] starting daily refresh');
         const r = await refreshCuratedHfCache();
-        console.log(`[catalog-cache] curated refreshed=${r.refreshed} failed=${r.failed}`);
+        logger.info(`[catalog-cache] curated refreshed=${r.refreshed} failed=${r.failed}`);
         const l = await refreshLatestUploads();
-        console.log(`[catalog-cache] latest  refreshed=${l.refreshed} failed=${l.failed}`);
+        logger.info(`[catalog-cache] latest  refreshed=${l.refreshed} failed=${l.failed}`);
         // B.3: evict search-hit cache rows older than 90 days (curated/latest immune).
         const e = await evictStaleSearchCacheRows();
-        console.log(`[catalog-cache] evicted ${e.evicted} stale search rows`);
+        logger.info(`[catalog-cache] evicted ${e.evicted} stale search rows`);
         for (const err of [...r.errors, ...l.errors]) {
-          console.warn(`[catalog-cache] ${err.repo}: ${err.error}`);
+          logger.warn(`[catalog-cache] ${err.repo}: ${err.error}`);
         }
       } catch (err) {
-        console.error('[catalog-cache] cron error', err);
+        logger.error({ err }, '[catalog-cache] cron error');
       }
     });
-    console.log('Catalog HF cache refresh scheduled daily at 04:00');
+    logger.info('Catalog HF cache refresh scheduled daily at 04:00');
 
     // On startup: prime each table independently so the first page-load
     // doesn't have to fall back to live HF for every model. We check the
@@ -187,14 +188,14 @@ async function start(): Promise<void> {
     Promise.all([isCacheEmpty(), isLatestUploadsEmpty()])
       .then(async ([curatedEmpty, latestEmpty]) => {
         if (curatedEmpty) {
-          console.log('[catalog-cache] curated empty on startup — priming');
+          logger.info('[catalog-cache] curated empty on startup — priming');
           const rc = await refreshCuratedHfCache();
-          console.log(`[catalog-cache] primed curated=${rc.refreshed}/${rc.failed}`);
+          logger.info(`[catalog-cache] primed curated=${rc.refreshed}/${rc.failed}`);
         }
         if (latestEmpty) {
-          console.log('[catalog-cache] latest empty on startup — priming');
+          logger.info('[catalog-cache] latest empty on startup — priming');
           const rl = await refreshLatestUploads();
-          console.log(`[catalog-cache] primed latest=${rl.refreshed}/${rl.failed}`);
+          logger.info(`[catalog-cache] primed latest=${rl.refreshed}/${rl.failed}`);
         } else if (isProsConsEnabled()) {
           // B.3 upgrade path: latest is already populated by B.2, but pros are
           // missing on the existing rows because B.3 wasn't yet deployed when
@@ -209,53 +210,50 @@ async function start(): Promise<void> {
             }
           }
           if (missing.length > 0) {
-            console.log(`[catalog-pros] backfilling pros for ${missing.length} existing latest uploads`);
+            logger.info(`[catalog-pros] backfilling pros for ${missing.length} existing latest uploads`);
             const r = await generateBatchProsCons(missing);
-            console.log(`[catalog-pros] backfill: generated=${r.generated} failed=${r.failed} skipped=${r.skipped}`);
+            logger.info(`[catalog-pros] backfill: generated=${r.generated} failed=${r.failed} skipped=${r.skipped}`);
           }
         }
       })
-      .catch((err) => console.error('[catalog-cache] prime error', err));
+      .catch((err) => logger.error({ err }, '[catalog-cache] prime error'));
 
     app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-      console.log('Available endpoints:');
-      console.log('  POST   /api/usage/track');
-      console.log('  GET    /api/usage/summary');
-      console.log('  GET    /api/usage/models');
-      console.log('  GET    /api/usage/history');
-      console.log('  GET    /api/pricing');
-      console.log('  PUT    /api/pricing/:model');
-      console.log('  POST   /api/recommend');
-      console.log('  GET    /api/recommend/analysis/models');
-      console.log('  GET    /api/recommend/analysis/opportunities');
-      console.log('  GET    /api/health');
-      console.log('  GET    /health');
+      logger.info(`Server running on http://localhost:${PORT}`);
+      logger.info('Available endpoints:');
+      logger.info('  POST   /api/usage/track');
+      logger.info('  GET    /api/usage/summary');
+      logger.info('  GET    /api/usage/models');
+      logger.info('  GET    /api/usage/history');
+      logger.info('  GET    /api/pricing');
+      logger.info('  PUT    /api/pricing/:model');
+      logger.info('  POST   /api/recommend');
+      logger.info('  GET    /api/recommend/analysis/models');
+      logger.info('  GET    /api/recommend/analysis/opportunities');
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.error({ err: error }, 'Failed to start server');
     process.exit(1);
   }
 }
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('Shutting down...');
+  logger.info('Shutting down...');
   await closeDatabase();
   process.exit(0);
 });
 
 // Uncaught Exception Handler
 process.on('uncaughtException', (err: Error) => {
-  console.error('Uncaught Exception:', err.message);
-  console.error('Stack:', err.stack);
+  logger.error({ err }, 'Uncaught Exception');
+  logger.error({ stack: err.stack }, 'Stack');
   process.exit(1);
 });
 
 // Unhandled Promise Rejection Handler
 process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
-  console.error('Unhandled Rejection at:', promise);
-  console.error('Reason:', reason);
+  logger.error({ promise, reason }, 'Unhandled Rejection');
 });
 
 start();

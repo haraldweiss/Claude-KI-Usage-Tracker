@@ -80,7 +80,17 @@ const CLAUDE_CODE_USAGE_URL = 'https://platform.claude.com/claude-code';
 // name, usage percentages (continuous, weekly, monthly), and reset timers.
 const OPENCODE_GO_SYNC_ALARM = 'auto-sync-opencode-go';
 const OPENCODE_GO_SYNC_INTERVAL_MIN = 24 * 60;
-const OPENCODE_GO_WORKSPACE_URL = 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go';
+const DEFAULT_OPENCODE_GO_URL = 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go';
+
+async function getOpenCodeGoUrl() {
+  try {
+    const stored = await chrome.storage.local.get('opencode_go_url');
+    if (typeof stored.opencode_go_url === 'string' && stored.opencode_go_url.length > 0) {
+      return stored.opencode_go_url;
+    }
+  } catch { /* fall through */ }
+  return DEFAULT_OPENCODE_GO_URL;
+}
 
 // ---------------------------------------------------------------------------
 // Message routing
@@ -1220,7 +1230,8 @@ async function opencodeGoSync() {
     if (existing.length > 0) {
       tabId = existing[0].id;
     } else {
-      const tab = await chrome.tabs.create({ url: OPENCODE_GO_WORKSPACE_URL, active: false });
+      const url = await getOpenCodeGoUrl();
+      const tab = await chrome.tabs.create({ url, active: false });
       tabId = tab.id;
       createdTabId = tab.id;
       await waitForTabComplete(tab.id, 30000);
@@ -1372,7 +1383,7 @@ async function opencodeGoSync() {
       last_opencode_go_sync_status: 'ok'
     });
 
-    console.log('OpenCode-go-sync ok:', data);
+    console.log(`OpenCode-go-sync ok: plan=${data?.plan_name || 'unknown'}`);
     return { success: true, data };
   } catch (error) {
     console.error('OpenCode-go-sync error:', error);

@@ -17,6 +17,7 @@ import {
   isProsConsEnabled,
 } from '../services/catalogProsConsService.js';
 import { resolveLocalInstalledCards } from '../services/localInstalledService.js';
+import logger from '../utils/logger.js';
 
 export async function getCurated(_req: Request, res: Response): Promise<void> {
   const spec = CURATED_MODELS;
@@ -101,7 +102,7 @@ export async function getSearch(req: Request, res: Response): Promise<void> {
       const top = merged.slice(0, 10).filter((c) => !c.pros || c.pros.length === 0);
       if (top.length > 0) {
         void generateBatchProsCons(top).catch((err) =>
-          console.error('[catalog-pros] search async error', (err as Error).message),
+          logger.error({ err }, '[catalog-pros] search async error'),
         );
       }
     }

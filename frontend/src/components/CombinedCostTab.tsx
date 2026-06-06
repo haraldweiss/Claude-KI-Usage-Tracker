@@ -6,50 +6,11 @@ import {
   CombinedSpendBreakdown,
   ConsoleKeyRecord,
   OpenCodeGoSpend,
-  PlanPricingRow,
+  type PlanPricingRow,
   SpendingTotal
 } from '../types/api';
+import { formatEur, formatUsd, formatRelativeTime, subscriptionEur } from '../utils/format';
 import ApiKeysDetailTable from './ApiKeysDetailTable';
-
-// Resolve a plan name to its monthly EUR price using the live plan_pricing
-// table from the backend (editable in Settings). Falls back to 0 if the plan
-// isn't in the table — better to underreport than to fabricate a number.
-function subscriptionEur(
-  plans: PlanPricingRow[],
-  planName: string | null | undefined
-): number {
-  if (!planName) return 0;
-  return plans.find((p) => p.plan_name === planName)?.monthly_eur ?? 0;
-}
-
-function formatEur(value: number): string {
-  return new Intl.NumberFormat('de-DE', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
-
-function formatUsd(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
-
-function formatRelativeTime(iso: string): string {
-  const ts = new Date(iso).getTime();
-  if (!isFinite(ts)) return iso;
-  const diffMin = Math.round((Date.now() - ts) / 60_000);
-  if (diffMin < 1) return 'gerade eben';
-  if (diffMin < 60) return `vor ${diffMin} Min.`;
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return `vor ${diffH} Std.`;
-  return new Date(iso).toLocaleString('de-DE');
-}
 
 export default function CombinedCostTab(): React.ReactElement {
   const [combined, setCombined] = useState<CombinedSpendBreakdown | null>(null);

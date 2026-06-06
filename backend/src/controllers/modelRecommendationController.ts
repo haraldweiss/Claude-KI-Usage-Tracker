@@ -3,49 +3,75 @@
 import { Request, Response } from 'express';
 import * as modelRecommendationService from '../services/modelRecommendationService.js';
 import * as db from '../database/sqlite.js';
+import logger from '../utils/logger.js';
 import type { RecommendationRequest, ModelAnalysisResponse, OptimizationOpportunitiesResponse } from '../types/index.js';
 
+interface AnalysisRow {
+  model: string;
+  total_requests: number;
+  success_rate: number;
+  error_count: number;
+  avg_input_tokens: number;
+  avg_output_tokens: number;
+  cost_per_request: number;
+  last_updated: string;
+}
+
+interface ErrorMetadataRow {
+  response_metadata: string | null;
+}
+
+interface UsageRecordRow {
+  id: number;
+  model: string;
+  task_description: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+  success_status: string;
+}
+
+interface OpportunityItem {
+  taskType: string;
+  usedModel: string;
+  recommendedModel: string;
+  count: number;
+  totalCost: number;
+  potentialCost: number;
+  riskScore: number;
+  savings: string;
+  potentialSavings?: string;
+}
+
 // Whitelist of valid periods mapped to lookback days.
-// Using a whitelist prevents SQL injection via the `period` query parameter.
 const PERIOD_TO_DAYS: Record<string, number> = {
   day: 1,
   week: 7,
   month: 30
 };
 
-/**
- * Safely resolves a period string to lookback days using a whitelist.
- * Returns the default if the period is invalid.
- */
 function resolveLookbackDays(period?: string, defaultPeriod = 'month'): { period: string; lookbackDays: number } {
   const validPeriod = (typeof period === 'string' && Object.prototype.hasOwnProperty.call(PERIOD_TO_DAYS, period)) ? period : defaultPeriod;
   const lookbackDays = PERIOD_TO_DAYS[validPeriod] ?? 30;
   return { period: validPeriod, lookbackDays };
 }
 
-/**
- * POST /api/recommend
- * Recommends the best model for a given task description
- */
 export async function recommendModel(req: Request<unknown, unknown, RecommendationRequest>, res: Response): Promise<void> {
   try {
     const { taskDescription, constraints = {} } = req.body;
 
     if (!taskDescription || typeof taskDescription !== 'string') {
-      res.status(400).json({
-        success: false,
-        error: 'taskDescription is required and must be a string'
-      });
+      res.status(400).json({ success: false, error: 'taskDescription is required and must be a string' });
       return;
     }
 
     const recommendation = await modelRecommendationService.recommendModel(taskDescription, constraints, req.user!.id);
 
-    if ((recommendation as any).error) {
+    if (recommendation.error) {
       res.status(500).json({
         success: false,
-        error: (recommendation as any).error,
-        fallback: (recommendation as any).fallback
+        error: recommendation.error,
+        fallback: recommendation.fallback
       });
       return;
     }
@@ -56,7 +82,7 @@ export async function recommendModel(req: Request<unknown, unknown, Recommendati
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error in recommendModel endpoint:', error);
+    logger.error({ err: error }, 'Error in recommendModel endpoint');
     res.status(500).json({
       success: false,
       error: (error as Error).message
@@ -64,37 +90,21 @@ export async function recommendModel(req: Request<unknown, unknown, Recommendati
   }
 }
 
-/**
- * GET /api/analysis/models
- * Returns model statistics and success rates
- */
 export async function getModelAnalysis(req: Request<unknown, unknown, unknown, { period?: string }>, res: Response<ModelAnalysisResponse>): Promise<void> {
   try {
-    // Validate period via whitelist to prevent SQL injection
     const { period, lookbackDays } = resolveLookbackDays(req.query.period, 'month');
 
-    // Get model analytics from cache table
-    const analysis = await db.allQuery(`
-      SELECT
-        model,
-        total_requests,
-        success_rate,
-        error_count,
-        avg_input_tokens,
-        avg_output_tokens,
-        cost_per_request,
-        last_updated
+    const analysis = await db.allQuery<AnalysisRow>(`
+      SELECT model, total_requests, success_rate, error_count, avg_input_tokens, avg_output_tokens, cost_per_request, last_updated
       FROM model_analysis
       ORDER BY total_requests DESC
     `);
 
-    // Enrich with recent usage data
-    const enrichedAnalysis = [];
+    const enrichedAnalysis: Array<AnalysisRow & { errorPatterns: string[]; successPercent: number }> = [];
 
-    for (const model of (analysis as any[]) || []) {
-      // Get recent error patterns
+    for (const model of analysis) {
       const modifier = `-${lookbackDays} days`;
-      const errors = await db.allQuery(`
+      const errors = await db.allQuery<ErrorMetadataRow>(`
         SELECT response_metadata FROM usage_records
         WHERE model = ? AND success_status = 'error'
         AND timestamp >= datetime('now', ?)
@@ -102,15 +112,14 @@ export async function getModelAnalysis(req: Request<unknown, unknown, unknown, {
         LIMIT 5
       `, [model.model, modifier, req.user!.id]);
 
-      // Parse error metadata if available
       const errorPatterns: Record<string, number> = {};
-      for (const error of (errors as any[]) || []) {
+      for (const error of errors) {
         if (error.response_metadata) {
           try {
-            const metadata = JSON.parse(error.response_metadata as string);
+            const metadata = JSON.parse(error.response_metadata) as { error_type?: string };
             const errorType = metadata.error_type || 'unknown';
             errorPatterns[errorType] = (errorPatterns[errorType] || 0) + 1;
-          } catch (e) {
+          } catch {
             // Ignore parse errors
           }
         }
@@ -131,45 +140,32 @@ export async function getModelAnalysis(req: Request<unknown, unknown, unknown, {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error in getModelAnalysis:', error);
+    logger.error({ err: error }, 'Error in getModelAnalysis');
     res.status(500).json({
       success: false,
-      period: 'month',
+      period: 'month' as const,
       lookbackDays: 30,
       analysis: [],
       error: (error as Error).message,
       timestamp: new Date().toISOString()
-    } as any);
+    });
   }
 }
 
-/**
- * GET /api/analysis/opportunities
- * Shows potential cost optimization opportunities
- */
 export async function getOptimizationOpportunities(req: Request<unknown, unknown, unknown, { period?: string }>, res: Response<OptimizationOpportunitiesResponse>): Promise<void> {
   try {
-    // Validate period via whitelist to prevent SQL injection
     const { period, lookbackDays } = resolveLookbackDays(req.query.period, 'week');
     const modifier = `-${lookbackDays} days`;
 
-    // Get all usage records from period
-    const records = await db.allQuery(`
-      SELECT
-        id,
-        model,
-        task_description,
-        input_tokens,
-        output_tokens,
-        cost,
-        success_status
+    const records = await db.allQuery<UsageRecordRow>(`
+      SELECT id, model, task_description, input_tokens, output_tokens, cost, success_status
       FROM usage_records
       WHERE timestamp >= datetime('now', ?)
       AND user_id = ?
       ORDER BY timestamp DESC
     `, [modifier, req.user!.id]);
 
-    if (!records || (records as any[]).length === 0) {
+    if (records.length === 0) {
       res.status(200).json({
         success: true,
         period: period as 'day' | 'week' | 'month',
@@ -186,81 +182,63 @@ export async function getOptimizationOpportunities(req: Request<unknown, unknown
       return;
     }
 
-    // Analyze opportunities
-    const opportunities: Record<string, any> = {};
+    const opportunitiesMap = new Map<string, OpportunityItem>();
     let totalCurrentCost = 0;
     let totalPotentialCost = 0;
 
-    for (const record of records as any[]) {
+    for (const record of records) {
       totalCurrentCost += record.cost || 0;
-
-      // Analyze if cheaper model could have been used
       const complexity = modelRecommendationService.analyzeTaskComplexity(record.task_description || 'unknown');
 
-      // Check if this was an expensive model for a simple task
       if (complexity.complexity <= 3 && record.model.includes('Opus')) {
         const key = 'simple_with_opus';
-        if (!opportunities[key]) {
-          opportunities[key] = {
+        if (!opportunitiesMap.has(key)) {
+          opportunitiesMap.set(key, {
             taskType: 'simple',
             usedModel: 'Claude 3 Opus',
             recommendedModel: 'Claude 3.5 Haiku',
-            count: 0,
-            totalCost: 0,
-            potentialCost: 0,
-            riskScore: 0.05,
-            savings: '80-85%'
-          };
+            count: 0, totalCost: 0, potentialCost: 0,
+            riskScore: 0.05, savings: '80-85%'
+          });
         }
-        opportunities[key].count++;
-        opportunities[key].totalCost += record.cost || 0;
-
-        // Estimate Haiku cost
-        const haikuCost = ((record.input_tokens * 0.8 + record.output_tokens * 4) / 1000000);
-        opportunities[key].potentialCost += haikuCost;
+        const opp = opportunitiesMap.get(key)!;
+        opp.count++;
+        opp.totalCost += record.cost || 0;
+        const haikuCost = (record.input_tokens * 0.8 + record.output_tokens * 4) / 1000000;
+        opp.potentialCost += haikuCost;
         totalPotentialCost += haikuCost;
       }
 
-      // Check if Sonnet could replace Opus for medium complexity
       if (complexity.complexity >= 4 && complexity.complexity <= 6 && record.model.includes('Opus') && record.success_status === 'success') {
         const key = 'medium_with_opus';
-        if (!opportunities[key]) {
-          opportunities[key] = {
+        if (!opportunitiesMap.has(key)) {
+          opportunitiesMap.set(key, {
             taskType: 'medium',
             usedModel: 'Claude 3 Opus',
             recommendedModel: 'Claude 3.5 Sonnet',
-            count: 0,
-            totalCost: 0,
-            potentialCost: 0,
-            riskScore: 0.08,
-            savings: '75-80%'
-          };
+            count: 0, totalCost: 0, potentialCost: 0,
+            riskScore: 0.08, savings: '75-80%'
+          });
         }
-        opportunities[key].count++;
-        opportunities[key].totalCost += record.cost || 0;
-
-        // Estimate Sonnet cost
-        const sonnetCost = ((record.input_tokens * 3 + record.output_tokens * 15) / 1000000);
-        opportunities[key].potentialCost += sonnetCost;
+        const opp = opportunitiesMap.get(key)!;
+        opp.count++;
+        opp.totalCost += record.cost || 0;
+        const sonnetCost = (record.input_tokens * 3 + record.output_tokens * 15) / 1000000;
+        opp.potentialCost += sonnetCost;
         totalPotentialCost += sonnetCost;
       }
     }
 
-    // Format opportunities (guard against divide-by-zero when totalCost is 0)
-    const opportunityList = Object.values(opportunities).map((opp: any) => {
-      const savingsRatio = opp.totalCost > 0
-        ? 1 - (opp.potentialCost / opp.totalCost)
-        : 0;
-      return {
-        ...opp,
-        potentialSavings: `${(savingsRatio * 100).toFixed(1)}%`
-      };
-    });
+    const opportunityList = Array.from(opportunitiesMap.values()).map((opp) => ({
+      ...opp,
+      potentialSavings: opp.totalCost > 0
+        ? `${((1 - opp.potentialCost / opp.totalCost) * 100).toFixed(1)}%`
+        : '0.0%'
+    }));
 
-    // Sort by potential savings (guard against divide-by-zero)
-    opportunityList.sort((a: any, b: any) => {
-      const savingsA = a.totalCost > 0 ? 1 - (a.potentialCost / a.totalCost) : 0;
-      const savingsB = b.totalCost > 0 ? 1 - (b.potentialCost / b.totalCost) : 0;
+    opportunityList.sort((a, b) => {
+      const savingsA = a.totalCost > 0 ? 1 - a.potentialCost / a.totalCost : 0;
+      const savingsB = b.totalCost > 0 ? 1 - b.potentialCost / b.totalCost : 0;
       return savingsB - savingsA;
     });
 
@@ -270,7 +248,7 @@ export async function getOptimizationOpportunities(req: Request<unknown, unknown
       success: true,
       period: period as 'day' | 'week' | 'month',
       lookbackDays,
-      recordsAnalyzed: (records as any[]).length,
+      recordsAnalyzed: records.length,
       opportunities: opportunityList,
       currentTotalCost: `$${totalCurrentCost.toFixed(2)}`,
       potentialTotalCost: `$${totalPotentialCost.toFixed(2)}`,
@@ -279,10 +257,10 @@ export async function getOptimizationOpportunities(req: Request<unknown, unknown
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error in getOptimizationOpportunities:', error);
+    logger.error({ err: error }, 'Error in getOptimizationOpportunities');
     res.status(500).json({
       success: false,
-      period: 'week',
+      period: 'week' as const,
       lookbackDays: 7,
       recordsAnalyzed: 0,
       opportunities: [],
@@ -292,6 +270,9 @@ export async function getOptimizationOpportunities(req: Request<unknown, unknown
       savingsPercent: '0%',
       error: (error as Error).message,
       timestamp: new Date().toISOString()
-    } as any);
+    });
   }
 }
+
+// Backend type export so Express Response generic resolves
+export type { OpportunityItem };

@@ -2,6 +2,7 @@
 // © 2026 Harald Weiss
 import express from 'express';
 import type { Express, Request, Response } from 'express';
+import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import bodyParser from 'body-parser';
 import usageRoutes from './routes/usage.js';
@@ -13,6 +14,7 @@ import authRouter from './routes/auth.js';
 import accountRouter from './routes/account.js';
 import adminRouter from './routes/admin.js';
 import errorHandler from './middleware/errorHandler.js';
+import logger from './utils/logger.js';
 
 
 /**
@@ -27,6 +29,11 @@ export function createApp(): Express {
   // always the loopback and per-IP rate limits become per-server limits.
   app.set('trust proxy', 'loopback');
 
+  // Security headers (CSP relaxed for SPA + API)
+  app.use(helmet({
+    contentSecurityPolicy: false,
+  }));
+
   // Manual CORS middleware to allow credentials from dev & extension origins
   app.use((req: Request, res: Response, next): void => {
     const origin = req.get('origin') || '';
@@ -40,11 +47,9 @@ export function createApp(): Express {
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Access-Control-Allow-Credentials', 'true');
     } else if (!origin && isProductionDomain) {
-      // No origin header but same-origin request (production domain): allow credentials
       res.set('Access-Control-Allow-Origin', 'https://claudetracker.wolfinisoftware.de');
       res.set('Access-Control-Allow-Credentials', 'true');
     } else if (!origin) {
-      // No origin header (form submissions, localhost same-origin requests): allow all without credentials
       res.set('Access-Control-Allow-Origin', '*');
     }
     // Unknown origin: don't set CORS headers at all (deny cross-origin access)
@@ -60,13 +65,13 @@ export function createApp(): Express {
   });
 
   app.use(cookieParser());
-  app.use(bodyParser.json());
-  app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: '1mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
 
   // Request logging — quiet in test mode to keep output readable
   if (process.env.NODE_ENV !== 'test') {
     app.use((req: Request, _res: Response, next) => {
-      console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+      logger.info({ method: req.method, path: req.path }, 'request');
       next();
     });
   }

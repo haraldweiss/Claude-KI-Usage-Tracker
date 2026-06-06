@@ -17,6 +17,7 @@ import {
   isProsConsEnabled,
 } from './catalogProsConsService.js';
 import { runQuery } from '../database/sqlite.js';
+import logger from '../utils/logger.js';
 
 export interface RefreshSummary {
   refreshed: number;
@@ -140,7 +141,7 @@ export async function refreshLatestUploads(): Promise<RefreshSummary> {
     }
     if (cardsNeedingPros.length > 0) {
       const r = await generateBatchProsCons(cardsNeedingPros);
-      console.log(
+      logger.info(
         `[catalog-pros] latest: generated=${r.generated} failed=${r.failed} skipped=${r.skipped}`,
       );
     }

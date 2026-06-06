@@ -10,6 +10,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import type { ErrorResponse } from '../types/index.js';
+import logger from '../utils/logger.js';
 
 class AppError extends Error {
   constructor(
@@ -27,12 +28,8 @@ function errorHandler(
   res: Response<ErrorResponse>,
   _next: NextFunction
 ): void {
-  // Log the error
-  console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
-
-  // Default to 500 Internal Server Error
   const status = err instanceof AppError ? err.status : 500;
+  logger.error({ err, status }, err.message);
   const message = err.message || 'Internal Server Error';
 
   // Send error response

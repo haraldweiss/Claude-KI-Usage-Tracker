@@ -6,6 +6,7 @@ import { sendMagicLinkMail } from '../services/mailService.js';
 import { runQuery, getQuery } from '../database/sqlite.js';
 import { SESSION_COOKIE_NAME } from '../middleware/auth.js';
 import type { User } from '../types/index.js';
+import logger from '../utils/logger.js';
 
 // Must be the BACKEND verify endpoint (under /api/) so the email link hits the
 // intermediate "Click to log in" HTML page rendered by showVerifyPage, not the
@@ -20,7 +21,7 @@ const COOKIE_PATH = process.env.COOKIE_PATH || '/';
 // can cause rejection. The browser will correctly set the cookie to the origin domain.
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: true, // HTTPS production requirement — browsers reject secure:false over HTTPS
+  secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
   path: COOKIE_PATH,
   maxAge: 30 * 24 * 60 * 60 * 1000
@@ -34,17 +35,24 @@ function escapeHtml(s: string): string {
 // NIT N1: Only accept 64-char hex tokens (sha256 output). Anything else → 400.
 const TOKEN_RE = /^[a-f0-9]{64}$/;
 
-const requestRateLimit = new Map<string, number[]>();
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_MAX_PER_IP = 5;
 const RATE_MAX_PER_EMAIL = 3;
 
-function isRateLimited(key: string, max: number): boolean {
+async function isRateLimited(key: string, max: number): Promise<boolean> {
   const now = Date.now();
-  const hits = (requestRateLimit.get(key) || []).filter((t) => now - t < RATE_WINDOW_MS);
+  const row = await getQuery<{ hits: string }>(
+    `SELECT hits FROM rate_limits WHERE key = ?`,
+    [key]
+  );
+  const hits: number[] = row ? (JSON.parse(row.hits) as number[]).filter((t) => now - t < RATE_WINDOW_MS) : [];
   if (hits.length >= max) return true;
   hits.push(now);
-  requestRateLimit.set(key, hits);
+  await runQuery(
+    `INSERT INTO rate_limits (key, hits, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET hits = ?, updated_at = datetime('now')`,
+    [key, JSON.stringify(hits), JSON.stringify(hits)]
+  );
   return false;
 }
 
@@ -56,7 +64,8 @@ export async function requestMagicLink(req: Request, res: Response): Promise<voi
     res.json({ ok: true });
     return;
   }
-  if (isRateLimited(`ip:${ip}`, RATE_MAX_PER_IP) || isRateLimited(`email:${email}`, RATE_MAX_PER_EMAIL)) {
+  if (await isRateLimited(`ip:${ip}`, RATE_MAX_PER_IP) || await isRateLimited(`email:${email}`, RATE_MAX_PER_EMAIL)) {
+    logger.warn({ ip, email: email.slice(0, 3) + '...' }, 'rate-limited magic-link request');
     res.json({ ok: true });
     return;
   }
@@ -64,7 +73,7 @@ export async function requestMagicLink(req: Request, res: Response): Promise<voi
     const token = await createMagicLinkToken(email);
     await sendMagicLinkMail(email, token, VERIFY_BASE_URL);
   } catch (err) {
-    console.error('[auth] mail send failed:', (err as Error).message);
+    logger.error({ err }, '[auth] mail send failed');
     // Still 200 — token row stays in DB for retry / no enumeration leak
   }
   res.json({ ok: true });
@@ -122,10 +131,11 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     }
     if (!user) throw new Error('user creation failed');
     const sid = await createSession(user.id, req.headers['user-agent'] || null, req.ip || null);
-    console.log(`[auth] created session ${sid} for user ${user.id} (${user.email})`);
+    const sidPreview = sid.slice(0, 8) + '...';
+    logger.info(`[auth] created session ${sidPreview} for user ${user.id} (${user.email})`);
     res.cookie(SESSION_COOKIE_NAME, sid, COOKIE_OPTS);
-    console.log(`[auth] set cookie "${SESSION_COOKIE_NAME}=${sid}" with path="${COOKIE_PATH}", httpOnly=${COOKIE_OPTS.httpOnly}, secure=${COOKIE_OPTS.secure}, sameSite=${COOKIE_OPTS.sameSite}`);
-    console.log(`[auth] response headers: ${JSON.stringify(res.getHeaders())}`);
+    logger.info(`[auth] set cookie "${SESSION_COOKIE_NAME}" with path="${COOKIE_PATH}", httpOnly=${COOKIE_OPTS.httpOnly}, secure=${COOKIE_OPTS.secure}, sameSite=${COOKIE_OPTS.sameSite}`);
+
     // Return HTML that redirects and loads the app — ensures session cookie is sent
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!DOCTYPE html><html><head>
@@ -153,11 +163,10 @@ export async function logout(req: Request, res: Response): Promise<void> {
 
 export async function whoami(req: Request, res: Response): Promise<void> {
   const sid = req.cookies?.[SESSION_COOKIE_NAME];
-  console.log(`[auth/me] SESSION_COOKIE_NAME="${SESSION_COOKIE_NAME}", sid="${sid}", cookies=${JSON.stringify(req.cookies)}`);
-  if (!sid) { console.log(`[auth/me] no session cookie found`); res.status(401).json({ error: 'no session' }); return; }
+  if (!sid) { logger.info(`[auth/me] no session cookie`); res.status(401).json({ error: 'no session' }); return; }
   const user = await getSessionUser(sid);
-  if (!user) { console.log(`[auth/me] session ${sid} not found in database`); res.status(401).json({ error: 'invalid session' }); return; }
-  console.log(`[auth/me] session ${sid} authenticated as user ${user.id}`);
+  if (!user) { logger.info(`[auth/me] session ${sid.slice(0, 8)}... not found`); res.status(401).json({ error: 'invalid session' }); return; }
+  logger.info(`[auth/me] session ${sid.slice(0, 8)}... authenticated as user ${user.id}`);
   await touchSession(sid);   // roll expiry on /me too, matching requireUser middleware
   res.json({ id: user.id, email: user.email, display_name: user.display_name,
              plan_name: user.plan_name, monthly_limit_eur: user.monthly_limit_eur,

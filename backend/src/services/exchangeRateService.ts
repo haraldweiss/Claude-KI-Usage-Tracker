@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import { runQuery, getQuery } from '../database/sqlite.js';
+import logger from '../utils/logger.js';
 
 export interface ExchangeRate {
   currency_pair: string; // e.g. "USD->EUR"
@@ -53,10 +54,10 @@ export async function refreshExchangeRate(): Promise<ExchangeRate | null> {
       [PAIR, rate, date]
     );
 
-    console.log(`[exchangeRate] USD->EUR ${rate} for ${date} (Frankfurter)`);
+    logger.info(`[exchangeRate] USD->EUR ${rate} for ${date} (Frankfurter)`);
     return { currency_pair: PAIR, rate, rate_date: date, fetched_at: new Date().toISOString() };
   } catch (err) {
-    console.error('[exchangeRate] Fetch failed:', (err as Error).message);
+    logger.error({ err }, '[exchangeRate] Fetch failed');
     // Fall through and return the latest already-stored rate, if any.
     return getLatestRate();
   }
@@ -103,10 +104,10 @@ export async function convertUsdToEur(usd: number): Promise<{
 export function scheduleExchangeRateRefresh(cronJob: any): void {
   cronJob.schedule('0 2 * * *', async () => {
     try {
-      console.log('[exchangeRate] Running scheduled refresh...');
+      logger.info('[exchangeRate] Running scheduled refresh...');
       await refreshExchangeRate();
     } catch (error) {
-      console.error('[exchangeRate] Scheduled refresh failed:', error);
+logger.error({ err: error }, '[exchangeRate] Scheduled refresh failed:');
     }
   });
 }

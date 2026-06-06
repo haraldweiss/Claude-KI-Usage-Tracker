@@ -6,6 +6,7 @@ import { resolveTargetFamilies } from '../data/keywordFamilyMap.js';
 import { resolveLocalInstalledCards, type LocalInstalledCard } from './localInstalledService.js';
 import { getModelProsCons } from '../data/modelProsConsRepo.js';
 import { generateClaudeProsCons } from './catalogProsConsService.js';
+import logger from '../utils/logger.js';
 
 // Last-resort fallback when even loadActiveModels() throws. Updated to a
 // currently-active model on each pricing-fallback snapshot revision.
@@ -257,7 +258,7 @@ export async function calculateSafetyScore(model: string): Promise<SafetyScore> 
       basis: 'historical_data'
     };
   } catch (error) {
-    console.error('Error calculating safety score:', error);
+logger.error({ err: error }, 'Error calculating safety score:');
     return { score: 70, basis: 'no_data' };
   }
 }
@@ -329,7 +330,7 @@ export async function calculateCostBenefit(
       }
     };
   } catch (error) {
-    console.error('Error calculating cost-benefit:', error);
+logger.error({ err: error }, 'Error calculating cost-benefit:');
     return { score: 0, error: (error as Error).message };
   }
 }
@@ -483,11 +484,7 @@ export async function recommendModel(
           try {
             await generateClaudeProsCons(name, tier, pricing);
           } catch (err) {
-            console.error(
-              '[reco-catalog] claude pros/cons generate failed',
-              name,
-              (err as Error).message,
-            );
+            logger.error({ name, err }, '[reco-catalog] claude pros/cons generate failed');
           }
           await new Promise((r) => setTimeout(r, 2000));
         }
@@ -549,7 +546,7 @@ export async function recommendModel(
       localAlternatives,
     };
   } catch (error) {
-    console.error('Error in recommendModel:', error);
+logger.error({ err: error }, 'Error in recommendModel:');
     return {
       error: (error as Error).message,
       fallback: HARDCODED_FALLBACK_MODEL
@@ -563,7 +560,7 @@ export async function recommendModel(
  */
 export async function refreshModelAnalytics(): Promise<ModelAnalyticsRefreshResult> {
   try {
-    console.log('Starting model analytics refresh...');
+    logger.info('Starting model analytics refresh...');
 
     // Get all models from usage_records
     const models = (await db.allQuery(
@@ -571,7 +568,7 @@ export async function refreshModelAnalytics(): Promise<ModelAnalyticsRefreshResu
     )) as ModelStatsRecord[];
 
     if (!models || models.length === 0) {
-      console.log('No usage data found for analytics refresh');
+      logger.info('No usage data found for analytics refresh');
       return {
         success: false,
         modelsUpdated: 0,
@@ -613,13 +610,13 @@ export async function refreshModelAnalytics(): Promise<ModelAnalyticsRefreshResu
 
         updated++;
         updatedModels.push(model);
-        console.log(
+        logger.info(
           `Updated analytics for ${model}: ${stats.total_requests} requests, ${((stats.success_rate || 0) * 100).toFixed(1)}% success rate`
         );
       }
     }
 
-    console.log(`Model analytics refresh completed. Updated ${updated} models.`);
+    logger.info(`Model analytics refresh completed. Updated ${updated} models.`);
     return {
       success: true,
       modelsUpdated: updated,
@@ -628,7 +625,7 @@ export async function refreshModelAnalytics(): Promise<ModelAnalyticsRefreshResu
       message: `Updated ${updated} model analytics`
     };
   } catch (error) {
-    console.error('Error refreshing model analytics:', error);
+logger.error({ err: error }, 'Error refreshing model analytics:');
     throw error;
   }
 }

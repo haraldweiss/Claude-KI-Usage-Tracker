@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import { runQuery, getQuery } from '../sqlite.js';
+import logger from '../../utils/logger.js';
 
 /**
  * One-time migration: ensure user 1 (harald) exists and that all pre-existing
@@ -20,5 +21,5 @@ export async function seedInitialUser(): Promise<void> {
   await runQuery('UPDATE usage_records SET user_id = 1 WHERE user_id IS NULL');
   await runQuery('UPDATE model_analysis SET user_id = 1 WHERE user_id IS NULL');
 
-  console.log('[migration] Seeded initial user (harald) and backfilled user_id columns');
+  logger.info('[migration] Seeded initial user (harald) and backfilled user_id columns');
 }

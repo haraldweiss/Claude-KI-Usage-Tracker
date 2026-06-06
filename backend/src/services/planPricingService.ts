@@ -2,6 +2,7 @@
 // © 2026 Harald Weiss
 import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
 import { convertUsdToEur } from './exchangeRateService.js';
+import logger from '../utils/logger.js';
 
 export interface PlanPricingRow {
   plan_name: string;
@@ -100,7 +101,7 @@ export async function refreshPlanPricingFromUpstream(): Promise<{
   // something to call — if a future page layout becomes scrape-able we can
   // fill in the parser here. For now, the function is a no-op that logs
   // its intent so the user knows the daily job ran.
-  console.log(
+  logger.info(
     '[planPricing] Upstream refresh: no scrape-able source available, ' +
     'plan prices remain at their current (manually edited or seeded) values.'
   );
@@ -154,7 +155,7 @@ export async function refreshOpenCodeGoPricing(): Promise<{
     );
 
     if (existing && existing.source === 'manual') {
-      console.log(`[openCodeGoPricing] Skipping — "OpenCode Go" is manually edited`);
+      logger.info(`[openCodeGoPricing] Skipping — "OpenCode Go" is manually edited`);
       return { updated: false, monthly_usd: monthlyUsd, monthly_eur: monthlyEur, error: 'manual_override' };
     }
 
@@ -176,7 +177,7 @@ export async function refreshOpenCodeGoPricing(): Promise<{
     const limitWeekly = html.match(/Wöchentliches\s+Limit\s*[-–—]\s*\$?(\d+)\s*\$?/i);
     const limitMonthly = html.match(/Monatliches\s+Limit\s*[-–—]\s*\$?(\d+)\s*\$?/i);
 
-    console.log(
+    logger.info(
       `[openCodeGoPricing] Updated "OpenCode Go" to ${monthlyUsd} USD ≈ ${monthlyEur.toFixed(2)} EUR` +
       (limit5h ? ` · 5h: ${limit5h[1]} $` : '') +
       (limitWeekly ? ` · Woche: ${limitWeekly[1]} $` : '') +
@@ -185,7 +186,7 @@ export async function refreshOpenCodeGoPricing(): Promise<{
     return { updated: true, monthly_usd: monthlyUsd, monthly_eur: monthlyEur };
   } catch (error) {
     const msg = (error as Error).message;
-    console.error('[openCodeGoPricing] Fetch failed:', msg);
+logger.error({ err: msg }, '[openCodeGoPricing] Fetch failed:');
     return { updated: false, monthly_usd: null, monthly_eur: null, error: msg };
   }
 }
@@ -201,18 +202,18 @@ export async function refreshOpenCodeGoPricing(): Promise<{
 export function schedulePlanPricingRefresh(cronJob: any): void {
   cronJob.schedule('0 2 * * *', async () => {
     try {
-      console.log('[planPricing] Running scheduled refresh...');
+      logger.info('[planPricing] Running scheduled refresh...');
       const result = await refreshPlanPricingFromUpstream();
-      console.log('[planPricing] Anthropic plans result:', result);
+      logger.info({ data: result }, '[planPricing] Anthropic plans result');
     } catch (error) {
-      console.error('[planPricing] Anthropic plans refresh failed:', error);
+logger.error({ err: error }, '[planPricing] Anthropic plans refresh failed:');
     }
 
     try {
       const opencodeResult = await refreshOpenCodeGoPricing();
-      console.log('[planPricing] OpenCode Go result:', opencodeResult);
+      logger.info({ data: opencodeResult }, '[planPricing] OpenCode Go result');
     } catch (error) {
-      console.error('[planPricing] OpenCode Go refresh failed:', error);
+logger.error({ err: error }, '[planPricing] OpenCode Go refresh failed:');
     }
   });
 }

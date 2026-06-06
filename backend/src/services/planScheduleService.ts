@@ -2,6 +2,7 @@
 // © 2026 Harald Weiss
 import { getQuery, allQuery, runQuery } from '../database/sqlite.js';
 import type { PendingPlanChange, PlanHistoryRow } from '../types/index.js';
+import logger from '../utils/logger.js';
 
 /**
  * Authoritative source of "what plan is this user on right now".
@@ -140,16 +141,13 @@ export async function applyDuePlanChanges(): Promise<number> {
           `UPDATE users SET plan_name = ? WHERE id = ?`,
           [current, u.id]
         );
-        console.log(
+        logger.info(
           `[planSchedule] user ${u.id}: ${u.plan_name ?? 'NULL'} → ${current}`
         );
         synced++;
       }
     } catch (err) {
-      console.error(
-        `[planSchedule] sync failed for user ${u.id}:`,
-        (err as Error).message
-      );
+      logger.error({ err }, `[planSchedule] sync failed for user ${u.id}`);
     }
   }
   return synced;

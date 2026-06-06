@@ -14,6 +14,7 @@ import {
 } from '../data/curatedLocalModels.js';
 import { getLocalProsCons } from '../data/localProsConsRepo.js';
 import { generateLocalProsCons } from './catalogProsConsService.js';
+import logger from '../utils/logger.js';
 
 export interface LocalInstalledCard {
   name: string;
@@ -100,11 +101,7 @@ export async function resolveLocalInstalledCards(
         try {
           await generateLocalProsCons(name, family);
         } catch (err) {
-          console.error(
-            '[local-installed] generate failed',
-            name,
-            (err as Error).message,
-          );
+          logger.error({ name, err }, '[local-installed] generate failed');
         }
         await new Promise((r) => setTimeout(r, 2000));
       }

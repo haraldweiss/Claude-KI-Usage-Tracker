@@ -9,6 +9,7 @@ import usageRoutes from './routes/usage.js';
 import pricingRoutes from './routes/pricing.js';
 import recommendationRoutes from './routes/recommendation.js';
 import localUsageRoutes from './routes/localUsage.js';
+import savingsRoutes from './routes/savings.js';
 import catalogRoutes from './routes/catalog.js';
 import authRouter from './routes/auth.js';
 import accountRouter from './routes/account.js';
@@ -83,6 +84,7 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
   app.use('/api/pricing', pricingRoutes);
   app.use('/api/recommend', recommendationRoutes);
   app.use('/api/local-usage', localUsageRoutes);
+  app.use('/api/savings', savingsRoutes);
   app.use('/api/catalog', catalogRoutes);
 
   app.get('/health', (_req: Request, res: Response) => {

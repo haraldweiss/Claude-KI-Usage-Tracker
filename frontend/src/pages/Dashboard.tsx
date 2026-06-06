@@ -7,6 +7,7 @@ import OverviewTab from '../components/OverviewTab';
 import ModelsTab from '../components/ModelsTab';
 import CombinedCostTab from '../components/CombinedCostTab';
 import OnboardingBanner from '../components/OnboardingBanner';
+import SavingsCard from '../components/SavingsCard';
 import { ModelBreakdown } from '../types/api';
 
 type TabType = 'overview' | 'models' | 'combined';
@@ -66,6 +67,7 @@ export default function Dashboard(): React.ReactElement {
       {activeTab === 'overview' && <OverviewTab />}
       {activeTab === 'models' && <ModelsTab models={modelData} />}
       {activeTab === 'combined' && <CombinedCostTab />}
+      <SavingsCard />
     </div>
   );
 }

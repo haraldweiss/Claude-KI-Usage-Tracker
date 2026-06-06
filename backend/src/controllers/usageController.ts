@@ -810,14 +810,21 @@ logger.error({ err: error }, 'Error getting spending total:');
 
 export async function getConsoleKeys(req: Request, res: Response): Promise<void> {
   try {
-    // Latest snapshot per (workspace, key_id_suffix) across both
+    // Latest snapshot per (key_name, key_id_suffix) across both
     // anthropic_console_sync (regular API keys) and claude_code_sync
-    // (Claude Code keys + team members). The dashboard merges them into one
-    // table with a 'source' column so the user can tell which surface a row
-    // came from.
+    // (Claude Code keys + team members). Keys that belong to multiple
+    // workspaces (same key_id_suffix, different workspace columns) are
+    // merged into a single row with combined workspace names and summed
+    // cost, so the same physical key doesn't appear as a duplicate.
     const keys = await allQuery<ConsoleKeyRowWithSource>(
-      `SELECT key_name, workspace, key_id_suffix, cost_usd,
-              timestamp as last_synced, source, response_metadata
+      `SELECT
+        key_name,
+        group_concat(DISTINCT workspace ORDER BY workspace) as workspace,
+        key_id_suffix,
+        SUM(cost_usd) as cost_usd,
+        MAX(timestamp) as last_synced,
+        source,
+        MAX(response_metadata) as response_metadata
        FROM (
          SELECT key_name, workspace, key_id_suffix, cost_usd, timestamp,
                 source, response_metadata,
@@ -830,6 +837,8 @@ export async function getConsoleKeys(req: Request, res: Response): Promise<void>
             OR source = 'claude_code_sync')
        )
        WHERE rn = 1
+       GROUP BY key_name, key_id_suffix
+       HAVING key_id_suffix IS NOT NULL
        ORDER BY cost_usd DESC NULLS LAST`,
       [req.user!.id]
     );

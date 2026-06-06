@@ -8,6 +8,7 @@
 import {
   UsageSummaryData,
   UsageHistoryRecord,
+  DailyUsageRecord,
   ModelBreakdown,
   PricingData,
   Period,
@@ -80,6 +81,14 @@ export async function getHistory(
 ): Promise<{ records: UsageHistoryRecord[]; total: number }> {
   return apiCall<{ records: UsageHistoryRecord[]; total: number }>(
     `/usage/history?limit=${limit}&offset=${offset}`
+  );
+}
+
+export async function getDailyHistory(
+  days: number = 7
+): Promise<{ days: DailyUsageRecord[] }> {
+  return apiCall<{ days: DailyUsageRecord[] }>(
+    `/usage/history?days=${days}`
   );
 }
 

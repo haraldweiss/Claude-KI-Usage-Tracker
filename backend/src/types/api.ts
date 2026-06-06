@@ -59,6 +59,18 @@ export interface UsageHistory {
   offset: number;
 }
 
+export interface DailyUsageRecord {
+  date: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  request_count: number;
+}
+
+export interface DailyUsageHistory {
+  days: DailyUsageRecord[];
+}
+
 export interface ModelBreakdown {
   models: ModelStats[];
 }
@@ -130,6 +142,7 @@ export interface ModelAnalysisResponse {
   lookbackDays: number;
   analysis: EnrichedModelAnalysis[];
   timestamp: string;
+  error?: string;
 }
 
 export interface EnrichedModelAnalysis {
@@ -157,6 +170,7 @@ export interface OptimizationOpportunitiesResponse {
   savingsPercent: string;
   message?: string;
   timestamp: string;
+  error?: string;
 }
 
 export interface CostOptimizationOpportunity {

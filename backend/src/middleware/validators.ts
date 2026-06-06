@@ -220,6 +220,12 @@ export const getHistoryValidator = [
     .optional()
     .isInt({ min: 0 })
     .withMessage('offset must be a non-negative integer')
+    .toInt(),
+
+  query('days')
+    .optional()
+    .isInt({ min: 1, max: 90 })
+    .withMessage('days must be an integer between 1 and 90')
     .toInt()
 ];
 

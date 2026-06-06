@@ -7,6 +7,7 @@ import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow }
 import { upsertPricing } from '../services/pricingService.js';
 import { getPlanPrice } from '../services/planPricingService.js';
 import { convertUsdToEur } from '../services/exchangeRateService.js';
+import logger from '../utils/logger.js';
 
 interface PricingRow {
   model: string;
@@ -56,44 +57,16 @@ export async function trackUsage(
       return;
     }
 
-    // The claude.ai usage page POSTs cumulative monthly totals. We used to
-    // delete every prior row to avoid inflating the displayed token count,
-    // but that destroyed historical data — making all-time spending
-    // impossible to compute. Now we keep one snapshot per UTC day instead:
-    // the latest sync of *today* replaces the previous one of today, but
-    // older days survive. This caps the row count at ~30/month while
-    // preserving enough history for monthly diffs and all-time totals.
-    if (source === 'claude_official_sync') {
+    // Dedupe: at most one snapshot per day per source — delete today's stale
+    // rows for this source before inserting fresh ones.
+    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync'] as const;
+    if ((SYNC_SOURCES as readonly string[]).includes(source)) {
       await runQuery(
         `DELETE FROM usage_records
-         WHERE source = 'claude_official_sync'
+         WHERE source = ?
            AND date(timestamp) = date('now')
            AND user_id = ?`,
-        [req.user!.id]
-      );
-    }
-
-    // OpenCode Go sync: same dedupe pattern as claude_official_sync — keep
-    // at most one snapshot per day.
-    if (source === 'opencode_go_sync') {
-      await runQuery(
-        `DELETE FROM usage_records
-         WHERE source = 'opencode_go_sync'
-           AND date(timestamp) = date('now')
-           AND user_id = ?`,
-        [req.user!.id]
-      );
-    }
-
-    // Console scraping: DELETE old rows for today before inserting fresh ones.
-    // Each sync replaces the entire day's snapshot per user.
-    if (source === 'anthropic_console_sync') {
-      await runQuery(
-        `DELETE FROM usage_records
-         WHERE source = 'anthropic_console_sync'
-           AND date(timestamp) = date('now')
-           AND user_id = ?`,
-        [req.user!.id]
+        [source, req.user!.id]
       );
     }
 
@@ -120,7 +93,7 @@ export async function trackUsage(
           tier: normalized.tier,
           apiId: normalized.apiId
         });
-        console.log(`Auto-created tier_default pricing for new model: ${model}`);
+        logger.info(`Auto-created tier_default pricing for new model: ${model}`);
       } else {
         await upsertPricing({
           model,
@@ -131,7 +104,7 @@ export async function trackUsage(
           tier: normalized.tier,
           apiId: normalized.apiId
         });
-        console.log(`Auto-created pending_confirmation pricing for unknown model: ${model}`);
+        logger.info(`Auto-created pending_confirmation pricing for unknown model: ${model}`);
       }
       pricing = (await getQuery(
         'SELECT * FROM pricing WHERE model = ?',
@@ -183,7 +156,7 @@ export async function trackUsage(
       cost: cost.toFixed(4)
     });
   } catch (error) {
-    console.error('Error tracking usage:', error);
+logger.error({ err: error }, 'Error tracking usage:');
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 }
@@ -483,7 +456,7 @@ export async function getSummary(
       }
     });
   } catch (error) {
-    console.error('Error getting summary:', error);
+logger.error({ err: error }, 'Error getting summary:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -575,7 +548,7 @@ export async function getModelBreakdown(
       by_model_category: byModelCategory
     });
   } catch (error) {
-    console.error('Error getting model breakdown:', error);
+logger.error({ err: error }, 'Error getting model breakdown:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -830,7 +803,7 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       }
     });
   } catch (error) {
-    console.error('Error getting spending total:', error);
+logger.error({ err: error }, 'Error getting spending total:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -886,14 +859,19 @@ export async function getConsoleKeys(req: Request, res: Response): Promise<void>
 
     res.json({ keys: enriched });
   } catch (error) {
-    console.error('Error getting console keys:', error);
+logger.error({ err: error }, 'Error getting console keys:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }
 
+const SYNC_SOURCES_FILTER = `AND COALESCE(source, '') NOT IN (
+  'claude_official_sync', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync'
+)`;
+
 interface HistoryQuery {
   limit?: string;
   offset?: string;
+  days?: string;
 }
 
 export async function getHistory(
@@ -901,7 +879,30 @@ export async function getHistory(
   res: Response
 ): Promise<void> {
   try {
-    const { limit = '50', offset = '0' } = req.query;
+    const { limit = '50', offset = '0', days } = req.query;
+
+    if (days) {
+      const daysNum = parseInt(days as string, 10);
+
+      const dailyHistory = await allQuery(
+        `SELECT
+          date(timestamp) as date,
+          SUM(input_tokens) as tokens_in,
+          SUM(output_tokens) as tokens_out,
+          SUM(cost) as cost_eur,
+          COUNT(*) as request_count
+         FROM usage_records
+         WHERE user_id = ?
+           AND date(timestamp) >= date('now', ?)
+           ${SYNC_SOURCES_FILTER}
+         GROUP BY date(timestamp)
+         ORDER BY date ASC`,
+        [req.user!.id, `-${daysNum} days`]
+      );
+
+      res.json({ days: dailyHistory || [] });
+      return;
+    }
 
     const limitNum = parseInt(limit as string, 10);
     const offsetNum = parseInt(offset as string, 10);
@@ -923,7 +924,7 @@ export async function getHistory(
       offset: offsetNum
     });
   } catch (error) {
-    console.error('Error getting history:', error);
+logger.error({ err: error }, 'Error getting history:');
     res.status(500).json({ error: 'Internal server error' });
   }
 }

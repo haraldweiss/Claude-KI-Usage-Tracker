@@ -132,6 +132,14 @@ export interface UsageHistoryRecord {
   response_metadata?: Record<string, unknown> | null;
 }
 
+export interface DailyUsageRecord {
+  date: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  request_count: number;
+}
+
 export interface ModelBreakdown {
   model: string;
   input_tokens: number;

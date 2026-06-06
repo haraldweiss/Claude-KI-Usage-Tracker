@@ -308,3 +308,27 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
 **Noch offen:**
 - Dashboard-Duplikate: `openwebui`-Key taucht in `Claude_tracker` UND `wolfinisoftware_de` auf (Backend-Dedup fehlt)
 - Dead Code in `extension/background.js` wurde entfernt (alle Click-Simulation-Funktionen)
+
+---
+
+### 2026-06-06 — ai-provider-service Memory-Layer verfügbar (kein Code-Change hier)
+
+**Was sich ändert:** Der `ai-provider-service` (mit dem dieser Tracker schon via `/admin/overview` integriert ist — siehe `ProviderServiceSettings.tsx` + Backend `provider_service.py`) hat seit gestern (PR [#14](https://github.com/haraldweiss/ai-provider-service/pull/14) + Phase 1.5/2, deployed) eine Markdown-Memory-Schicht. **Claudetracker schreibt aktuell NICHT** dorthin — der Eintrag ist informativ.
+
+**Mögliche Use-Cases für den Tracker** (kein konkreter Auftrag, nur Optionen):
+- Pro discovered Workspace könnte ein `POST /memory/events` mit `event_type=workspace_discovered` reingelegt werden, damit man später per FTS5 oder Obsidian alle Workspaces an einem Ort browsen kann
+- Cost-Anomalien (täglicher Cost-Sprung) könnten als `kind=note` mit Tag `cost-alert` persistiert werden — der Memory-Vault wird damit zum gemeinsamen "Insights"-Speicher quer über alle Apps
+- Existierende Discovery-Workflows kommen mit den ai-provider-service-Endpoints unverändert klar — nur die *Memory*-Endpoints sind neu
+
+**Endpoints** (alle unter `https://bewerbungen.wolfinisoftware.de/ai-provider/memory/`):
+- `POST /notes`, `POST /events`, `PATCH/DELETE /notes/<id>`, `GET /notes` mit `?q=<text>&tags=<...>`
+- `GET /search?q=` (FTS5, porter+unicode61), `GET /tags`
+- `GET /audit` (read-only, was der Gateway selbst loggt), `GET /summaries`
+- `POST /notes/<id>/summarize` (on-demand, nutzt `MEMORY_FREE_MODELS=opencode::deepseek-v4-flash-free → qwen3.6-plus-free → ollama::deepseek-r1:8b`)
+- `GET /vault.tar.gz`, `GET /vault/<path>`, WebDAV unter `/dav/?user_id=<...>`
+
+**Auth:** Bearer `SERVICE_TOKEN` (denselben den `ProviderServiceSettings` schon nutzt) — Auth + User-Scoping greift gleich wie bei den anderen Gateway-Endpoints.
+
+**Rate-Limits:** 60 POST/min, 120 GET/min, 5 vault-exports/min pro User.
+
+**Sibling-Repo:** [`ai-provider-service` AGENTS.md §7](https://github.com/haraldweiss/ai-provider-service/blob/main/AGENTS.md) hat den vollständigen Status (Phase 1+1.5+2 deployed). Spec/Plan: `docs/superpowers/{specs,plans}/2026-06-05-markdown-memory-*.md` im Gateway-Repo.

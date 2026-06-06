@@ -306,8 +306,19 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
 - Der 18:06er Cache (vor meinen Änderungen) blockierte alle Discovery-Aufrufe — erst nach `chrome.storage.local.remove(...)` lief die neue Discovery.
 
 **Noch offen:**
-- Dashboard-Duplikate: `openwebui`-Key taucht in `Claude_tracker` UND `wolfinisoftware_de` auf (Backend-Dedup fehlt)
+- 🔴 **Manueller Round-Trip-Test fehlt:** Extension neu laden, Sync triggern, Dashboard auf alle 5 Workspaces prüfen. Siehe §7 "2026-06-02 17:30 — Test-Status & offene Diagnose".
 - Dead Code in `extension/background.js` wurde entfernt (alle Click-Simulation-Funktionen)
+
+### 2026-06-06 — opencode: Dashboard-Deduplizierung + Logger-Migration
+
+**Dashboard-Duplikate gefixt (Backend-Dedup, `16cf03f`):**
+- `getConsoleKeys` gruppiert jetzt nach `(key_name, key_id_suffix)` statt `(workspace, key_id_suffix)`
+- Gleicher Key in mehreren Workspaces (z.B. `openwebui` in `Claude_tracker` + `wolfinisoftware_de`) wird als eine Zeile mit kombinierten Workspace-Namen angezeigt
+
+**Logger-Migration (`908e3b4`):**
+- `console.log` → `pino` logger im gesamten Backend
+- Port 3000 → 3001, Extension-Cleanup, Husky-Pre-Commit
+- Neue Hilfsfunktionen: `frontend/src/utils/format.ts`, `backend/src/utils/logger.ts`
 
 ---
 

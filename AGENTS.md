@@ -322,6 +322,32 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
 
 ---
 
+### 2026-06-09 — Cost-Savings Projection für lokale LLMs
+
+**Neuer Endpoint: `GET /api/savings/projection?period=week|month|year`**
+- Aggregiert lokale Nutzung aus `provider_service_events` pro Modell
+- Mappt lokale Modelle auf Cloud-Äquivalente mit API-Preisen
+- Berechnet: was hätten diese Anfragen in der Cloud gekostet? (lokal = gratis)
+- Hochrechnung Monat/Jahr basierend auf gewähltem Zeitraum
+
+**Frontend: `SavingsCard.tsx`** — im Dashboard unter den Tabs
+- Ersparnis im Zeitraum + Hochrechnung + Detailtabelle pro Modell
+- Perioden-Dropdown: Woche/Monat/Jahr
+
+**Neue Dateien:** `modelMapper.ts`, `savingsController.ts`, `routes/savings.ts`, `SavingsCard.tsx`
+
+**Deployed auf Oracle VM** (Image neugebaut, Container restarted)
+
+**Mapping lokal → Cloud (modelMapper.ts):**
+- `gemma4:12b` → Claude Sonnet 4.6
+- `gemma4:9b`, `deepseek-r1:7b`, `llama3.1:8b` → Claude Haiku 4.5
+- `deepseek-r1:8b`, `deepseek-v4`, `mistral-nemo:12b` → Claude Sonnet 4.6
+- `nomic-embed-text` → OpenAI Embedding 3 Small
+- Fallback: Claude Sonnet 4.6
+
+**Verified:** tsc ✓, vite build ✓, endpoint 401 ✓, deployed ✓
+
+
 ### 2026-06-06 — ai-provider-service Memory-Layer verfügbar (kein Code-Change hier)
 
 **Was sich ändert:** Der `ai-provider-service` (mit dem dieser Tracker schon via `/admin/overview` integriert ist — siehe `ProviderServiceSettings.tsx` + Backend `provider_service.py`) hat seit gestern (PR [#14](https://github.com/haraldweiss/ai-provider-service/pull/14) + Phase 1.5/2, deployed) eine Markdown-Memory-Schicht. **Claudetracker schreibt aktuell NICHT** dorthin — der Eintrag ist informativ.

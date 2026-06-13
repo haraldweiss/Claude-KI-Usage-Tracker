@@ -70,6 +70,30 @@ export async function trackUsage(
       );
     }
 
+    // OpenCode Go sync: same dedupe pattern as claude_official_sync — keep
+    // at most one snapshot per day.
+    if (source === 'opencode_go_sync') {
+      await runQuery(
+        `DELETE FROM usage_records
+         WHERE source = 'opencode_go_sync'
+           AND date(timestamp) = date('now')
+           AND user_id = ?`,
+        [req.user!.id]
+      );
+    }
+
+    // Console scraping: DELETE old rows for today before inserting fresh ones.
+    // Each sync replaces the entire day's snapshot per user.
+    if (source === 'anthropic_console_sync') {
+      await runQuery(
+        `DELETE FROM usage_records
+         WHERE source = 'anthropic_console_sync'
+           AND date(timestamp) = date('now')
+           AND user_id = ?`,
+        [req.user!.id]
+      );
+    }
+
     // Normalize the incoming model id/name against existing pricing rows
     const allRows = (await allQuery('SELECT * FROM pricing')) as KnownRow[];
     const normalized = normalizeIncomingModel(rawModel, allRows);

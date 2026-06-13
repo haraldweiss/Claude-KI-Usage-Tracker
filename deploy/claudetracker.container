@@ -17,8 +17,10 @@ Wants=network-online.target
 Image=localhost/claudetracker:latest
 ContainerName=claudetracker
 
-# Bind to host loopback only — Apache is the only client.
-PublishPort=127.0.0.1:3001:3001
+# Host networking — the container needs to reach ai-provider on 127.0.0.1:8767
+# and other host-bound services. Apache reaches this container on 127.0.0.1:3001
+# directly via host loopback.
+Network=host
 
 # Persistent SQLite DB outside the image.
 Volume=/opt/claudetracker-data:/app/data:Z

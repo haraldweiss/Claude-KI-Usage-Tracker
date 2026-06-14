@@ -7,7 +7,8 @@ importScripts(
   'background-scraper-claude.js',
   'background-scraper-console.js',
   'background-scraper-claude-code.js',
-  'background-scraper-opencode.js'
+  'background-scraper-opencode.js',
+  'background-scraper-zai.js'
 );
 
 // Default API base for a fresh install. Users running the backend on a VPS
@@ -102,6 +103,12 @@ async function getOpenCodeGoUrl() {
   return DEFAULT_OPENCODE_GO_URL;
 }
 
+// z.ai GLM Coding Plan — scrapes the my-plan + usage console pages for the
+// subscription price and the 5h / weekly / monthly quota percentages. Daily
+// cadence: the figures lag by ~10 min and don't change minute-to-minute.
+const ZAI_SYNC_ALARM = 'auto-sync-zai';
+const ZAI_SYNC_INTERVAL_MIN = 24 * 60;
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -165,6 +172,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'TRIGGER_ZAI_SYNC') {
+    zaiSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === 'GET_LAST_SYNC_ALL') {
     chrome.storage.local.get('last_sync_all').then((d) => sendResponse(d.last_sync_all || null));
     return true;
@@ -182,6 +196,7 @@ async function syncAll() {
     { type: 'console', label: 'Console', fn: consoleSync },
     { type: 'claude_code', label: 'Claude Code', fn: claudeCodeSync },
     { type: 'opencode_go', label: 'OpenCode Go', fn: opencodeGoSync },
+    { type: 'zai', label: 'z.ai', fn: zaiSync },
   ];
 
   const stepResults = [];
@@ -1496,6 +1511,13 @@ async function ensureAlarms() {
       periodInMinutes: OPENCODE_GO_SYNC_INTERVAL_MIN
     });
   }
+  if (!have.has(ZAI_SYNC_ALARM)) {
+    // Last of the daily scrapes; stagger another couple of minutes out.
+    chrome.alarms.create(ZAI_SYNC_ALARM, {
+      delayInMinutes: 9,
+      periodInMinutes: ZAI_SYNC_INTERVAL_MIN
+    });
+  }
   if (!have.has('retry-queue')) {
     chrome.alarms.create('retry-queue', { delayInMinutes: 1, periodInMinutes: 5 });
   }
@@ -1523,6 +1545,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     claudeCodeSync();
   } else if (alarm.name === OPENCODE_GO_SYNC_ALARM) {
     opencodeGoSync();
+  } else if (alarm.name === ZAI_SYNC_ALARM) {
+    zaiSync();
   } else if (alarm.name === 'retry-queue') {
     retryQueuedData();
   } else if (alarm.name === 'refresh-badge') {

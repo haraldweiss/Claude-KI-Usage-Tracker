@@ -15,6 +15,7 @@
     "https://console.anthropic.com/*",
     "https://platform.claude.com/*",
     "https://opencode.ai/*",
+    "https://z.ai/*",
     "http://localhost:3000/*",
     "http://localhost:3001/*",
     "https://wolfinisoftware.de/*"

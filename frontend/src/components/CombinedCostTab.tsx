@@ -6,10 +6,11 @@ import {
   CombinedSpendBreakdown,
   ConsoleKeyRecord,
   OpenCodeGoSpend,
+  ZaiSpend,
   type PlanPricingRow,
   SpendingTotal
 } from '../types/api';
-import { formatEur, formatUsd, formatRelativeTime, subscriptionEur } from '../utils/format';
+import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
 import ApiKeysDetailTable from './ApiKeysDetailTable';
 
 export default function CombinedCostTab(): React.ReactElement {
@@ -70,11 +71,13 @@ export default function CombinedCostTab(): React.ReactElement {
   const apiTotalEurEquiv = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
+  const zai: ZaiSpend | null = combined?.zai ?? null;
   const additionalUsageEur = claudeAi?.cost_eur ?? 0;
   const planSubscriptionEur = subscriptionEur(plans, claudeAi?.meta?.plan_name);
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur;
+  const zaiEur = subscriptionEur(plans, zai?.plan_name);
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur;
   const exchangeRate = combined?.exchange_rate;
 
   const noData = !claudeAi && apiTotal === 0;
@@ -99,6 +102,9 @@ export default function CombinedCostTab(): React.ReactElement {
           Anthropic API {formatUsd(apiTotal)} ≈ {formatEur(apiTotalEurEquiv)}
           {opencodeGoEur > 0 && (
             <><span className="mx-1">·</span>OpenCode Go {formatEur(opencodeGoEur)}</>
+          )}
+          {zaiEur > 0 && (
+            <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>
           )}
         </p>
         {exchangeRate?.usd_to_eur && (
@@ -359,6 +365,77 @@ export default function CombinedCostTab(): React.ReactElement {
           </div>
           <p className="mt-4 text-xs text-gray-500">
             Letzter Sync: {formatRelativeTime(opencodeGo.last_synced)}
+          </p>
+        </div>
+      )}
+
+      {zai && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">z.ai</h3>
+            {zai.plan_name && (
+              <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded font-medium">
+                {zai.plan_name}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            GLM Coding Plan{zaiEur > 0 && <> · {formatEur(zaiEur)} / Monat</>}
+            {zai.price_usd != null && <> ({formatUsd(zai.price_usd)})</>}
+          </p>
+          <div className="mt-4 space-y-4">
+            {zai.five_hour_pct != null && (
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">5-Stunden-Limit</span>
+                  <span className="font-medium">{zai.five_hour_pct}%</span>
+                </div>
+                <div className="mt-1 h-2 bg-gray-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full rounded ${zai.five_hour_pct < 50 ? 'bg-emerald-500' : zai.five_hour_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, zai.five_hour_pct)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {zai.weekly_pct != null && (
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Wöchentliche Nutzung</span>
+                  <span className="font-medium">{zai.weekly_pct}%</span>
+                </div>
+                <div className="mt-1 h-2 bg-gray-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full rounded ${zai.weekly_pct < 50 ? 'bg-emerald-500' : zai.weekly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, zai.weekly_pct)}%` }}
+                  />
+                </div>
+                {zai.weekly_reset && (
+                  <p className="mt-1 text-xs text-gray-500">{formatAbsoluteResetHint(zai.weekly_reset)}</p>
+                )}
+              </div>
+            )}
+            {zai.monthly_pct != null && (
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Monatlich (Web/Reader/Zread)</span>
+                  <span className="font-medium">{zai.monthly_pct}%</span>
+                </div>
+                <div className="mt-1 h-2 bg-gray-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full rounded ${zai.monthly_pct < 50 ? 'bg-emerald-500' : zai.monthly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, zai.monthly_pct)}%` }}
+                  />
+                </div>
+                {zai.monthly_reset && (
+                  <p className="mt-1 text-xs text-gray-500">{formatAbsoluteResetHint(zai.monthly_reset)}</p>
+                )}
+              </div>
+            )}
+          </div>
+          <p className="mt-4 text-xs text-gray-500">
+            Letzter Sync: {formatRelativeTime(zai.last_synced)}
+            {zai.auto_renew_date && <> · Auto-Renew: {zai.auto_renew_date}</>}
           </p>
         </div>
       )}

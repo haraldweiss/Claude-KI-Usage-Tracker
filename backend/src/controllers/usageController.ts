@@ -5,7 +5,7 @@ import { runQuery, getQuery, allQuery } from '../database/sqlite.js';
 import type { UsageTrackRequest, UsageTrackResponse, UsageRecord } from '../types/index.js';
 import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow } from '../services/modelNormalizer.js';
 import { upsertPricing } from '../services/pricingService.js';
-import { getPlanPrice } from '../services/planPricingService.js';
+import { getPlanPrice, updatePlanPrice } from '../services/planPricingService.js';
 import { convertUsdToEur } from '../services/exchangeRateService.js';
 import logger from '../utils/logger.js';
 
@@ -59,7 +59,7 @@ export async function trackUsage(
 
     // Dedupe: at most one snapshot per day per source — delete today's stale
     // rows for this source before inserting fresh ones.
-    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync'] as const;
+    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync'] as const;
     if ((SYNC_SOURCES as readonly string[]).includes(source)) {
       await runQuery(
         `DELETE FROM usage_records
@@ -173,6 +173,32 @@ export async function trackUsage(
         req.user!.id
       ]
     );
+
+    // z.ai GLM Coding Plan: the scraper reports the live subscription price in
+    // USD alongside the usage quotas. Keep the plan_pricing row in sync so the
+    // dashboard grand total auto-adjusts when the user upgrades (Lite→Pro→Max).
+    // Cost math is user-trust-critical — only upsert a finite, positive price,
+    // and mark the row 'auto' so a manual user edit is never overwritten.
+    if (source === 'zai_sync' && response_metadata && typeof response_metadata === 'object') {
+      const meta = response_metadata as { plan_name?: unknown; price_usd?: unknown };
+      const planName = typeof meta.plan_name === 'string' ? meta.plan_name.trim() : null;
+      const priceUsd = typeof meta.price_usd === 'number' ? meta.price_usd : null;
+      if (planName && priceUsd != null && isFinite(priceUsd) && priceUsd > 0) {
+        try {
+          // Never clobber a price the user edited by hand in the pricing table.
+          const existing = await getQuery<{ source: string }>(
+            'SELECT source FROM plan_pricing WHERE plan_name = ?',
+            [planName]
+          );
+          if (existing?.source !== 'manual') {
+            const fx = await convertUsdToEur(priceUsd);
+            await updatePlanPrice(planName, fx.eur, 'auto');
+          }
+        } catch (err) {
+          logger.error({ err }, '[zai_sync] plan price upsert failed');
+        }
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -319,6 +345,55 @@ export async function getSummary(
           monthly_pct: opencodeGoMeta?.monthly_pct ?? null,
           monthly_reset_in: opencodeGoMeta?.monthly_reset_in ?? null,
           last_synced: opencodeGoRow.timestamp
+        }
+      : null;
+
+    // -------- z.ai GLM Coding Plan subscription data ---------
+    const zaiRow = await getQuery<{
+      timestamp: string;
+      response_metadata: string | null;
+    }>(
+      `SELECT timestamp, response_metadata
+       FROM usage_records
+       WHERE source = 'zai_sync'
+         AND user_id = ?
+       ORDER BY timestamp DESC
+       LIMIT 1`,
+      [req.user!.id]
+    );
+
+    interface ZaiMeta {
+      plan_name?: string | null;
+      price_usd?: number | null;
+      auto_renew_date?: string | null;
+      five_hour_pct?: number | null;
+      weekly_pct?: number | null;
+      weekly_reset?: string | null;
+      monthly_pct?: number | null;
+      monthly_reset?: string | null;
+      scraped_at?: string;
+    }
+
+    let zaiMeta: ZaiMeta | null = null;
+    if (zaiRow?.response_metadata) {
+      try {
+        zaiMeta = JSON.parse(zaiRow.response_metadata) as ZaiMeta;
+      } catch {
+        zaiMeta = null;
+      }
+    }
+
+    const zai = zaiRow
+      ? {
+          plan_name: zaiMeta?.plan_name ?? null,
+          price_usd: zaiMeta?.price_usd ?? null,
+          auto_renew_date: zaiMeta?.auto_renew_date ?? null,
+          five_hour_pct: zaiMeta?.five_hour_pct ?? null,
+          weekly_pct: zaiMeta?.weekly_pct ?? null,
+          weekly_reset: zaiMeta?.weekly_reset ?? null,
+          monthly_pct: zaiMeta?.monthly_pct ?? null,
+          monthly_reset: zaiMeta?.monthly_reset ?? null,
+          last_synced: zaiRow.timestamp
         }
       : null;
 
@@ -473,6 +548,7 @@ export async function getSummary(
           by_workspace: apiByWorkspace
         },
         opencode_go: opencodeGo,
+        zai,
         exchange_rate: {
           usd_to_eur: fx.rate,
           rate_date: fx.rate_date
@@ -534,7 +610,8 @@ export async function getModelBreakdown(
             'claude_official_sync',
             'anthropic_console_sync',
             'claude_code_sync',
-            'opencode_go_sync'
+            'opencode_go_sync',
+            'zai_sync'
           )
        GROUP BY model
        ORDER BY total_tokens DESC`,
@@ -786,7 +863,7 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       `SELECT MIN(timestamp) as first_ts
          FROM usage_records
         WHERE user_id = ?
-          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync')`,
+          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync', 'zai_sync')`,
       [req.user!.id]
     );
     const since = earliestOverall?.first_ts ? earliestOverall.first_ts.slice(0, 10) : null;
@@ -804,6 +881,27 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     const opencodeGoMonthlyEur = opencodeGoRow?.monthly_eur ?? 0;
     const opencodeGoTotalEur = opencodeGoMonthlyEur > 0 ? opencodeGoMonthlyEur * Math.max(1, months.length) : 0;
 
+    // z.ai GLM Coding Plan subscription cost — fixed monthly fee. The plan name
+    // is dynamic (Lite/Pro/Max), so resolve it from the latest zai_sync snapshot
+    // and look its price up in plan_pricing (kept current by the sync upsert).
+    const zaiSyncRow = await getQuery<{ response_metadata: string | null }>(
+      `SELECT response_metadata FROM usage_records
+       WHERE source = 'zai_sync' AND user_id = ?
+       ORDER BY timestamp DESC LIMIT 1`,
+      [req.user!.id]
+    );
+    let zaiPlanName: string | null = null;
+    if (zaiSyncRow?.response_metadata) {
+      try {
+        const m = JSON.parse(zaiSyncRow.response_metadata) as { plan_name?: string | null };
+        zaiPlanName = typeof m.plan_name === 'string' ? m.plan_name : null;
+      } catch {
+        zaiPlanName = null;
+      }
+    }
+    const zaiMonthlyEur = zaiPlanName ? (await getPlanPrice(zaiPlanName)) ?? 0 : 0;
+    const zaiTotalEur = zaiMonthlyEur > 0 ? zaiMonthlyEur * Math.max(1, months.length) : 0;
+
     res.json({
       since,
       claude_ai: {
@@ -820,7 +918,11 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
         monthly_eur: opencodeGoMonthlyEur,
         total_eur: opencodeGoTotalEur
       },
-      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur,
+      zai: {
+        monthly_eur: zaiMonthlyEur,
+        total_eur: zaiTotalEur
+      },
+      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur,
       exchange_rate: {
         usd_to_eur: fx.rate,
         rate_date: fx.rate_date
@@ -898,7 +1000,7 @@ logger.error({ err: error }, 'Error getting console keys:');
 }
 
 const SYNC_SOURCES_FILTER = `AND COALESCE(source, '') NOT IN (
-  'claude_official_sync', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync'
+  'claude_official_sync', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync', 'zai_sync'
 )`;
 
 interface HistoryQuery {

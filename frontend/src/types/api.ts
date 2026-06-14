@@ -27,6 +27,20 @@ export interface OpenCodeGoSpend {
   last_synced: string;
 }
 
+// z.ai GLM Coding Plan subscription. Unlike OpenCode Go's relative reset
+// strings, z.ai reports absolute reset timestamps (e.g. "2026-06-21 08:58").
+export interface ZaiSpend {
+  plan_name: string | null;
+  price_usd: number | null;
+  auto_renew_date: string | null;
+  five_hour_pct: number | null;
+  weekly_pct: number | null;
+  weekly_reset: string | null;
+  monthly_pct: number | null;
+  monthly_reset: string | null;
+  last_synced: string;
+}
+
 export interface CombinedSpendBreakdown {
   claude_ai: ClaudeAiSpend | null;
   anthropic_api: {
@@ -35,6 +49,7 @@ export interface CombinedSpendBreakdown {
     by_workspace: ApiWorkspaceSpend[];
   };
   opencode_go?: OpenCodeGoSpend | null;
+  zai?: ZaiSpend | null;
   exchange_rate?: {
     usd_to_eur: number;
     rate_date: string | null;
@@ -107,6 +122,10 @@ export interface SpendingTotal {
     total_eur_equivalent?: number;
   };
   opencode_go?: {
+    monthly_eur: number;
+    total_eur: number;
+  };
+  zai?: {
     monthly_eur: number;
     total_eur: number;
   };

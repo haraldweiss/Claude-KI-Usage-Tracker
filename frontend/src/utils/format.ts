@@ -31,6 +31,20 @@ export function formatRelativeTime(iso: string): string {
   return new Date(iso).toLocaleString('de-DE');
 }
 
+/**
+ * Format an absolute reset timestamp into a German "Reset: <date>, <time>"
+ * label. z.ai reports absolute timestamps like "2026-06-21 08:58" (space
+ * separator), unlike OpenCode Go's relative strings. Returns undefined for
+ * empty input so the caller can hide the hint row. Falls back to the raw
+ * string if it can't be parsed, so a layout change never produces "Invalid Date".
+ */
+export function formatAbsoluteResetHint(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const ts = new Date(raw.trim().replace(' ', 'T')).getTime();
+  if (!isFinite(ts)) return `Reset: ${raw.trim()}`;
+  return `Reset: ${new Date(ts).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}`;
+}
+
 export function subscriptionEur(plans: PlanPricingRow[], planName: string | null | undefined): number {
   if (!planName) return 0;
   return plans.find((p) => p.plan_name === planName)?.monthly_eur ?? 0;

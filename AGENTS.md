@@ -308,3 +308,26 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
 **Noch offen:**
 - Dashboard-Duplikate: `openwebui`-Key taucht in `Claude_tracker` UND `wolfinisoftware_de` auf (Backend-Dedup fehlt)
 - Dead Code in `extension/background.js` wurde entfernt (alle Click-Simulation-Funktionen)
+
+---
+
+### 2026-06-14 — opencode: background.js-Fix + z.ai-Deploy
+
+**Was gemacht:**
+
+1. **background.js korrupt → Fix:** Restore von `82c10d0` (521-Zeilen Modular-Version), 6 z.ai-Edits reapplien. `node --check` grün. Commit `8c3074d` auf `claude/festive-faraday-4c878e`.
+2. **Extension + Source auf Hauptverzeichnis sync**: background.js, background-scraper-zai.js, manifest.json, popup.html/js, backend/src, frontend/src.
+3. **Deploy auf Oracle-VPS** (Docker-Container `claudetracker`):
+   - Frontend `dist/` nach `/opt/claudetracker-frontend/dist/` (Apache DocumentRoot — nicht `/var/www/.../frontend/dist/`)
+   - Backend `dist/` via `sudo docker cp` in Container
+   - `plan_pricing` manuell inserted (14.90 €)
+   - `sudo docker restart claudetracker`
+   - Apache graceful reload
+4. **Dashboard nach Hard Refresh:** z.ai-Tile sichtbar ✓
+
+**Wichtig für künftige Deploys:**
+- Apache DocumentRoot ist `/opt/claudetracker-frontend/dist/`, nicht `/var/www/.../frontend/dist/`
+- Backend läuft als Docker-Container → Dist-Änderungen via `sudo docker cp` oder Image-Rebuild
+- Datenbank: Host `/opt/claudetracker-data/database.sqlite` = Container `/app/data/database.sqlite`
+- Hard Refresh (Cmd+Shift+R) im Browser nötig bei JS-Änderungen
+- SSH: `oracle-vm` (92.5.18.29, Default-Key `id_ed25519`)

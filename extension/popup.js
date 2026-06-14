@@ -145,6 +145,7 @@ function displayStats(stats) {
   const api = stats?.combined?.anthropic_api;
   const meta = claudeAi?.meta;
   const opencodeGo = stats?.combined?.opencode_go;
+  const zai = stats?.combined?.zai;
 
   const claudeAiTotalEur = claudeAi?.total_eur ?? 0;
   const apiUsd = api?.cost_usd ?? 0;
@@ -174,6 +175,20 @@ function displayStats(stats) {
     opencodeEl.textContent = parts.length > 0 ? parts.join(' · ') : (opencodeGo.plan_name || 'aktiv');
   } else if (opencodeEl) {
     opencodeRow.style.display = 'none';
+  }
+
+  // z.ai GLM Coding Plan — show "5h% · W% · M%" when data exists
+  const zaiRow = document.getElementById('zai-row');
+  const zaiEl = document.getElementById('zai-summary');
+  if (zai && zaiEl) {
+    zaiRow.style.display = '';
+    const parts = [];
+    if (typeof zai.five_hour_pct === 'number') parts.push(`5h ${zai.five_hour_pct}%`);
+    if (typeof zai.weekly_pct === 'number') parts.push(`W ${zai.weekly_pct}%`);
+    if (typeof zai.monthly_pct === 'number') parts.push(`M ${zai.monthly_pct}%`);
+    zaiEl.textContent = parts.length > 0 ? parts.join(' · ') : (zai.plan_name || 'aktiv');
+  } else if (zaiEl) {
+    zaiRow.style.display = 'none';
   }
 }
 

@@ -1,6 +1,6 @@
 # Claude Usage Tracker
 
-A web application + browser extension that tracks the **real cost** of using AI across four surfaces — claude.ai subscription, Anthropic Console API keys, Claude Code, and OpenCode Go — and surfaces it as a single number on a unified dashboard.
+A web application + browser extension that tracks the **real cost** of using AI across five surfaces — claude.ai subscription, Anthropic Console API keys, Claude Code, OpenCode Go, and the z.ai GLM Coding Plan — and surfaces it as a single number on a unified dashboard.
 
 **Status**: ✅ Phase 5 — Multi-Source Cost Tracker (live on VPS, Plan-B architecture, multi-user auth)
 
@@ -28,6 +28,7 @@ The dashboard tells you, in one number, what your AI tools actually cost you thi
 2. **console.anthropic.com/settings/keys** — workspace API keys + their cumulative cost
 3. **platform.claude.com/claude-code** — Claude Code keys with cost + lines-of-code metrics
 4. **opencode.ai** — OpenCode Go workspace subscription usage quotas (plan, continuous/weekly/monthly usage %)
+5. **z.ai/manage-apikey/coding-plan** — GLM Coding Plan subscription (plan name + monthly price from `/my-plan`, 5-hour/weekly/monthly quota % + absolute reset times from `/usage`)
 
 The browser extension scrapes those pages on a schedule, posts the numbers to the local backend, and the backend exposes them through a typed API the React dashboard renders.
 
@@ -42,16 +43,16 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 ## ✨ Features
 
 ### Cost tracking
-- **Four sync sources**: claude.ai (every 10 min), Anthropic Console (every 24h), Claude Code (every 24h, 5 min offset), OpenCode Go (every 24h, 7 min offset). Configurable; manual triggers from the popup or the service-worker console.
-- **Plan subscription pricing** in an editable Settings table (Pro 18 €, Max 5x 99 €, Max 20x 199 €, Team 30 €, OpenCode Go $10). Anthropic plans are seeded once; OpenCode Go price is auto-fetched daily from opencode.ai/go and converted USD→EUR.
+- **Five sync sources**: claude.ai (every 10 min), Anthropic Console (every 24h), Claude Code (every 24h, 5 min offset), OpenCode Go (every 24h, 7 min offset), z.ai GLM Coding Plan (every 24h, 9 min offset). Configurable; manual triggers from the popup or the service-worker console.
+- **Plan subscription pricing** in an editable Settings table (Pro 18 €, Max 5x 99 €, Max 20x 199 €, Team 30 €, OpenCode Go $10, GLM Coding Lite ~15 €). Anthropic plans are seeded once; OpenCode Go price is auto-fetched daily from opencode.ai/go; the z.ai plan price is scraped live from `/my-plan` per sync and converted USD→EUR (manual edits in the table are preserved).
 - **USD → EUR conversion** via [Frankfurter](https://api.frankfurter.app) (ECB-backed, free, no API key). Refreshed daily; falls back to the last persisted rate if the API is briefly unreachable.
 - **Self-maintaining model pricing**: bundled snapshot covers Claude 4.x (Opus 4.7, Sonnet 4.6, Haiku 4.5), 3.7 line, and legacy models. Daily LiteLLM sync keeps prices current as Anthropic ships new ones.
 - **History retention**: claude.ai snapshots are kept one-per-day so monthly diffs and all-time totals survive even though the page only ever shows the current month.
 
 ### Dashboard
-- **Übersicht (Overview)**: hero number in EUR, four status cards (Plan, Wochenlimits with colour-shifting progress bars, Budget, OpenCode Go usage quotas), forecast card extrapolating today's daily rate to month-end, monthly trend block (≥ 2 months), sync-status footer.
+- **Übersicht (Overview)**: hero number in EUR, status cards (Plan, Wochenlimits with colour-shifting progress bars, Budget, plus OpenCode Go and z.ai usage-quota cards when those sources have data), forecast card extrapolating today's daily rate to month-end, monthly trend block (≥ 2 months), sync-status footer.
 - **Modelle (Models)**: per-key detail table (key/member, source badge, workspace, cost, lines, last sync) — works without per-message data because the source is the cumulative-cost-per-key sync.
-- **Gesamtkosten (Combined cost)**: same per-key table, plus a clearer "this month vs. all-time" split with a collapsible monthly breakdown (Plan-Abo + Zusatznutzung + total per month), and an OpenCode Go card showing usage progress bars with reset timers.
+- **Gesamtkosten (Combined cost)**: same per-key table, plus a clearer "this month vs. all-time" split with a collapsible monthly breakdown (Plan-Abo + Zusatznutzung + total per month), and OpenCode Go + z.ai cards showing usage progress bars with reset timers.
 - **Recommendations**: live insights driven by the actual sync data (plan right-sizing based on weekly usage %, monthly-limit forecast, cost-source ratio, Claude Code key efficiency comparison) plus an interactive model suggester for ad-hoc "which model for task X?" queries.
 - **Settings**: editable Plan-Subscription pricing + editable Model token pricing.
 

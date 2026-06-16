@@ -346,7 +346,12 @@ function renderLastSyncAll(state) {
   if (!state) return;
   const parts = (state.steps || []).map((s) => {
     if (s.status === 'ok') return `✅ ${s.label}`;
-    if (s.status === 'skipped') return `⚠️ ${s.label}: ${s.message || 'nichts zu syncen'}`;
+    if (s.status === 'skipped') {
+      let m = s.message || 'nichts zu syncen';
+      if (s.url) m += ` · ${s.url}`;
+      if (s.preview) m += ` · "${s.preview.substring(0, 400)}"`;
+      return `⚠️ ${s.label}: ${m}`;
+    }
     return `❌ ${s.label}: ${s.message || 'Fehler'}`;
   });
   if (state.status === 'running') parts.push('⏳ läuft…');

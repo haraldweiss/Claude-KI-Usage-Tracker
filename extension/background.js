@@ -54,6 +54,8 @@ async function authFetch(url, init = {}) {
 }
 const AUTO_SYNC_ALARM = 'auto-sync-claude';
 const AUTO_SYNC_INTERVAL_MIN = 10;
+// claude.ai/settings/usage still works in normal browser tabs.
+// Extension tabs redirect to platform.claude.com, so we try both.
 const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
 
 // Plan B: Console scraping. Console totals update with significant lag and
@@ -205,7 +207,7 @@ async function syncAll() {
     try {
       const result = await step.fn();
       if (result?.success) outcome = { label: step.label, status: 'ok' };
-      else if (result?.skipped) outcome = { label: step.label, status: 'skipped', message: result?.reason || 'nichts zu syncen' };
+      else if (result?.skipped) outcome = { label: step.label, status: 'skipped', message: result?.reason || 'nichts zu syncen', url: result?.url, preview: result?.preview };
       else outcome = { label: step.label, status: 'error', message: result?.error || 'unbekannt' };
     } catch (err) {
       outcome = { label: step.label, status: 'error', message: err?.message || String(err) };

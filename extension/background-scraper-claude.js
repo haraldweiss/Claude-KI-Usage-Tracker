@@ -2,23 +2,113 @@ function autoSyncSignature(d) {
   return AUTO_SYNC_SIGNATURE_FIELDS.map((f) => `${f}=${d?.[f] ?? ''}`).join('|');
 }
 
+// Poll a tab's body text until common usage-page markers appear, or budget
+// runs out. Handles multi-step redirect chains (auth → target host) because
+// executeScript errors are caught silently. Budget covers whole chain +
+// React hydration on the target page.
+async function waitForUsageContent(tabId, budgetMs = 60000, pollMs = 600) {
+  const deadline = Date.now() + budgetMs;
+  let lastText = '';
+  while (Date.now() < deadline) {
+    try {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => document.body?.innerText || ''
+      });
+      lastText = res?.result || '';
+      // Primary: usage markers (%, €, reset keywords)
+      if (/\d+\s*%/.test(lastText) || /€/.test(lastText) ||
+          /(?:Sitzung|session|Limit|limit|Reset|Zurücksetzung)/i.test(lastText)) {
+        return lastText;
+      }
+      // Fallback: if "Lädt"/"Loading" has disappeared AND text is long
+      // enough (>500 chars = sidebar + some main content), assume React has
+      // rendered the billing/limits page.
+      if (lastText.length > 500 && !/Lädt|Loading|Lade/i.test(lastText)) {
+        return lastText;
+      }
+    } catch {
+      // executeScript can throw on about:blank or auth host — retry
+    }
+    await sleep(pollMs);
+  }
+  return lastText;
+}
 async function autoSync() {
   let createdTabId = null;
 
-  try {
-    // Reuse an existing tab if the user already has one open
-    const existing = await chrome.tabs.query({ url: 'https://claude.ai/settings/usage*' });
-    let tabId;
+  // Helper: navigate tab to a URL, wait for it to render, scrape, return data.
+  async function tryUrl(tab, url) {
+    try { await chrome.tabs.update(tab, { url }); } catch {}
+    await waitForTabReady(tab, 30000);
+    const text = await waitForUsageContent(tab, 30000);
+    const info = await chrome.tabs.get(tab);
+    return { text, url: info?.url || url };
+  }
 
-    if (existing.length > 0) {
-      tabId = existing[0].id;
+  try {
+    // Try multiple URLs in order until one returns useful text (not just "Lädt").
+    const urlsToTry = [
+      USAGE_PAGE_URL,
+      'https://platform.claude.com/settings/billing',
+      'https://platform.claude.com/claude-code',
+    ];
+    // Add workspace-specific URLs from the console scraper's cache
+    let wsSpecific = [];
+    try {
+      const cached = await chrome.storage.local.get('workspace_ids_cache');
+      if (Array.isArray(cached.workspace_ids_cache)) {
+        wsSpecific = cached.workspace_ids_cache
+          .filter((w) => w?.id)
+          .map((w) => `https://platform.claude.com/settings/workspaces/${w.id}/limits`);
+      }
+    } catch {}
+    const allUrls = [...urlsToTry, ...wsSpecific];
+
+    // Find or create a tab. claude.ai now uses an SPA at /new with hash
+    // routing (#settings/usage), so also search for /new tabs.
+    let tabId = null;
+    for (const url of [...allUrls, 'https://claude.ai/new*']) {
+      const existing = await chrome.tabs.query({ url });
+      if (existing.length > 0) { tabId = existing[0].id; break; }
+    }
+
+    let pageUrl = '';
+    let lastText = '';
+    const isReusedTab = tabId !== null;
+
+    if (isReusedTab) {
+      // Existing user tab — avoid navigation; just set hash if needed.
+      const t = await chrome.tabs.get(tabId);
+      const wantsUsageHash = t.url && t.url.startsWith('https://claude.ai/new') && !t.url.includes('settings/usage');
+      if (wantsUsageHash) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => { window.location.hash = 'settings/usage'; }
+          });
+          await sleep(3000);
+        } catch {}
+      }
+      // Poll for rendered content
+      lastText = await waitForUsageContent(tabId, 30000);
+      const info = await chrome.tabs.get(tabId);
+      pageUrl = info?.url || '';
     } else {
-      const tab = await chrome.tabs.create({ url: USAGE_PAGE_URL, active: false });
+      // New hidden tab — iterate URLs to find one that renders
+      const tab = await chrome.tabs.create({ url: allUrls[0], active: false });
       tabId = tab.id;
       createdTabId = tab.id;
-      await waitForTabComplete(tab.id, 30000);
-      // Give React a moment to render the usage figures
-      await sleep(4000);
+      for (const url of allUrls) {
+        try { await chrome.tabs.update(tabId, { url }); } catch {}
+        await waitForTabReady(tabId, 30000);
+        lastText = await waitForUsageContent(tabId, 30000);
+        const info = await chrome.tabs.get(tabId);
+        pageUrl = info?.url || url;
+        if (!/Lädt|Loading|Lade/i.test(lastText) || /\d+\s*%/.test(lastText) || /€/.test(lastText)) {
+          break;
+        }
+      }
     }
 
     // Inject the scrape function directly via scripting API instead of relying
@@ -95,8 +185,9 @@ async function autoSync() {
         // Extract the absolute session limit (e.g. "5" from "5-Stunden-Limit" or
         // "5" from "5-hour limit"). The new layout only shows "Aktuelle Sitzung"
         // without the limit value — will be null unless Anthropic brings it back.
+        // On platform.claude.com the label might be "Session limit".
         const session_limit_hours = (() => {
-          const m = text.match(/(\d+)\s*-?(?:Stunden[- ]Limit|hour[- ]limit)/i);
+          const m = text.match(/(\d+)\s*-?(?:Stunden[- ]Limit|hour[- ]limit|Session[- ]limit)/i);
           return m ? parseInt(m[1], 10) : null;
         })();
 
@@ -187,7 +278,10 @@ async function autoSync() {
           monthly_limit_eur,
           balance_eur,
           reset_date,
-          scraped_at: new Date().toISOString()
+          scraped_at: new Date().toISOString(),
+          // Diagnostic: include a page text excerpt so we can debug
+          // scraping failures without asking the user to open DevTools.
+          _page_preview: text.slice(0, 1500)
         };
       }
     });
@@ -197,7 +291,7 @@ async function autoSync() {
       throw new Error('Scrape returned no result');
     }
     if (data.spent_eur == null && data.weekly_all_models_pct == null) {
-      return { skipped: true, reason: 'no_data' };
+      return { skipped: true, reason: 'no_data', url: pageUrl, preview: data._page_preview };
     }
 
     const apiBase = await getApiBase();

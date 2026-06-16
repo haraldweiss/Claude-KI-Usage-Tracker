@@ -72,6 +72,17 @@
       color: #667eea;
     }
 
+    .stat-value.warning {
+      color: #d32f2f;
+      background: #fce4e4;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .stat-value.warning::before {
+      content: '⚠ ';
+    }
+
     .sync-info {
       background: rgba(255, 255, 255, 0.92);
       border-radius: 8px;
@@ -288,6 +299,8 @@
       <p style="font-size:10px;color:#777;margin-top:4px">
         Generiere im Dashboard unter Settings → API-Token.
       </p>
+      <label for="webhook-url-input">Webhook-URL (bei ≥90% Auslastung)</label>
+      <input id="webhook-url-input" type="url" placeholder="https://example.com/webhook" />
       <button class="btn-secondary" id="open-token-page" type="button">
         Token-Seite öffnen
       </button>

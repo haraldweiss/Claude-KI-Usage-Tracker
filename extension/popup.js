@@ -52,13 +52,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function initSettings() {
-  const stored = await chrome.storage.local.get(['api_base', 'dashboard_url', 'api_token']);
+  const stored = await chrome.storage.local.get(['api_base', 'dashboard_url', 'api_token', 'webhook_url']);
   const apiBase = stored.api_base || DEFAULT_API_BASE;
   const dashboardUrl = stored.dashboard_url || DEFAULT_DASHBOARD_URL;
 
   document.getElementById('api-base-input').value = apiBase;
   document.getElementById('dashboard-url-input').value = dashboardUrl;
   document.getElementById('api-token-input').value = stored.api_token || '';
+  document.getElementById('webhook-url-input').value = stored.webhook_url || '';
 
   const footerEl = document.getElementById('footer-api-base');
   if (footerEl) {
@@ -70,6 +71,7 @@ async function saveSettings() {
   const apiBase = document.getElementById('api-base-input').value.trim();
   const dashboardUrl = document.getElementById('dashboard-url-input').value.trim();
   const apiToken = document.getElementById('api-token-input').value.trim();
+  const webhookUrl = document.getElementById('webhook-url-input').value.trim();
   const status = document.getElementById('settings-status');
 
   if (!apiBase || !dashboardUrl) {
@@ -79,7 +81,8 @@ async function saveSettings() {
   await chrome.storage.local.set({
     api_base: apiBase.replace(/\/+$/, ''),
     dashboard_url: dashboardUrl.replace(/\/+$/, ''),
-    api_token: apiToken
+    api_token: apiToken,
+    webhook_url: webhookUrl || undefined
   });
   await chrome.storage.local.remove(['auth_user', 'auth_pass']);  // clean up old
   status.textContent = '✅ Gespeichert.';
@@ -88,7 +91,7 @@ async function saveSettings() {
 }
 
 async function resetSettings() {
-  await chrome.storage.local.remove(['api_base', 'dashboard_url', 'api_token', 'auth_user', 'auth_pass']);
+  await chrome.storage.local.remove(['api_base', 'dashboard_url', 'api_token', 'webhook_url', 'auth_user', 'auth_pass']);
   await initSettings();
   document.getElementById('settings-status').textContent = 'Auf localhost zurückgesetzt.';
 }
@@ -158,10 +161,22 @@ function displayStats(stats) {
     : '—';
   document.getElementById('api-total').textContent =
     apiUsd > 0 ? `${formatUsd(apiUsd)} ≈ ${formatEur(apiEur)}` : formatEur(0);
-  document.getElementById('weekly-pct').textContent =
-    typeof meta?.weekly_all_models_pct === 'number' ? `${meta.weekly_all_models_pct}%` : '—';
-  document.getElementById('session-pct').textContent =
-    typeof meta?.session_pct === 'number' ? `${meta.session_pct}%` : '—';
+  const weeklyEl = document.getElementById('weekly-pct');
+  const sessionEl = document.getElementById('session-pct');
+  if (typeof meta?.weekly_all_models_pct === 'number') {
+    weeklyEl.textContent = `${meta.weekly_all_models_pct}%`;
+    weeklyEl.classList.toggle('warning', meta.weekly_all_models_pct >= 90);
+  } else {
+    weeklyEl.textContent = '—';
+    weeklyEl.classList.remove('warning');
+  }
+  if (typeof meta?.session_pct === 'number') {
+    sessionEl.textContent = `${meta.session_pct}%`;
+    sessionEl.classList.toggle('warning', meta.session_pct >= 90);
+  } else {
+    sessionEl.textContent = '—';
+    sessionEl.classList.remove('warning');
+  }
 
   // OpenCode Go — show usage as "plan: C% · W% · M%" when data exists
   const opencodeRow = document.getElementById('opencode-row');
@@ -169,12 +184,15 @@ function displayStats(stats) {
   if (opencodeGo && opencodeEl) {
     opencodeRow.style.display = '';
     const parts = [];
-    if (typeof opencodeGo.continuous_pct === 'number') parts.push(`F ${opencodeGo.continuous_pct}%`);
-    if (typeof opencodeGo.weekly_pct === 'number') parts.push(`W ${opencodeGo.weekly_pct}%`);
-    if (typeof opencodeGo.monthly_pct === 'number') parts.push(`M ${opencodeGo.monthly_pct}%`);
+    let maxPct = 0;
+    if (typeof opencodeGo.continuous_pct === 'number') { parts.push(`F ${opencodeGo.continuous_pct}%`); maxPct = Math.max(maxPct, opencodeGo.continuous_pct); }
+    if (typeof opencodeGo.weekly_pct === 'number') { parts.push(`W ${opencodeGo.weekly_pct}%`); maxPct = Math.max(maxPct, opencodeGo.weekly_pct); }
+    if (typeof opencodeGo.monthly_pct === 'number') { parts.push(`M ${opencodeGo.monthly_pct}%`); maxPct = Math.max(maxPct, opencodeGo.monthly_pct); }
     opencodeEl.textContent = parts.length > 0 ? parts.join(' · ') : (opencodeGo.plan_name || 'aktiv');
+    opencodeEl.classList.toggle('warning', maxPct >= 90);
   } else if (opencodeEl) {
     opencodeRow.style.display = 'none';
+    opencodeEl.classList.remove('warning');
   }
 
   // z.ai GLM Coding Plan — show "5h% · W% · M%" when data exists
@@ -183,10 +201,12 @@ function displayStats(stats) {
   if (zai && zaiEl) {
     zaiRow.style.display = '';
     const parts = [];
-    if (typeof zai.five_hour_pct === 'number') parts.push(`5h ${zai.five_hour_pct}%`);
-    if (typeof zai.weekly_pct === 'number') parts.push(`W ${zai.weekly_pct}%`);
-    if (typeof zai.monthly_pct === 'number') parts.push(`M ${zai.monthly_pct}%`);
+    let maxPct = 0;
+    if (typeof zai.five_hour_pct === 'number') { parts.push(`5h ${zai.five_hour_pct}%`); maxPct = Math.max(maxPct, zai.five_hour_pct); }
+    if (typeof zai.weekly_pct === 'number') { parts.push(`W ${zai.weekly_pct}%`); maxPct = Math.max(maxPct, zai.weekly_pct); }
+    if (typeof zai.monthly_pct === 'number') { parts.push(`M ${zai.monthly_pct}%`); maxPct = Math.max(maxPct, zai.monthly_pct); }
     zaiEl.textContent = parts.length > 0 ? parts.join(' · ') : (zai.plan_name || 'aktiv');
+    zaiEl.classList.toggle('warning', maxPct >= 90);
   } else if (zaiEl) {
     zaiRow.style.display = 'none';
   }

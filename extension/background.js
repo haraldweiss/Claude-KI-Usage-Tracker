@@ -223,6 +223,119 @@ async function syncAll() {
   await chrome.storage.local.set({
     last_sync_all: { status: 'done', startedAt, finishedAt: Date.now(), steps: stepResults }
   });
+
+  // Check usage thresholds after sync completes
+  checkUsageThresholds();
+}
+
+// ---------------------------------------------------------------------------
+// Usage threshold monitoring
+// ---------------------------------------------------------------------------
+
+const THRESHOLD_PCT = 90;
+const THRESHOLD_ALERTS_KEY = 'threshold_alerts';
+
+// Called after syncAll and periodically by alarm. Fetches current usage from
+// the backend, checks every pct field against THRESHOLD_PCT, updates the
+// extension badge (count of sources over threshold), shows a Chrome
+// notification on newly crossed thresholds, and fires a webhook if configured.
+async function checkUsageThresholds() {
+  const stats = await getMonthlyStats();
+  if (!stats?.combined) return;
+
+  const { combined } = stats;
+  const alerts = [];
+
+  // Claude.ai
+  const meta = combined.claude_ai?.meta;
+  if (meta) {
+    if (typeof meta.session_pct === 'number')
+      alerts.push({ source: 'claude_ai_session', label: 'Claude.ai Sitzung', pct: meta.session_pct });
+    if (typeof meta.weekly_all_models_pct === 'number')
+      alerts.push({ source: 'claude_ai_weekly', label: 'Claude.ai Wochenlimit', pct: meta.weekly_all_models_pct });
+  }
+
+  // OpenCode Go
+  const og = combined.opencode_go;
+  if (og) {
+    if (typeof og.continuous_pct === 'number')
+      alerts.push({ source: 'opencode_go_continuous', label: 'OpenCode Go Fortlaufend', pct: og.continuous_pct });
+    if (typeof og.weekly_pct === 'number')
+      alerts.push({ source: 'opencode_go_weekly', label: 'OpenCode Go Wöchentlich', pct: og.weekly_pct });
+    if (typeof og.monthly_pct === 'number')
+      alerts.push({ source: 'opencode_go_monthly', label: 'OpenCode Go Monatlich', pct: og.monthly_pct });
+  }
+
+  // z.ai
+  const z = combined.zai;
+  if (z) {
+    if (typeof z.five_hour_pct === 'number')
+      alerts.push({ source: 'zai_5h', label: 'z.ai 5h-Limit', pct: z.five_hour_pct });
+    if (typeof z.weekly_pct === 'number')
+      alerts.push({ source: 'zai_weekly', label: 'z.ai Wöchentlich', pct: z.weekly_pct });
+    if (typeof z.monthly_pct === 'number')
+      alerts.push({ source: 'zai_monthly', label: 'z.ai Monatlich', pct: z.monthly_pct });
+  }
+
+  // Fetch previously notified alerts to detect newly crossed thresholds
+  const stored = await chrome.storage.local.get(THRESHOLD_ALERTS_KEY);
+  const previousAlerts = stored[THRESHOLD_ALERTS_KEY] || {};
+  const nowOver = {};
+  const newlyCrossed = [];
+
+  for (const a of alerts) {
+    if (a.pct >= THRESHOLD_PCT) {
+      nowOver[a.source] = a.pct;
+      const prev = previousAlerts[a.source];
+      if (typeof prev !== 'number' || prev < THRESHOLD_PCT) {
+        newlyCrossed.push(a);
+      }
+    }
+  }
+
+  await chrome.storage.local.set({ [THRESHOLD_ALERTS_KEY]: nowOver });
+
+  // Update badge — show count of over-threshold sources, or normal badge
+  const count = Object.keys(nowOver).length;
+  if (count > 0) {
+    chrome.action.setBadgeText({ text: String(count) });
+    chrome.action.setBadgeBackgroundColor({ color: '#d32f2f' });
+  } else {
+    updateBadge();
+  }
+
+  // Notification + webhook for newly crossed thresholds
+  if (newlyCrossed.length === 0) return;
+
+  const message = newlyCrossed.map((a) => `${a.label}: ${a.pct}%`).join('\n');
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icon.png',
+    title: `⚠️ ${count} KI-Kontingent${count > 1 ? 'e' : ''} fast erschöpft`,
+    message,
+    priority: 2,
+    silent: false,
+    requireInteraction: true
+  });
+
+  const { webhook_url } = await chrome.storage.local.get('webhook_url');
+  if (!webhook_url) return;
+
+  try {
+    await fetch(webhook_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'threshold_reached',
+        threshold_pct: THRESHOLD_PCT,
+        crossed: newlyCrossed.map((a) => ({ source: a.source, label: a.label, pct: a.pct })),
+        all_usage: alerts.map((a) => ({ source: a.source, pct: a.pct })),
+        timestamp: new Date().toISOString()
+      })
+    });
+  } catch (e) {
+    console.error('Threshold webhook error:', e);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -515,6 +628,9 @@ async function ensureAlarms() {
   if (!have.has('refresh-badge')) {
     chrome.alarms.create('refresh-badge', { delayInMinutes: 1, periodInMinutes: 3 });
   }
+  if (!have.has('check-thresholds')) {
+    chrome.alarms.create('check-thresholds', { delayInMinutes: 1, periodInMinutes: 5 });
+  }
 }
 
 chrome.runtime.onInstalled.addListener(ensureAlarms);
@@ -542,6 +658,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     retryQueuedData();
   } else if (alarm.name === 'refresh-badge') {
     updateBadge();
+  } else if (alarm.name === 'check-thresholds') {
+    checkUsageThresholds();
   }
 });
 

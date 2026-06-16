@@ -218,6 +218,8 @@ async function syncAll() {
     });
   }
 
+  await cleanupAllTabs();
+
   await chrome.storage.local.set({
     last_sync_all: { status: 'done', startedAt, finishedAt: Date.now(), steps: stepResults }
   });

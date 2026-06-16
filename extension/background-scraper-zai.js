@@ -224,8 +224,6 @@ async function zaiSync() {
     console.error('z.ai-sync error:', error);
     return { success: false, error: error.message };
   } finally {
-    if (createdTabId !== null) {
-      try { await chrome.tabs.remove(createdTabId); } catch {}
-    }
+    trackTabCleanup(createdTabId);
   }
 }

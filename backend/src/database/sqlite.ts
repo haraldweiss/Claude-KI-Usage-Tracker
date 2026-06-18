@@ -522,6 +522,18 @@ export function initDatabase(): Promise<void> {
               (tErr: Error | null) => (tErr ? rej(tErr) : res())
             );
           });
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE INDEX IF NOT EXISTS idx_benchmark_runs_run_id ON benchmark_runs (run_id)`,
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE INDEX IF NOT EXISTS idx_benchmark_runs_model_name ON benchmark_runs (model_name)`,
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
 
           resolve();
         } catch (migrationErr) {

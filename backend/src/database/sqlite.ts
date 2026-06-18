@@ -501,6 +501,40 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // Benchmark results for local Ollama model benchmarking suite.
+          // run_id groups all rows from a single benchmark run; raw_results
+          // stores the full JSON payload for later re-analysis.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS benchmark_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                machine_name TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                category TEXT NOT NULL,
+                score REAL,
+                tasks_total INTEGER,
+                tasks_passed INTEGER,
+                raw_results TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE INDEX IF NOT EXISTS idx_benchmark_runs_run_id ON benchmark_runs (run_id)`,
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE INDEX IF NOT EXISTS idx_benchmark_runs_model_name ON benchmark_runs (model_name)`,
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

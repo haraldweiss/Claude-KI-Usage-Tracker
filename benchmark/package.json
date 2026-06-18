@@ -1,0 +1,6 @@
+{
+  "name": "ollama-benchmark",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Benchmark suite for local Ollama models"
+}

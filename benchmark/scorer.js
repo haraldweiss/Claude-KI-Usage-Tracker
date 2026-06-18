@@ -7,7 +7,8 @@ async function callModel(model, prompt) {
     const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt, stream: false }),
+      // keep_alive: -1 keeps the model in RAM for the duration of the benchmark run
+      body: JSON.stringify({ model, prompt, stream: false, keep_alive: -1 }),
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -17,6 +18,37 @@ async function callModel(model, prompt) {
   } catch (e) {
     clearTimeout(timer);
     return { text: '', error: e.message };
+  }
+}
+
+export async function preheatModel(model) {
+  process.stdout.write(`  preheat... `);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120_000);
+  try {
+    await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, prompt: 'Hi', stream: false, keep_alive: -1 }),
+      signal: controller.signal,
+    });
+    console.log('ready');
+  } catch {
+    console.log('timeout (model may be slow to load)');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function unloadModel(model) {
+  try {
+    await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, prompt: '', stream: false, keep_alive: 0 }),
+    });
+  } catch {
+    // best-effort unload
   }
 }
 

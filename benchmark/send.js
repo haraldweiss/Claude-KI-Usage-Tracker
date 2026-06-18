@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { BACKEND_BASE } from './config.js';
 
-export async function sendToBackend(allResults, machineName, mode, runId, token) {
+export async function sendToBackend(allResults, machineName, mode, runId, token, session) {
   const url = `${BACKEND_BASE}/api/benchmarks`;
 
   for (const { model, categories } of allResults) {
@@ -21,6 +21,7 @@ export async function sendToBackend(allResults, machineName, mode, runId, token)
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(session ? { Cookie: `cut_session=${session}` } : {}),
         },
         body: JSON.stringify(body),
       });

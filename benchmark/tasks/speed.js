@@ -13,7 +13,7 @@ async function measureOnce(model, prompt) {
     const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt, stream: false }),
+      body: JSON.stringify({ model, prompt, stream: false, keep_alive: -1 }),
       signal: controller.signal,
     });
     clearTimeout(timer);

@@ -3,7 +3,7 @@ import { codingTasks } from './tasks/coding.js';
 import { generalTasks } from './tasks/general.js';
 import { projectTasks } from './tasks/project.js';
 import { runSpeedTasks } from './tasks/speed.js';
-import { scoreCoding, scoreGeneral, scoreProject } from './scorer.js';
+import { scoreCoding, scoreGeneral, scoreProject, preheatModel, unloadModel } from './scorer.js';
 import { printTerminalReport } from './reporters/terminal.js';
 import { writeJsonReport } from './reporters/json.js';
 import { writeMarkdownReport } from './reporters/markdown.js';
@@ -21,7 +21,9 @@ const hasFlag = (flag) => args.includes(flag);
 const mode = getArg('--mode', 'standard');
 const machineName = getArg('--machine', `${os.hostname()} (${os.cpus()[0]?.model?.split('@')[0]?.trim() ?? 'unknown'})`);
 const token = getArg('--token', process.env.BENCHMARK_TOKEN ?? '');
+const session = getArg('--session', process.env.BENCHMARK_SESSION ?? '');
 const skipSend = hasFlag('--no-send');
+const onlyModel = getArg('--model', '');
 const count = mode === 'quick' ? QUICK_COUNT : STANDARD_COUNT;
 const runId = randomUUID();
 
@@ -48,6 +50,7 @@ async function main() {
     process.exit(1);
   }
 
+  if (onlyModel) models = models.filter((m) => m === onlyModel || m.startsWith(onlyModel));
   if (models.length === 0) {
     console.error('No models found. Run: ollama pull <model>');
     process.exit(1);
@@ -66,6 +69,8 @@ async function main() {
     const categories = [];
 
     try {
+      await preheatModel(model);
+
       process.stdout.write('  coding...  ');
       const c = await scoreCoding(model, coding);
       categories.push(c);
@@ -87,6 +92,10 @@ async function main() {
       console.log(`${s.score} t/s avg`);
     } catch (e) {
       console.warn(`  ✗ Skipping ${model}: ${e.message}`);
+    } finally {
+      process.stdout.write('  unloading... ');
+      await unloadModel(model);
+      console.log('done');
     }
 
     allResults.push({ model, categories });
@@ -100,7 +109,7 @@ async function main() {
 
   if (!skipSend) {
     console.log('\nSending to backend...');
-    await sendToBackend(allResults, machineName, mode, runId, token);
+    await sendToBackend(allResults, machineName, mode, runId, token, session);
   }
 
   console.log('\nDone.\n');

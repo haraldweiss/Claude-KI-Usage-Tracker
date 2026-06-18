@@ -304,3 +304,13 @@ export const postPlanSchedule = (body: {
 /** Cancel all pending scheduled plan changes for the current user. */
 export const deletePlanSchedule = () =>
   apiCall<void>('/account/plan-schedule', { method: 'DELETE' });
+
+// ---------------------------------------------------------------------------
+// Benchmark endpoints
+// ---------------------------------------------------------------------------
+import type { BenchmarkRunsResponse } from '../types/benchmark';
+
+export function getBenchmarkRuns(params?: Record<string, string>): Promise<BenchmarkRunsResponse> {
+  const q = params ? new URLSearchParams(params).toString() : '';
+  return apiCall<BenchmarkRunsResponse>(`/benchmarks${q ? `?${q}` : ''}`);
+}

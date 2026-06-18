@@ -376,6 +376,18 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
    - Apache graceful reload
 4. **Dashboard nach Hard Refresh:** z.ai-Tile sichtbar ✓
 
+---
+
+### 2026-06-18 — GLM-4.7-flash lokal aus Benchmark ausgeschlossen (opencode)
+
+**Problem:** Jeder Task timeoutete bei 60s. Grund: GLM-4.7-flash braucht **~6 Minuten** für einen einzigen Prompt auf diesem Mac (19GB MoE-Modell, 29.9B Parameter).
+
+**Fix:** GLM wird in `run.js` und `watcher.js` aus der Model-Discovery gefiltert (`.filter(n => !n.toLowerCase().includes('glm'))`). `TASK_TIMEOUT_MS` bleibt bei 60s.
+
+**Konsequenz:** GLM-Benchmarks laufen nur via z.ai Cloud. Wer einen lokalen GLM-Test will, muss `--model glm-4.7-flash:latest` manuell + `config.js` Timeout auf >360s setzen.
+
+**Verifiziert:** `run.js --mode quick --model mistral-nemo-cc` → 80/80/100, 25.3 t/s ✓. `discoverModels()` returned nur noch `mistral-nemo-cc`, `qwen3-coder-cc`, etc. ohne `glm-*`.
+
 **Wichtig für künftige Deploys:**
 - Apache DocumentRoot ist `/opt/claudetracker-frontend/dist/`, nicht `/var/www/.../frontend/dist/`
 - Backend läuft als Docker-Container → Dist-Änderungen via `sudo docker cp` oder Image-Rebuild

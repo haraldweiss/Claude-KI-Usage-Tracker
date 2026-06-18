@@ -63,6 +63,7 @@ async function fetchOllamaState() {
   const modelNames = (models ?? [])
     .map((m) => m.name)
     .filter((n) => !n.includes('embed'))
+    .filter((n) => !n.toLowerCase().includes('glm'))
     .sort();
   return { version, modelNames };
 }

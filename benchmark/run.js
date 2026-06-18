@@ -35,6 +35,9 @@ async function discoverModels() {
   return (data.models ?? []).map((m) => m.name).filter(
     // Skip embedding models — they don't generate text
     (name) => !name.includes('embed')
+  ).filter(
+    // Skip GLM locally — ~6 min per prompt on this Mac, unpractical for benchmarking
+    (name) => !name.toLowerCase().includes('glm')
   );
 }
 

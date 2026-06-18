@@ -1,12 +1,20 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
 import { describe, it, expect, beforeAll } from '@jest/globals';
 import request from 'supertest';
-import { createApp } from '../app.js';
-import type { Express } from 'express';
 
-let app: Express;
+process.env.DATABASE_PATH = ':memory:';
+process.env.NODE_ENV = 'production';
+
+const { createApp } = await import('../app.js');
+const { initDatabase, runQuery } = await import('../database/sqlite.js');
+const { createSession } = await import('../services/authService.js');
+
+const app = createApp();
+
+let sessionCookie: string;
 
 const RUN_ID = `test-run-${Date.now()}`;
-
 const SAMPLE_PAYLOAD = {
   run_id: RUN_ID,
   machine_name: 'Test Machine',
@@ -21,10 +29,10 @@ const SAMPLE_PAYLOAD = {
 };
 
 beforeAll(async () => {
-  process.env.DATABASE_PATH = ':memory:';
-  const { default: init } = await import('../database/sqlite.js');
-  await init();
-  app = await createApp();
+  await initDatabase();
+  await runQuery(`INSERT OR IGNORE INTO users (id, email) VALUES (99, 'bench-test@x.com')`);
+  const sid = await createSession(99, null, null);
+  sessionCookie = `cut_session=${sid}`;
 });
 
 describe('POST /api/benchmarks', () => {
@@ -34,20 +42,20 @@ describe('POST /api/benchmarks', () => {
   });
 
   it('returns 400 with missing fields', async () => {
-    // Use a dummy token value; auth middleware validates token existence via DB.
-    // With an in-memory DB there are no valid tokens, so 401 would fire first.
-    // We test 400 separately without auth to confirm field validation order:
-    // requireUser fires before body validation, so missing-fields → 401 here too.
-    // This test documents that unauthenticated requests always get 401 regardless of body.
     const res = await request(app)
       .post('/api/benchmarks')
+      .set('Cookie', sessionCookie)
       .send({ run_id: 'x' });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(400);
   });
 
-  it('rejects empty body without auth', async () => {
-    const res = await request(app).post('/api/benchmarks').send({});
-    expect(res.status).toBe(401);
+  it('returns 201 with valid payload', async () => {
+    const res = await request(app)
+      .post('/api/benchmarks')
+      .set('Cookie', sessionCookie)
+      .send(SAMPLE_PAYLOAD);
+    expect(res.status).toBe(201);
+    expect((res.body as { run_id: string }).run_id).toBe(RUN_ID);
   });
 });
 
@@ -57,8 +65,11 @@ describe('GET /api/benchmarks', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 401 without auth even with query params', async () => {
-    const res = await request(app).get('/api/benchmarks?model=test-model:latest');
-    expect(res.status).toBe(401);
+  it('returns 200 with runs array', async () => {
+    const res = await request(app)
+      .get('/api/benchmarks')
+      .set('Cookie', sessionCookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray((res.body as { runs: unknown[] }).runs)).toBe(true);
   });
 });

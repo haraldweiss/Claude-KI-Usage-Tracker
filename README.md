@@ -117,7 +117,9 @@ The scripts auto-detect when launched from a worktree and point the backend at t
    - **Hosted instance**: set Backend-API URL to `https://your-domain/claudetracker/api`, paste the **API Token** from Settings → API Token → "Speichern". The extension sends `Authorization: Bearer <token>` on every request; no Basic-Auth credentials are needed.
 
 ### 5. Trigger your first sync
-Log into claude.ai, console.anthropic.com, and platform.claude.com in regular browser tabs (so the extension can reuse your session). Then click **↻ Sync alle** in the popup — it runs all three sources sequentially (Claude.ai → Console → Claude Code), persists per-step progress to `chrome.storage.local`, and shows the result in a coloured status box (green = all OK, yellow = some skipped, red = error). The popup may close briefly when a hidden tab opens during scraping; re-open it and the latest status is still there.
+Log into claude.ai, console.anthropic.com, platform.claude.com, opencode.ai, and z.ai in regular browser tabs (so the extension can reuse your sessions). Then click **↻ Sync alle** in the popup — it runs all five sources sequentially, persists per-step progress to `chrome.storage.local`, and shows the result in a coloured status box (green = all OK, yellow = some skipped, red = error).
+
+> **Note:** When the claude.ai scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger an anti-bot challenge). The tab closes automatically after the scrape. Re-open the popup if it dismisses during this window.
 
 For ad-hoc runs from the service-worker console:
 ```javascript
@@ -392,6 +394,7 @@ A systematic code review was performed in May 2026, fixing the following issues:
 | Port 3000 already in use | Run `./stop.sh` (kills both port-bound and stale nodemon/vite processes), then `./start.sh`. |
 | Multiple nodemon zombies | `./status.sh` shows them; `./stop.sh` cleans them up. |
 | "No data" in dashboard | Trigger a sync manually from the extension popup or the service-worker console. Check `chrome://extensions` → service worker for errors. |
+| ❌ Claude.ai sync error | Make sure you are **logged into claude.ai** in the browser. If a new tab is needed, the scraper opens one as an active tab — Cloudflare blocks hidden/background tabs. Check the service-worker console for `[autoSync] executeScript fehlgeschlagen, Tab-URL:` to see where the tab actually landed. |
 | `sqlite3` GLIBC error on VPS | The pre-built binary needs glibc ≥ 2.38; on Rocky 9 run `npm rebuild sqlite3 --build-from-source` once. |
 | 401 on every API call | Extension popup → "⚙️ Verbindung" → paste the API Token from Settings → API Token and Save. The extension authenticates with `Authorization: Bearer <token>`; it does not share cookies with the browser. |
 | Frontend shows port 3000 in error message | Stale build — re-run `npm run build` and Cmd+Shift+R in the browser to bust the bundle cache. |

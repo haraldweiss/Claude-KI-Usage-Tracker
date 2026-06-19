@@ -56,11 +56,14 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - After every `npm ci`: `npm rebuild sqlite3 --build-from-source` — the prebuilt binary demands glibc 2.38, VPS has older. Skip = crashes on boot.
 
 ### 3.2 Scraper resilience
-- Extension scrapers in `extension/background.js` are **best-effort**: claude.ai and opencode.ai layouts change without warning. When they break:
+- Extension scrapers in `extension/background-scraper-*.js` are **best-effort**: claude.ai and opencode.ai layouts change without warning. When they break:
   - Look for the actual text in the new DOM (e.g. "Zurücksetzung in" was added alongside "Reset in" — accept both)
   - Increase render delays before scraping (e.g. 2.5s → 4s)
   - Search before/after the percentage match, not only one direction
 - Don't aggressively cache scraper results — make them idempotent so a re-sync just upserts.
+- **claude.ai scraper (`background-scraper-claude.js`) — two hard constraints learned 2026-06-19:**
+  - Always open new tabs with `active: true` — Cloudflare blocks `active: false` (hidden) tabs with a Private Access Token challenge; the page never loads.
+  - Never use hash navigation (`window.location.hash = 'settings/usage'`) to reach the usage page from a `/new` SPA tab — this triggers a client-side redirect that puts the tab in a transient state where `executeScript` throws "Cannot access contents of the page". Always navigate directly to `USAGE_PAGE_URL` via `chrome.tabs.update`.
 
 ### 3.3 Cost math is user-trust-critical
 - All currency conversions go through `frankfurter.app` daily; cache the rate.
@@ -394,3 +397,23 @@ Nur der Sync-Timestamp ist gesetzt. Weder `workspace_ids_cache` noch `workspace_
 - Datenbank: Host `/opt/claudetracker-data/database.sqlite` = Container `/app/data/database.sqlite`
 - Hard Refresh (Cmd+Shift+R) im Browser nötig bei JS-Änderungen
 - SSH: `oracle-vm` (92.5.18.29, Default-Key `id_ed25519`)
+
+---
+
+### 2026-06-19 — Claude.ai Sync repariert: Cloudflare-Bot-Detection + SPA-Hash-Redirect-Falle
+
+**Symptom:** `❌ Claude.ai: Cannot access contents of the page. Extension manifest must request permission to access the respective host.` — alle anderen Quellen grün.
+
+**Root Cause 1 — Cloudflare Private Access Token Challenge:**
+Neue Tabs wurden mit `active: false` geöffnet. Cloudflare erkennt hidden/inactive Tabs als Headless-Browser und präsentiert eine Anti-Bot-Challenge. Die Usage-Seite lud nie, Tab blieb auf Challenge-Page.
+Fix: `chrome.tabs.create({ active: true })` — Tab öffnet kurz sichtbar, schließt sich nach dem Scrape automatisch.
+
+**Root Cause 2 — SPA Hash-Navigation Transient State:**
+Wenn ein `/new`-Tab wiederverwendet wurde, setzte der Code `window.location.hash = 'settings/usage'` via executeScript. Claudes SPA triggert daraufhin eine client-seitige Navigation zu `/settings/usage`. Während dieser Transition ist der Tab in einem Zustand wo `executeScript` "Cannot access contents" wirft — obwohl die URL `claude.ai/new#settings/usage` bereits in `host_permissions` liegt.
+Fix: Hash-Navigation entfernt. `/new`-Tabs werden nicht mehr als "Reuse-Kandidaten" erkannt. Immer direkt `chrome.tabs.update(tabId, { url: USAGE_PAGE_URL })`.
+
+**Root Cause 3 — Kryptische Fehlermeldung:**
+Chromes raw Fehler-String kam direkt im Popup an.
+Fix: `executeScript` in try/catch; liest aktuelle Tab-URL, wirft deutschen Fehlertext mit URL-Kontext.
+
+**Committed:** `f0ae8cb` — beide Files: `extension/background-scraper-claude.js`, `extension/manifest.json` (+ `account.anthropic.com` in host_permissions).

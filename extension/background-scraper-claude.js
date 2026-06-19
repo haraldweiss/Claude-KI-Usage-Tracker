@@ -65,10 +65,11 @@ async function autoSync() {
     } catch {}
     const allUrls = [...urlsToTry, ...wsSpecific];
 
-    // Find or create a tab. claude.ai now uses an SPA at /new with hash
-    // routing (#settings/usage), so also search for /new tabs.
+    // Find an existing claude.ai tab to reuse (avoids opening a new tab).
+    // Only match tabs on stable URLs — exclude /new# hash routes because
+    // those trigger a client-side SPA redirect that breaks executeScript.
     let tabId = null;
-    for (const url of [...allUrls, 'https://claude.ai/new*']) {
+    for (const url of allUrls) {
       const existing = await chrome.tabs.query({ url });
       if (existing.length > 0) { tabId = existing[0].id; break; }
     }
@@ -78,25 +79,26 @@ async function autoSync() {
     const isReusedTab = tabId !== null;
 
     if (isReusedTab) {
-      // Existing user tab — avoid navigation; just set hash if needed.
       const t = await chrome.tabs.get(tabId);
-      const wantsUsageHash = t.url && t.url.startsWith('https://claude.ai/new') && !t.url.includes('settings/usage');
-      if (wantsUsageHash) {
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => { window.location.hash = 'settings/usage'; }
-          });
-          await sleep(3000);
-        } catch {}
+      const onCorrectPage = t.url && t.url.includes('claude.ai/settings/usage') &&
+        !t.url.includes('#');
+      if (onCorrectPage) {
+        // Already on the real settings/usage page — just poll
+        lastText = await waitForUsageContent(tabId, 30000);
+      } else {
+        // Navigate directly to the usage URL (no hash trick — SPA hash navigation
+        // triggers a client-side redirect that puts the tab in a transient state
+        // where executeScript fails with "Cannot access contents").
+        try { await chrome.tabs.update(tabId, { url: USAGE_PAGE_URL }); } catch {}
+        await waitForTabReady(tabId, 30000);
+        lastText = await waitForUsageContent(tabId, 30000);
       }
-      // Poll for rendered content
-      lastText = await waitForUsageContent(tabId, 30000);
       const info = await chrome.tabs.get(tabId);
       pageUrl = info?.url || '';
     } else {
-      // New hidden tab — iterate URLs to find one that renders
-      const tab = await chrome.tabs.create({ url: allUrls[0], active: false });
+      // Open as active so Cloudflare's bot-detection doesn't trigger on a
+      // hidden/inactive tab. The tab closes automatically in finally{}.
+      const tab = await chrome.tabs.create({ url: allUrls[0], active: true });
       tabId = tab.id;
       createdTabId = tab.id;
       for (const url of allUrls) {
@@ -111,15 +113,35 @@ async function autoSync() {
       }
     }
 
+    // Verify we're on an accessible URL before injecting. If claude.ai redirected
+    // to an auth domain (e.g. account.anthropic.com) that's not in host_permissions,
+    // executeScript would throw the unhelpful "Cannot access contents" Chrome error.
+    const tabInfo = await chrome.tabs.get(tabId);
+    const tabUrl = tabInfo?.url || '';
+    const isAccessible = tabUrl.startsWith('https://claude.ai/') ||
+      tabUrl.startsWith('https://platform.claude.com/') ||
+      tabUrl.startsWith('https://api.claude.ai/') ||
+      tabUrl.startsWith('https://account.anthropic.com/');
+    if (!isAccessible) {
+      console.warn('[autoSync] Tab auf nicht-erlaubter Domain:', tabUrl);
+      throw new Error(
+        tabUrl
+          ? `claude.ai hat auf eine unbekannte Domain weitergeleitet: ${new URL(tabUrl).hostname} — bitte in claude.ai einloggen`
+          : 'claude.ai-Tab wurde nicht geladen — bitte einloggen'
+      );
+    }
+
     // Inject the scrape function directly via scripting API instead of relying
     // on the content script's message listener. This works even if the tab was
     // open before the extension was reloaded (where the content script would
     // be stale or absent and chrome.tabs.sendMessage fails with
     // "Receiving end does not exist").
-    const [injection] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const text = document.body.innerText || '';
+    let injection;
+    try {
+      [injection] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const text = document.body.innerText || '';
 
         const numAfter = (regex) => {
           const m = text.match(regex);
@@ -284,7 +306,15 @@ async function autoSync() {
           _page_preview: text.slice(0, 1500)
         };
       }
-    });
+      });
+    } catch (scriptErr) {
+      const t = await chrome.tabs.get(tabId).catch(() => null);
+      const currentUrl = t?.url || 'unbekannt';
+      console.warn('[autoSync] executeScript fehlgeschlagen, Tab-URL:', currentUrl);
+      throw new Error(
+        `claude.ai nicht zugänglich — bitte in claude.ai einloggen (Tab landet auf: ${currentUrl})`
+      );
+    }
 
     const data = injection?.result;
     if (!data) {

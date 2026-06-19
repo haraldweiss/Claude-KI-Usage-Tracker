@@ -4,7 +4,7 @@
  * benchmarks. Each machine runs its own watcher against its local Ollama instance.
  *
  * Usage:
- *   node benchmark/watcher.js --machine "MacBook Pro M3 Max" --session <token>
+ *   node benchmark/watcher.js --machine "Mac mini M4 Pro" --session <token>
  *   node benchmark/watcher.js --machine "Mac Studio M2 Ultra" --token <api-token>
  *
  * Triggers:

@@ -147,20 +147,24 @@ function formatScrapeFailure(diag) {
   return 'unbekannt';
 }
 
-async function consoleSync() {
+async function consoleSync(externalTabId = null) {
   let createdTabId = null;
 
   try {
-    const existing = await chrome.tabs.query({ url: `${WORKSPACE_KEYS_PREFIX}*` });
     let tabId;
 
-    if (existing.length > 0) {
-      tabId = existing[0].id;
+    if (externalTabId !== null) {
+      tabId = externalTabId;
     } else {
-      const tab = await chrome.tabs.create({ url: CONSOLE_KEYS_URL, active: false });
-      tabId = tab.id;
-      createdTabId = tab.id;
-      await waitForTabReady(tabId, 30000);
+      const existing = await chrome.tabs.query({ url: `${WORKSPACE_KEYS_PREFIX}*` });
+      if (existing.length > 0) {
+        tabId = existing[0].id;
+      } else {
+        const tab = await chrome.tabs.create({ url: CONSOLE_KEYS_URL, active: false });
+        tabId = tab.id;
+        createdTabId = tab.id;
+        await waitForTabReady(tabId, 30000);
+      }
     }
 
     // Load the cached workspace list. Re-discover via click-simulation if
@@ -301,7 +305,9 @@ async function consoleSync() {
     console.error('Console-sync error:', error);
     return { success: false, error: error.message };
   } finally {
-    trackTabCleanup(createdTabId);
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
   }
 }
 

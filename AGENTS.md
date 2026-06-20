@@ -417,3 +417,26 @@ Chromes raw Fehler-String kam direkt im Popup an.
 Fix: `executeScript` in try/catch; liest aktuelle Tab-URL, wirft deutschen Fehlertext mit URL-Kontext.
 
 **Committed:** `f0ae8cb` — beide Files: `extension/background-scraper-claude.js`, `extension/manifest.json` (+ `account.anthropic.com` in host_permissions).
+
+### 2026-06-20 — Tab-Lifecycle überarbeitet: immer nur ein Tab, wird nach Scraping geschlossen
+
+**Problem:** Jeder Scraper öffnete einen eigenen Tab («Alle synchronisieren» = 5 Tabs) und schloss ihn nie, es sei denn `syncAll()` rief `cleanupAllTabs()` auf. Einzeln aufgerufene Synchronsierungsvorgänge (aus Nachrichten-Handlern) ließen Tabs offen → Ansammlung vieler Tabs über Zeit.
+
+**Lösung (7 Dateien geändert):**
+
+| Datei | Änderung |
+|---|---|
+| `extension/background-utils.js` | `_createdTabIds`/`trackTabCleanup`/`cleanupAllTabs` entfernt |
+| `extension/background-scraper-claude.js` | `autoSync(externalTabId)`: schließt eigenen Tab in `finally` |
+| `extension/background-scraper-console.js` | `consoleSync(externalTabId)`: schließt eigenen Tab in `finally` |
+| `extension/background-scraper-claude-code.js` | `claudeCodeSync(externalTabId)`: schließt eigenen Tab in `finally` |
+| `extension/background-scraper-opencode.js` | `opencodeGoSync(externalTabId)`: schließt eigenen Tab in `finally` |
+| `extension/background-scraper-zai.js` | `zaiSync(externalTabId)`: schließt eigenen Tab in `finally` |
+| `extension/background.js` | `syncAll()`: erstellt EINEN gemeinsamen Tab, reicht ihn an alle Scraper weiter, schließt ihn am Ende |
+
+**Wie es funktioniert:**
+- **`syncAll()`**: Erstellt einen Tab (`active: true`, für Cloudflare), navigiert ihn nacheinander zu allen 5 URLs, schließt ihn nach dem letzten Scraper → genau 1 Tab, kurz sichtbar.
+- **Einzel-Syncs (Alarme/Popup)**: `externalTabId` ist `null` → Scraper sucht nach existierendem Tab (findet keinen oder nutzt User-Tab), oder erstellt neuen. Eigene Tabs werden in `finally` geschlossen. User-Tabs (wiederverwendet) bleiben offen.
+- **Kein globales Tab-Tracking mehr**: Jeder Scraper verwaltet seinen eigenen Lebenszyklus.
+
+**Verifiziert:** `node --check` auf allen 7 Dateien ✅

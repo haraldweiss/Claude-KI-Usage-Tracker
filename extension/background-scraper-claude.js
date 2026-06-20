@@ -34,7 +34,7 @@ async function waitForUsageContent(tabId, budgetMs = 60000, pollMs = 600) {
   }
   return lastText;
 }
-async function autoSync() {
+async function autoSync(externalTabId = null) {
   let createdTabId = null;
 
   // Helper: navigate tab to a URL, wait for it to render, scrape, return data.
@@ -65,13 +65,15 @@ async function autoSync() {
     } catch {}
     const allUrls = [...urlsToTry, ...wsSpecific];
 
-    // Find an existing claude.ai tab to reuse (avoids opening a new tab).
-    // Only match tabs on stable URLs — exclude /new# hash routes because
-    // those trigger a client-side SPA redirect that breaks executeScript.
-    let tabId = null;
-    for (const url of allUrls) {
-      const existing = await chrome.tabs.query({ url });
-      if (existing.length > 0) { tabId = existing[0].id; break; }
+    // If a shared tab was provided from syncAll, use it directly
+    // without creating or reusing our own tab.
+    let tabId = externalTabId;
+    if (tabId === null) {
+      // Find an existing claude.ai tab to reuse (avoids opening a new tab).
+      for (const url of allUrls) {
+        const existing = await chrome.tabs.query({ url });
+        if (existing.length > 0) { tabId = existing[0].id; break; }
+      }
     }
 
     let pageUrl = '';
@@ -375,7 +377,9 @@ async function autoSync() {
     console.error('Auto-sync error:', error);
     return { success: false, error: error.message };
   } finally {
-    trackTabCleanup(createdTabId);
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
   }
 }
 

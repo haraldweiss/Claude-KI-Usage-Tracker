@@ -118,18 +118,23 @@ async function waitForZaiContent(tabId, predicate, budgetMs = 12000, pollMs = 50
   return lastText;
 }
 
-async function zaiSync() {
+async function zaiSync(externalTabId = null) {
   let createdTabId = null;
 
   try {
-    const existing = await chrome.tabs.query({ url: ZAI_TAB_MATCH });
     let tabId;
-    if (existing.length > 0) {
-      tabId = existing[0].id;
+
+    if (externalTabId !== null) {
+      tabId = externalTabId;
     } else {
-      const tab = await chrome.tabs.create({ url: ZAI_MY_PLAN_URL, active: false });
-      tabId = tab.id;
-      createdTabId = tab.id;
+      const existing = await chrome.tabs.query({ url: ZAI_TAB_MATCH });
+      if (existing.length > 0) {
+        tabId = existing[0].id;
+      } else {
+        const tab = await chrome.tabs.create({ url: ZAI_MY_PLAN_URL, active: false });
+        tabId = tab.id;
+        createdTabId = tab.id;
+      }
     }
 
     // --- Page 1: My Plan (price + plan name) ---
@@ -224,6 +229,8 @@ async function zaiSync() {
     console.error('z.ai-sync error:', error);
     return { success: false, error: error.message };
   } finally {
-    trackTabCleanup(createdTabId);
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
   }
 }

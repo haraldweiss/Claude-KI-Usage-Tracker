@@ -119,7 +119,7 @@ The scripts auto-detect when launched from a worktree and point the backend at t
 ### 5. Trigger your first sync
 Log into claude.ai, console.anthropic.com, platform.claude.com, opencode.ai, and z.ai in regular browser tabs (so the extension can reuse your sessions). Then click **↻ Sync alle** in the popup — it runs all five sources sequentially, persists per-step progress to `chrome.storage.local`, and shows the result in a coloured status box (green = all OK, yellow = some skipped, red = error).
 
-> **Note:** When the claude.ai scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger an anti-bot challenge). The tab closes automatically after the scrape. Re-open the popup if it dismisses during this window.
+> **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all five scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
 
 For ad-hoc runs from the service-worker console:
 ```javascript
@@ -283,11 +283,17 @@ Claude-KI-Usage-Tracker/
 │   └── vite.config.ts                      # base: '/claudetracker/' in prod
 │
 ├── extension/
-│   ├── manifest.json                       # MV3, host permissions for the
-│   │                                       #   three sync targets
-│   ├── background.js                       # autoSync, consoleSync,
-│   │                                       #   claudeCodeSync; chrome.alarms;
-│   │                                       #   authFetch with Bearer token
+│   ├── manifest.json                       # MV3, host permissions for all
+│   │                                       #   five sync targets
+│   ├── background.js                       # Orchestrator: syncAll(), alarms,
+│   │                                       #   message router, authFetch
+│   ├── background-utils.js                 # waitForTabReady, sleep helpers
+│   ├── background-scraper-claude.js        # claude.ai usage scraper
+│   ├── background-scraper-console.js       # Anthropic Console / platform.claude.com
+│   │                                       #   keys scraper + workspace discovery
+│   ├── background-scraper-claude-code.js   # Claude Code keys + LOC scraper
+│   ├── background-scraper-opencode.js      # OpenCode Go quota scraper
+│   ├── background-scraper-zai.js           # z.ai GLM Coding Plan scraper
 │   ├── content.js                          # DOM scrape helpers (claude.ai)
 │   └── popup.html / popup.js               # Stats + connection settings
 │
@@ -450,7 +456,7 @@ MIT — see [LICENSE](./LICENSE).
 
 ---
 
-**Last Updated**: May 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights, multi-user magic-link auth, code quality pass)
+**Last Updated**: June 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights, multi-user magic-link auth, code quality pass, tab-lifecycle refactoring, modular extension scrapers)
 **Maintained by**: Harald Weiss
 **Repository**: [GitHub](https://github.com/haraldweiss/Claude-KI-Usage-Tracker)
 

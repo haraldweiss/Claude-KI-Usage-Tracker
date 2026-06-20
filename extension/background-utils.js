@@ -55,20 +55,3 @@ async function waitForTabReady(tabId, budgetMs = 30000, pollMs = 250) {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-
-// ---------------------------------------------------------------------------
-// Central tab lifecycle — all scrapers register created tabs here instead of
-// closing them in their own finally block. syncAll() cleans up once at the
-// end, avoiding "No tab with id" races between consecutive scrapers.
-const _createdTabIds = [];
-
-function trackTabCleanup(tabId) {
-  if (tabId !== null) _createdTabIds.push(tabId);
-}
-
-async function cleanupAllTabs() {
-  const ids = _createdTabIds.splice(0);
-  for (const id of ids) {
-    try { await chrome.tabs.remove(id); } catch {}
-  }
-}

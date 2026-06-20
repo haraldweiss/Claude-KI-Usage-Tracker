@@ -1,18 +1,27 @@
-async function opencodeGoSync() {
+async function opencodeGoSync(externalTabId = null) {
   let createdTabId = null;
 
   try {
-    const existing = await chrome.tabs.query({ url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go*' });
     let tabId;
 
-    if (existing.length > 0) {
-      tabId = existing[0].id;
-    } else {
+    if (externalTabId !== null) {
+      tabId = externalTabId;
+      // Shared tab from syncAll — navigate to the target URL since it's
+      // currently on a different page from a previous scraper.
       const url = await getOpenCodeGoUrl();
-      const tab = await chrome.tabs.create({ url, active: false });
-      tabId = tab.id;
-      createdTabId = tab.id;
-      await waitForTabComplete(tab.id, 30000);
+      await chrome.tabs.update(tabId, { url });
+      await waitForTabReady(tabId, 30000);
+    } else {
+      const existing = await chrome.tabs.query({ url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go*' });
+      if (existing.length > 0) {
+        tabId = existing[0].id;
+      } else {
+        const url = await getOpenCodeGoUrl();
+        const tab = await chrome.tabs.create({ url, active: false });
+        tabId = tab.id;
+        createdTabId = tab.id;
+        await waitForTabComplete(tab.id, 30000);
+      }
     }
 
     // opencode.ai always bounces through auth.opencode.ai/authorize on first
@@ -167,6 +176,8 @@ async function opencodeGoSync() {
     console.error('OpenCode-go-sync error:', error);
     return { success: false, error: error.message };
   } finally {
-    trackTabCleanup(createdTabId);
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
   }
 }

@@ -1,17 +1,25 @@
-async function claudeCodeSync() {
+async function claudeCodeSync(externalTabId = null) {
   let createdTabId = null;
 
   try {
-    const existing = await chrome.tabs.query({ url: 'https://platform.claude.com/claude-code*' });
     let tabId;
 
-    if (existing.length > 0) {
-      tabId = existing[0].id;
+    if (externalTabId !== null) {
+      tabId = externalTabId;
+      // Shared tab from syncAll — navigate to the target URL since it's
+      // currently on a different page from a previous scraper.
+      await chrome.tabs.update(tabId, { url: CLAUDE_CODE_USAGE_URL });
+      await waitForTabReady(tabId, 30000);
     } else {
-      const tab = await chrome.tabs.create({ url: CLAUDE_CODE_USAGE_URL, active: false });
-      tabId = tab.id;
-      createdTabId = tab.id;
-      await waitForTabComplete(tab.id, 30000);
+      const existing = await chrome.tabs.query({ url: 'https://platform.claude.com/claude-code*' });
+      if (existing.length > 0) {
+        tabId = existing[0].id;
+      } else {
+        const tab = await chrome.tabs.create({ url: CLAUDE_CODE_USAGE_URL, active: false });
+        tabId = tab.id;
+        createdTabId = tab.id;
+        await waitForTabComplete(tab.id, 30000);
+      }
     }
 
     // Poll for the table to finish skeleton-loading. Anthropic shows
@@ -165,7 +173,9 @@ async function claudeCodeSync() {
     console.error('Claude-code-sync error:', error);
     return { success: false, error: error.message };
   } finally {
-    trackTabCleanup(createdTabId);
+    if (createdTabId !== null) {
+      try { await chrome.tabs.remove(createdTabId); } catch {}
+    }
   }
 }
 

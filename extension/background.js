@@ -201,11 +201,27 @@ async function syncAll() {
     { type: 'zai', label: 'z.ai', fn: zaiSync },
   ];
 
+  // Create ONE shared tab for all scrapers — each scraper navigates it to
+  // its target URL, avoiding multiple tabs piling up.
+  let sharedTabId = null;
+  try {
+    const tab = await chrome.tabs.create({ url: 'about:blank', active: true });
+    sharedTabId = tab.id;
+  } catch (e) {
+    await chrome.storage.local.set({
+      last_sync_all: {
+        status: 'done', startedAt, finishedAt: Date.now(),
+        steps: [{ label: 'Fehler', status: 'error', message: 'Tab konnte nicht erstellt werden: ' + e.message }]
+      }
+    });
+    return;
+  }
+
   const stepResults = [];
   for (const step of steps) {
     let outcome;
     try {
-      const result = await step.fn();
+      const result = await step.fn(sharedTabId);
       if (result?.success) outcome = { label: step.label, status: 'ok' };
       else if (result?.skipped) outcome = { label: step.label, status: 'skipped', message: result?.reason || 'nichts zu syncen', url: result?.url, preview: result?.preview };
       else outcome = { label: step.label, status: 'error', message: result?.error || 'unbekannt' };
@@ -218,7 +234,10 @@ async function syncAll() {
     });
   }
 
-  await cleanupAllTabs();
+  // Close the shared tab after all scrapers are done
+  if (sharedTabId !== null) {
+    try { await chrome.tabs.remove(sharedTabId); } catch {}
+  }
 
   await chrome.storage.local.set({
     last_sync_all: { status: 'done', startedAt, finishedAt: Date.now(), steps: stepResults }

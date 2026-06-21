@@ -454,3 +454,38 @@ Zwei neue Sources: `anthropic_console_cost_day` + `anthropic_console_cost_month`
 - grand_total_eur NICHT geändert — kein Double-Count mit anthropic_console_sync
 
 Nächstes Feature: Low-Balance-Alert + Rate-Alert (Spec ausstehend)
+
+### 2026-06-21 — Low-Balance + Rate Alert (Claude Code)
+
+**Was:** Drei-Kanal Alert-System — Dashboard-Banner, Chrome-Notification, E-Mail — für zwei Trigger:
+- **Low-Balance**: `balance_usd / last_topup_usd < threshold` (Standard 20%)
+- **Rate-Alert**: Tageskosten > `multiplier × 7-Tage-Schnitt` (Standard 3×, min. $1)
+- Cooldown: max. 1 Alert/Typ alle 6h
+
+**Touch-Points:**
+- `backend/src/database/sqlite.ts`: `billing_snapshots` + `user_alert_config` Tabellen
+- `backend/src/services/alertService.ts`: `checkAndFireAlerts()` mit Cooldown-Logik
+- `backend/src/services/mailService.ts`: `sendAlertMail()` (non-fatal)
+- `backend/src/controllers/alertController.ts`: `postBillingSync`, `getAlerts`, `putAlertsConfig`
+- `backend/src/routes/usage.ts`: POST `/billing-sync`, GET `/alerts`, PUT `/alerts/config`
+- `extension/background-scraper-billing.js`: scrapt `platform.claude.com/settings/billing`, Chrome-Notifications bei Alert
+- `extension/background.js`: `BILLING_SYNC_ALARM` alle 6h, letzter Schritt in `syncAll`
+- `extension/manifest.json`: `"notifications"` permission
+- `frontend/src/components/AlertBanner.tsx`: rotes/oranges Banner oben in OverviewTab
+- `frontend/src/components/settings/AccountSection.tsx`: Config-UI (Schwellwert % + Faktor ×)
+- `frontend/src/components/OverviewTab.tsx`: USD→EUR jetzt dynamisch (`exchange_rate.usd_to_eur ?? 0.92`)
+
+**Locale-Fix (2026-06-21):** Billing-Seite auf Deutsch — `scrapeBillingPage()` musste angepasst werden:
+- Balance steht neben "Verbleibendes Guthaben" (nicht "Credits"/"Balance")
+- Zahlenformat: `0,15 $` (Komma-Dezimal, Währung nach der Zahl)
+- Top-up-Zeilen heißen "Guthabenzuweisung" (nicht "Add credits"/"Payment")
+- `parseMoney()`: entfernt Tausender-Punkte, ersetzt Dezimal-Komma durch Punkt
+
+**Verifiziert live:** Rate-Alert ($37.67/Tag, 3.2× Schnitt) + Low-Balance-Alert ($0.15 = 1% von $23.80) — beide E-Mails zugestellt ✅
+
+**Bekannte Einschränkungen:**
+- `getAlerts()` und `alertService.checkAndFireAlerts()` haben duplizierte Alert-Logik — bei Formeländerungen beide anpassen
+- `billing_snapshots` hat keinen Index auf `(user_id, scraped_at)` — bei vielen Usern ergänzen
+- Billing-Scraper ist Regex auf Plaintext — bei Layout-Änderungen zuerst in `scrapeBillingPage()` schauen
+
+**MV3 Cold-Start-Hinweis:** Nach Extension-Reload braucht der Service Worker manchmal >3s zum Aufwachen → Popup zeigt kurz "Backend nicht erreichbar". Schließen und neu öffnen reicht.

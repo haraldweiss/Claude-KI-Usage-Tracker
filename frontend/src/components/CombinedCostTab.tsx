@@ -440,7 +440,11 @@ export default function CombinedCostTab(): React.ReactElement {
         </div>
       )}
 
-      <ApiKeysDetailTable keys={keys} />
+      <ApiKeysDetailTable
+        keys={keys}
+        consoleModelBreakdown={combined?.console_model_breakdown}
+        usdToEur={combined?.exchange_rate?.usd_to_eur ?? 1}
+      />
     </div>
   );
 }

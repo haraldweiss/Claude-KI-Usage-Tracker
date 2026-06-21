@@ -41,6 +41,31 @@ export interface ZaiSpend {
   last_synced: string;
 }
 
+export interface OpenCodeApiSpend {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number;
+  row_count: number;
+  by_key: Array<{
+    key_name: string;
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number;
+  }>;
+}
+
+export interface ConsoleModelRow {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface ConsoleModelBreakdown {
+  day: ConsoleModelRow[];
+  month: ConsoleModelRow[];
+}
+
 export interface CombinedSpendBreakdown {
   claude_ai: ClaudeAiSpend | null;
   anthropic_api: {
@@ -50,6 +75,8 @@ export interface CombinedSpendBreakdown {
   };
   opencode_go?: OpenCodeGoSpend | null;
   zai?: ZaiSpend | null;
+  opencode_api?: OpenCodeApiSpend | null;
+  console_model_breakdown?: ConsoleModelBreakdown;
   exchange_rate?: {
     usd_to_eur: number;
     rate_date: string | null;
@@ -127,6 +154,10 @@ export interface SpendingTotal {
   };
   zai?: {
     monthly_eur: number;
+    total_eur: number;
+  };
+  opencode_api?: {
+    total_usd: number;
     total_eur: number;
   };
   grand_total_eur?: number;

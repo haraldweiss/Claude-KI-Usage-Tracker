@@ -440,3 +440,17 @@ Fix: `executeScript` in try/catch; liest aktuelle Tab-URL, wirft deutschen Fehle
 - **Kein globales Tab-Tracking mehr**: Jeder Scraper verwaltet seinen eigenen Lebenszyklus.
 
 **Verifiziert:** `node --check` auf allen 7 Dateien ✅
+
+### 2026-06-21 — Console Model Breakdown per Modell (console_model_breakdown)
+
+Zwei neue Sources: `anthropic_console_cost_day` + `anthropic_console_cost_month`.
+- Extension scrapt `platform.claude.com/settings/workspaces/<id>/cost` nach dem Keys-Sync
+- Periodenfilter ist best-effort Click; fällt auf die Standardperiode zurück falls Click scheitert
+- Backend: beide Sources in SYNC_SOURCES, Dedupe identisch zu anthropic_console_sync
+- `consoleModelDay`: filter `date(timestamp) = date('now')` (tagesaktuelle Zeile)
+- `consoleModelMonth`: filter `strftime('%Y-%m', timestamp) = strftime('%Y-%m', 'now')` (Kalendermonat)
+- Summary-Endpoint: `combined.console_model_breakdown.{day,month}` Arrays
+- Frontend: `ConsoleModelBreakdown.tsx` in `ApiKeysDetailTable` unterhalb der Key-Tabelle
+- grand_total_eur NICHT geändert — kein Double-Count mit anthropic_console_sync
+
+Nächstes Feature: Low-Balance-Alert + Rate-Alert (Spec ausstehend)

@@ -14,7 +14,9 @@ export function ConsoleModelBreakdown({ data, usdToEur }: Props) {
 
   if (!data) return null;
 
-  const rows = period === 'day' ? (data.day ?? []) : (data.month ?? []);
+  const rows = (period === 'day' ? (data.day ?? []) : (data.month ?? []))
+    .slice()
+    .sort((a, b) => b.cost_usd - a.cost_usd);
   const hasData = rows.length > 0;
 
   return (
@@ -26,6 +28,7 @@ export function ConsoleModelBreakdown({ data, usdToEur }: Props) {
             <button
               key={p}
               onClick={() => setPeriod(p)}
+              aria-pressed={period === p}
               style={{
                 padding: '0.2rem 0.6rem',
                 fontSize: '0.78rem',
@@ -57,8 +60,8 @@ export function ConsoleModelBreakdown({ data, usdToEur }: Props) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle, #eee)' }}>
+            {rows.map((row) => (
+              <tr key={row.model} style={{ borderBottom: '1px solid var(--border-subtle, #eee)' }}>
                 <td style={{ padding: '0.3rem 0.5rem' }}>{row.model}</td>
                 <td style={{ textAlign: 'right', padding: '0.3rem 0.5rem' }}>
                   {row.input_tokens.toLocaleString('de-DE')}

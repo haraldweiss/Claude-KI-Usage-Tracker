@@ -550,3 +550,41 @@ Nächstes Feature: Low-Balance-Alert + Rate-Alert (Spec ausstehend)
 - Billing-Scraper ist Regex auf Plaintext — bei Layout-Änderungen zuerst in `scrapeBillingPage()` schauen
 
 **MV3 Cold-Start-Hinweis:** Nach Extension-Reload braucht der Service Worker manchmal >3s zum Aufwachen → Popup zeigt kurz "Backend nicht erreichbar". Schließen und neu öffnen reicht.
+
+---
+
+### 2026-06-21 — Geräteübergreifendes Gehirn: Claude Memory + Obsidian WebDAV + Nightly Summary
+
+**Was:** Drei zusammenhängende Infrastruktur-Änderungen für geräteübergreifende KI-Erinnerungen:
+
+**A) Claude Memory → Oracle VM (statt Ionos)**
+- Memory-Repo Remote von `ionos-vps:` auf `oracle-vm:/opt/claude-memory/...` umgezogen
+- `git remote set-url origin oracle-vm:/opt/claude-memory/Library-WebServer-Documents-KI-Usage-tracker.git`
+- Bare Repo auf Oracle VM neu angelegt: `/opt/claude-memory/Library-WebServer-Documents-KI-Usage-tracker.git`
+
+**B) Obsidian WebDAV Sync auf Oracle VM**
+- Apache vHost `obsidian.wolfinisoftware.de` mit `mod_dav` + `mod_headers` eingerichtet
+- Vault-Verzeichnis: `/opt/obsidian-vaults/ai-provider-memory/`
+- SSL: `/etc/letsencrypt/live/obsidian.wolfinisoftware.de/` (Certbot, läuft bis 2026-09-19)
+- Config: `/etc/httpd/conf.d/obsidian-dav.conf`
+- **Zwei kritische Fixes:**
+  1. SELinux-Kontext muss `httpd_sys_rw_content_t` sein (`semanage fcontext + restorecon`)
+  2. Obsidian schickt `PROPFIND Depth: infinity` — Apache blockt das; Fix via `<If "%{HTTP:Depth} == 'infinity'">` → `RequestHeader set Depth "1"`
+- Obsidian Plugin: Remotely Save → WebDAV → `https://obsidian.wolfinisoftware.de`, Base Dir: `ai-provider-memory`
+
+**C) Memory Mirror + Nightly Summary**
+- Post-commit Hook in Memory-Repo spiegelt `*.md` gleichzeitig in lokalen Vault UND per WebDAV-PUT auf Server
+  - Hook: `~/.claude/projects/.../memory/.git/hooks/post-commit`
+  - Ohne direkten WebDAV-Upload löscht Obsidian beim Sync lokale Dateien die auf dem Server fehlen
+- Nightly Summary: `/usr/local/bin/obsidian-memory-summary.sh` (Cron: `0 2 * * *`)
+  - Liest alle `*.md` aus `/opt/obsidian-vaults/ai-provider-memory/claude-memory/`
+  - Ruft `http://127.0.0.1:8767/chat` (ai-provider-service) mit `deepseek-v4-flash-free` (OpenCode, kostenlos) auf
+  - Schreibt `claude-memory/daily-summary.md` in den Vault
+  - Response-Format: `.result.content[0].text` (nicht OpenAI-kompatibel: kein `.choices[0].message.content`)
+  - `max_tokens: 4096` nötig — Modell verbraucht viele Tokens für Reasoning, sonst leere Antwort
+
+**Bekannte Eigenheiten:**
+- `MKCOL` für neue Unterverzeichnisse gibt 405 wenn Parent nicht existiert — Apache erstellt den Parent beim ersten `PUT` automatisch, kein manueller Eingriff nötig
+- Obsidian "Abort! 50% ratio"-Safeguard beim ersten Sync: In Remotely Save Settings → File Change Skip Ratio temporär auf 100% setzen
+- ai-provider-service Token: `eJ-SBF3JBMTKPqaq737lWzw8cbDIY9R994WWZgclmq8` (liegt auch in `/opt/ai-provider-data/.env`)
+- Summary-Log: `/var/log/obsidian-summary.log`

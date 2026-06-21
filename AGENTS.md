@@ -50,6 +50,18 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 
 ## 3. Hard rules
 
+### 3.0 Keine Subagenten bei Claude/Anthropic-Modellen ⛔ (bis auf Widerruf)
+
+**Gilt für alle Agenten die auf Claude/Anthropic-API laufen (Claude Code, OpenCode mit Claude, etc.):**
+
+- `superpowers:subagent-driven-development` ist **verboten**.
+- Pläne werden ausschließlich mit `superpowers:executing-plans` (Inline) ausgeführt.
+- Kein Agent-Tool mit `subagent_type` oder isolierten Sub-Agenten für Implementierung/Review.
+- **Grund:** Eine Subagent-Session (18 Aufrufe, Implementer + 2 Reviewer × 5 Tasks) kostete $37.67 in einem Tag und löste den Rate-Alert aus. Die Kosten sind nicht tragbar.
+- **Ausnahme:** Nur wenn der User in der laufenden Session explizit „Subagenten verwenden" sagt.
+
+
+
 ### 3.1 Port / process / log
 - Backend runs on **port 3001** (not 3000 — past confusion lost 30 min of debugging).
 - Logs live in `/var/log/claudetracker-backend.log` (not journal).

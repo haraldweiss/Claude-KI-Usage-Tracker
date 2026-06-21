@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import { Request, Response } from 'express';
-import { getQuery, runQuery } from '../database/sqlite.js';
+import { getQuery, allQuery, runQuery } from '../database/sqlite.js';
 import { checkAndFireAlerts } from '../services/alertService.js';
 import logger from '../utils/logger.js';
 
@@ -67,11 +67,36 @@ export async function getAlerts(req: Request, res: Response): Promise<void> {
       snapshot.last_topup_usd > 0 &&
       snapshot.balance_usd / snapshot.last_topup_usd < threshold;
 
+    const todayRow = await getQuery<{ today_cost: number }>(
+      `SELECT COALESCE(SUM(cost_usd), 0) as today_cost
+       FROM usage_records
+       WHERE user_id = ? AND source IN ('anthropic_console_cost_day', 'anthropic_console_sync', 'claude_code_sync') AND date(timestamp) = date('now')`,
+      [userId]
+    );
+    const todayCost = todayRow?.today_cost ?? 0;
+
+    const avgRows = await allQuery<{ daily_cost: number }>(
+      `SELECT SUM(cost_usd) as daily_cost
+       FROM usage_records
+       WHERE user_id = ? AND source IN ('anthropic_console_cost_day', 'anthropic_console_sync', 'claude_code_sync')
+         AND date(timestamp) >= date('now', '-7 days')
+         AND date(timestamp) < date('now')
+       GROUP BY date(timestamp)`,
+      [userId]
+    );
+    const avgCost = avgRows.length > 0
+      ? avgRows.reduce((s, r) => s + (r.daily_cost ?? 0), 0) / avgRows.length
+      : 0;
+
+    const rateAlert = avgCost > 0 && todayCost > 1.0 && todayCost > multiplier * avgCost;
+
     res.json({
       low_balance: lowBalance,
-      rate_alert: false,
+      rate_alert: rateAlert,
       balance_usd: snapshot?.balance_usd ?? null,
       last_topup_usd: snapshot?.last_topup_usd ?? null,
+      today_cost_usd: todayCost,
+      avg_daily_cost_usd: avgCost,
       config: { low_balance_threshold: threshold, rate_multiplier: multiplier }
     });
   } catch (err) {

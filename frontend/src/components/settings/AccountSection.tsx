@@ -42,7 +42,7 @@ export default function AccountSection(): React.ReactElement {
     getPlanHistory(5).then(setHistory).catch(console.error);
     fetch('/claudetracker/api/usage/alerts', { credentials: 'include' })
       .then((r) => r.ok ? r.json() : null)
-      .then((data: AlertState | null) => { if (data?.config) setAlertConfig(data.config); })
+      .then((data: AlertState | null) => { if (data?.config) setAlertConfig({ ...data.config, low_balance_threshold: Math.round(data.config.low_balance_threshold * 100) }); })
       .catch(console.error);
   }, []);
 
@@ -69,7 +69,7 @@ export default function AccountSection(): React.ReactElement {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(alertConfig),
+        body: JSON.stringify({ low_balance_threshold: alertConfig.low_balance_threshold / 100, rate_multiplier: alertConfig.rate_multiplier }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setAlertStatus('Gespeichert ✓');

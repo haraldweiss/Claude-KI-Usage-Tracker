@@ -16,6 +16,7 @@ import {
   handleValidationErrors
 } from '../middleware/validators.js';
 import { requireUser } from '../middleware/auth.js';
+import { postBillingSync, getAlerts, putAlertsConfig } from '../controllers/alertController.js';
 
 const router: Router = express.Router();
 router.use(requireUser);
@@ -38,5 +39,9 @@ router.get('/console/keys', getConsoleKeys);
 // All-time spending: every month with at least one claude.ai sync, plus
 // the cumulative API cost as of the most recent console sync.
 router.get('/spending-total', getSpendingTotal);
+
+router.post('/billing-sync', postBillingSync);
+router.get('/alerts', getAlerts);
+router.put('/alerts/config', putAlertsConfig);
 
 export default router;

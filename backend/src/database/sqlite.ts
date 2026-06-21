@@ -224,6 +224,33 @@ export function initDatabase(): Promise<void> {
       database.run('CREATE INDEX IF NOT EXISTS idx_source ON usage_records(source)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_success_status ON usage_records(success_status)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_task_desc ON usage_records(task_description)');
+
+      // Low-balance + rate alerts: billing snapshots + user alert config
+      database.run(`
+        CREATE TABLE IF NOT EXISTS billing_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          balance_usd REAL NOT NULL,
+          last_topup_usd REAL,
+          scraped_at DATETIME DEFAULT (datetime('now'))
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS user_alert_config (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id),
+          low_balance_threshold REAL NOT NULL DEFAULT 0.20,
+          rate_multiplier REAL NOT NULL DEFAULT 3.0,
+          alerts_enabled INTEGER NOT NULL DEFAULT 1,
+          last_low_balance_alert_at DATETIME,
+          last_rate_alert_at DATETIME
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
       database.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', async (err: Error | null) => {
         if (err) return reject(err);
         // After tables and indexes exist, run additive column migrations and

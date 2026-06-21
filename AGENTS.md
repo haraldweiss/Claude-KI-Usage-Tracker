@@ -147,6 +147,55 @@ If a sibling repo is touched in the same session (`wolfini_de_web`, `ai-provider
 
 ---
 
+## 6.1 Geräteübergreifendes Gehirn (Claude Memory + Obsidian)
+
+### Claude Code Memory (git-backed)
+
+Das Auto-Memory-Verzeichnis ist selbst ein Git-Repo mit Remote auf Oracle VM:
+
+| Was | Wert |
+|---|---|
+| Lokal | `~/.claude/projects/-Library-WebServer-Documents-KI-Usage-tracker/memory/` |
+| Remote | `oracle-vm:/opt/claude-memory/Library-WebServer-Documents-KI-Usage-tracker.git` |
+| Push/Pull | `git -C <memory-path> push` / `git -C <memory-path> pull` |
+
+Nach jedem Schreiben einer Memory-Datei **immer pushen**, damit der andere Mac die Änderung bekommt.
+
+### Obsidian WebDAV Sync (Remotely Save Plugin)
+
+Vault `ai-provider-memory` synct via WebDAV auf Oracle VM:
+
+| Was | Wert |
+|---|---|
+| WebDAV URL | `https://obsidian.wolfinisoftware.de` |
+| Remote Base Dir | `ai-provider-memory` |
+| User | `harald` |
+| Passwort | in `~/.claude/projects/.../memory/reference_obsidian_webdav.md` |
+| Apache Config | `/etc/httpd/conf.d/obsidian-dav.conf` auf Oracle VM |
+| Vault-Verzeichnis | `/opt/obsidian-vaults/ai-provider-memory/` auf Oracle VM |
+| SSL-Cert | `/etc/letsencrypt/live/obsidian.wolfinisoftware.de/` |
+
+**SELinux-Kontext:** muss `httpd_sys_rw_content_t` sein. Bei neuem Verzeichnis unter `/opt/obsidian-vaults`:
+```bash
+sudo semanage fcontext -a -t httpd_sys_rw_content_t '/opt/obsidian-vaults(/.*)?'
+sudo restorecon -Rv /opt/obsidian-vaults
+```
+
+**DAV-Besonderheit:** PROPFIND mit `Depth: infinity` ist aus Sicherheitsgründen gesperrt (Apache-Default). Remotely Save benutzt `Depth: 1` → kein Problem.
+
+### Memory → Obsidian Mirror (B)
+
+Post-commit Hook im Memory-Repo spiegelt alle `.md`-Dateien automatisch in `~/ObsidianVaults/ai-provider-memory/claude-memory/`:
+
+```
+~/.claude/projects/.../memory/.git/hooks/post-commit
+→ rsync *.md → ~/ObsidianVaults/ai-provider-memory/claude-memory/
+```
+
+Manuelle Aktualisierung: `rsync -a --include="*.md" --exclude="*" <memory-dir>/ <vault>/claude-memory/`
+
+---
+
 ## 7. Handoff zone (free-form, append-only)
 
 <!-- Example:

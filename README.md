@@ -182,6 +182,24 @@ ssh user@vps 'systemctl restart claudetracker-backend'
 
 See [docs/superpowers/specs/2026-04-29-console-api-tracking-design.md](./docs/superpowers/specs/2026-04-29-console-api-tracking-design.md) for the scraping architecture rationale and [docs/superpowers/specs/2026-04-29-multi-user-auth-design.md](./docs/superpowers/specs/2026-04-29-multi-user-auth-design.md) for the multi-user auth design decisions.
 
+### Obsidian WebDAV (geräteübergreifendes Gedächtnis)
+
+Neben dem Tracker läuft auf demselben Oracle VM ein WebDAV-Endpunkt für Obsidian-Vault-Sync:
+
+| Was | Wert |
+|---|---|
+| Subdomain | `obsidian.wolfinisoftware.de` |
+| Vault-Verzeichnis | `/opt/obsidian-vaults/ai-provider-memory/` |
+| Apache Config | `/etc/httpd/conf.d/obsidian-dav.conf` |
+| SSL-Cert | `/etc/letsencrypt/live/obsidian.wolfinisoftware.de/` |
+| Credentials | In Claude Code Memory (siehe AGENTS.md §6.1) |
+
+**Obsidian-Plugin:** Remotely Save → WebDAV → `https://obsidian.wolfinisoftware.de`, Remote Base Dir: `ai-provider-memory`.
+
+**Claude Memory Mirror:** Post-commit Hook in `~/.claude/projects/.../memory/` spiegelt alle `.md`-Dateien automatisch nach `~/ObsidianVaults/ai-provider-memory/claude-memory/`.
+
+**SELinux:** Vault-Verzeichnis braucht `httpd_sys_rw_content_t` — bei neuem Verzeichnis: `sudo semanage fcontext -a -t httpd_sys_rw_content_t '/opt/obsidian-vaults(/.*)?'` + `restorecon -Rv`.
+
 ---
 
 ## Container deployment (production)

@@ -5,27 +5,33 @@
 const BILLING_URL = 'https://platform.claude.com/settings/billing';
 
 function scrapeBillingPage() {
-  let balance_usd = null;
-  let last_topup_usd = null;
+  // Parse German ("0,15") and English ("0.15") number formats
+  function parseMoney(str) {
+    return parseFloat(str.replace(/\.(?=\d{3})/g, '').replace(',', '.'));
+  }
 
   const allText = document.body.innerText || '';
 
-  const balanceMatch = allText.match(/Credits[\s\S]{0,200}?\$\s*([\d,]+\.?\d*)/i) ||
-                       allText.match(/\$\s*([\d,]+\.?\d*)[\s\S]{0,100}?Credits/i) ||
-                       allText.match(/Balance[\s\S]{0,200}?\$\s*([\d,]+\.?\d*)/i);
-  if (balanceMatch) {
-    balance_usd = parseFloat(balanceMatch[1].replace(/,/g, ''));
+  // Balance — DE: "0,15 $\nVerbleibendes Guthaben" | nav: "Credits\n0,15 USD"
+  let balance_usd = null;
+  const balancePatterns = [
+    /([\d]+[,.]\d+)\s*\$[\s\S]{0,150}?Verbleibendes Guthaben/i,
+    /Verbleibendes Guthaben[\s\S]{0,150}?([\d]+[,.]\d+)\s*(?:\$|USD)/i,
+    /remaining credit[\s\S]{0,150}?([\d]+[,.]\d+)\s*(?:\$|USD)/i,
+    /Credits[\s\n\r]+([\d]+[,.]\d+)\s+USD/i,
+  ];
+  for (const p of balancePatterns) {
+    const m = allText.match(p);
+    if (m) { balance_usd = parseMoney(m[1]); break; }
   }
 
-  const rows = [...document.querySelectorAll('tr, [role="row"]')];
-  for (const row of rows) {
-    const text = (row.textContent || '').toLowerCase();
-    if (text.includes('add credits') || text.includes('payment') || text.includes('aufgeladen')) {
-      const amountMatch = (row.textContent || '').match(/\$\s*([\d,]+\.?\d*)/);
-      if (amountMatch) {
-        last_topup_usd = parseFloat(amountMatch[1].replace(/,/g, ''));
-        break;
-      }
+  // Last top-up — DE: "Guthabenzuweisung" | EN: "Credit grant" / "Add credits"
+  let last_topup_usd = null;
+  const lines = allText.split('\n');
+  for (const line of lines) {
+    if (/Guthabenzuweisung|Credit grant|Add credits/i.test(line)) {
+      const m = line.match(/([\d]+[,.]\d+)\s*(?:\$|USD)/);
+      if (m) { last_topup_usd = parseMoney(m[1]); break; }
     }
   }
 

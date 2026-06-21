@@ -127,8 +127,9 @@ export default function OverviewTab(): React.ReactElement {
   const claudeAiTotalEur = planEur + additionalEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
+  const usdToEur = combined?.exchange_rate?.usd_to_eur ?? 0.92;
   const opencodeApiEur = opencodeApi?.total_cost_usd
-    ? opencodeApi.total_cost_usd * 0.92
+    ? opencodeApi.total_cost_usd * usdToEur
     : 0;
   const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + opencodeApiEur;
 

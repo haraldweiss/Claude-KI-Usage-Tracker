@@ -59,7 +59,7 @@ export async function trackUsage(
 
     // Dedupe: at most one snapshot per day per source — delete today's stale
     // rows for this source before inserting fresh ones.
-    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync'] as const;
+    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync', 'opencode_api_sync', 'anthropic_console_cost_day', 'anthropic_console_cost_month'] as const;
     if ((SYNC_SOURCES as readonly string[]).includes(source)) {
       await runQuery(
         `DELETE FROM usage_records
@@ -91,6 +91,18 @@ export async function trackUsage(
            AND date(timestamp) = date('now')
            AND user_id = ?`,
         [req.user!.id]
+      );
+    }
+
+    // Console cost breakdown: DELETE today's row for this source+model+user
+    // before inserting fresh ones so each sync replaces the day's snapshot.
+    if (source === 'anthropic_console_cost_day' || source === 'anthropic_console_cost_month') {
+      await runQuery(
+        `DELETE FROM usage_records
+         WHERE source = ?
+           AND date(timestamp) = date('now')
+           AND user_id = ?`,
+        [source, req.user!.id]
       );
     }
 
@@ -533,6 +545,74 @@ export async function getSummary(
     // EUR equivalent of the API spend, for the combined hero number.
     const fx = await convertUsdToEur(apiTotalUsd);
 
+    // -------- OpenCode API usage data (from /usage page) ---------
+    // Individual rows + per-key aggregates are stored as usage_records with
+    // source='opencode_api_sync'. Aggregate them here.
+    interface OpenCodeApiKeyRow {
+      key_name: string | null;
+      input_tokens: number;
+      output_tokens: number;
+      cost_usd: number;
+    }
+
+    const opencodeApiByKey = await allQuery<OpenCodeApiKeyRow>(
+      `SELECT key_name, SUM(input_tokens) as input_tokens,
+              SUM(output_tokens) as output_tokens, SUM(cost_usd) as cost_usd
+       FROM usage_records
+       WHERE source = 'opencode_api_sync'
+         AND user_id = ?
+         AND datetime(timestamp) >= datetime(${windowStartExpr})
+         AND response_metadata LIKE '%per_key_aggregate%'
+       GROUP BY key_name
+       ORDER BY cost_usd DESC`,
+      [req.user!.id]
+    );
+
+    const opencodeApiTotalInput = opencodeApiByKey.reduce((s, r) => s + (r.input_tokens || 0), 0);
+    const opencodeApiTotalOutput = opencodeApiByKey.reduce((s, r) => s + (r.output_tokens || 0), 0);
+    const opencodeApiTotalCost = opencodeApiByKey.reduce((s, r) => s + (r.cost_usd || 0), 0);
+
+    const opencodeApi = opencodeApiByKey.length > 0 ? {
+      total_input_tokens: opencodeApiTotalInput,
+      total_output_tokens: opencodeApiTotalOutput,
+      total_cost_usd: opencodeApiTotalCost,
+      row_count: opencodeApiByKey.length,
+      by_key: opencodeApiByKey.map((r) => ({
+        key_name: r.key_name || 'unknown',
+        input_tokens: r.input_tokens || 0,
+        output_tokens: r.output_tokens || 0,
+        cost_usd: r.cost_usd || 0
+      }))
+    } : null;
+
+    const consoleModelDay = await allQuery<{ model: string; input_tokens: number; output_tokens: number; cost_usd: number }>(
+      `SELECT model,
+              SUM(input_tokens) as input_tokens,
+              SUM(output_tokens) as output_tokens,
+              SUM(cost_usd) as cost_usd
+       FROM usage_records
+       WHERE source = 'anthropic_console_cost_day'
+         AND date(timestamp) = date('now')
+         AND user_id = ?
+       GROUP BY model
+       ORDER BY cost_usd DESC`,
+      [req.user!.id]
+    );
+
+    const consoleModelMonth = await allQuery<{ model: string; input_tokens: number; output_tokens: number; cost_usd: number }>(
+      `SELECT model,
+              SUM(input_tokens) as input_tokens,
+              SUM(output_tokens) as output_tokens,
+              SUM(cost_usd) as cost_usd
+       FROM usage_records
+       WHERE source = 'anthropic_console_cost_month'
+         AND date(timestamp) = date('now')
+         AND user_id = ?
+       GROUP BY model
+       ORDER BY cost_usd DESC`,
+      [req.user!.id]
+    );
+
     res.json({
       period: (period as 'day' | 'week' | 'month') || 'day',
       request_count: (summary?.request_count as number) || 0,
@@ -549,6 +629,11 @@ export async function getSummary(
         },
         opencode_go: opencodeGo,
         zai,
+        opencode_api: opencodeApi,
+        console_model_breakdown: {
+          day: consoleModelDay,
+          month: consoleModelMonth
+        },
         exchange_rate: {
           usd_to_eur: fx.rate,
           rate_date: fx.rate_date
@@ -902,8 +987,30 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     const zaiMonthlyEur = zaiPlanName ? (await getPlanPrice(zaiPlanName)) ?? 0 : 0;
     const zaiTotalEur = zaiMonthlyEur > 0 ? zaiMonthlyEur * Math.max(1, months.length) : 0;
 
+    // OpenCode API key usage — cumulative cost_usd from per-key aggregates.
+    const opencodeApiCostRow = await getQuery<{ total_usd: number }>(
+      `SELECT SUM(cost_usd) as total_usd
+       FROM usage_records
+       WHERE source = 'opencode_api_sync'
+         AND user_id = ?
+         AND response_metadata LIKE '%per_key_aggregate%'`,
+      [req.user!.id]
+    );
+    const opencodeApiTotalUsd = opencodeApiCostRow?.total_usd ?? 0;
+    const opencodeApiFx = await convertUsdToEur(opencodeApiTotalUsd);
+
+    // Add opencode_api to the earliest-overall source list
+    const earliestOverall2 = await getQuery<{ first_ts: string | null }>(
+      `SELECT MIN(timestamp) as first_ts
+         FROM usage_records
+        WHERE user_id = ?
+          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync', 'zai_sync', 'opencode_api_sync')`,
+      [req.user!.id]
+    );
+    const since2 = earliestOverall2?.first_ts ? earliestOverall2.first_ts.slice(0, 10) : since;
+
     res.json({
-      since,
+      since: since2,
       claude_ai: {
         total_eur: claudeAiTotalEur,
         subscription_eur: claudeAiSubscriptionEur,
@@ -922,7 +1029,11 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
         monthly_eur: zaiMonthlyEur,
         total_eur: zaiTotalEur
       },
-      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur,
+      opencode_api: {
+        total_usd: opencodeApiTotalUsd,
+        total_eur: opencodeApiFx.eur
+      },
+      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur + opencodeApiFx.eur,
       exchange_rate: {
         usd_to_eur: fx.rate,
         rate_date: fx.rate_date

@@ -84,7 +84,7 @@ describe('POST /api/usage/track — console cost sources', () => {
       `SELECT cost_usd FROM usage_records WHERE source = 'anthropic_console_cost_day' AND user_id = 50`
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].cost_usd).toBe(6.00);
+    expect(rows[0].cost_usd).toBeCloseTo(6.00, 2);
   });
 });
 

@@ -94,18 +94,6 @@ export async function trackUsage(
       );
     }
 
-    // Console cost breakdown: DELETE today's row for this source+model+user
-    // before inserting fresh ones so each sync replaces the day's snapshot.
-    if (source === 'anthropic_console_cost_day' || source === 'anthropic_console_cost_month') {
-      await runQuery(
-        `DELETE FROM usage_records
-         WHERE source = ?
-           AND date(timestamp) = date('now')
-           AND user_id = ?`,
-        [source, req.user!.id]
-      );
-    }
-
     // Normalize the incoming model id/name against existing pricing rows
     const allRows = (await allQuery('SELECT * FROM pricing')) as KnownRow[];
     const normalized = normalizeIncomingModel(rawModel, allRows);
@@ -606,7 +594,7 @@ export async function getSummary(
               SUM(cost_usd) as cost_usd
        FROM usage_records
        WHERE source = 'anthropic_console_cost_month'
-         AND date(timestamp) = date('now')
+         AND strftime('%Y-%m', timestamp) = strftime('%Y-%m', 'now')
          AND user_id = ?
        GROUP BY model
        ORDER BY cost_usd DESC`,

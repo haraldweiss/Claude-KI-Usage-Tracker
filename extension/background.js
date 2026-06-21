@@ -8,7 +8,9 @@ importScripts(
   'background-scraper-console.js',
   'background-scraper-claude-code.js',
   'background-scraper-opencode.js',
-  'background-scraper-zai.js'
+  'background-scraper-zai.js',
+  'background-scraper-opencode-usage.js',
+  'background-scraper-billing.js'
 );
 
 // Default API base for a fresh install. Users running the backend on a VPS
@@ -111,6 +113,15 @@ async function getOpenCodeGoUrl() {
 const ZAI_SYNC_ALARM = 'auto-sync-zai';
 const ZAI_SYNC_INTERVAL_MIN = 24 * 60;
 
+const BILLING_SYNC_ALARM = 'auto-sync-billing';
+const BILLING_SYNC_INTERVAL_MIN = 6 * 60;
+
+// OpenCode API key usage — scrapes the /usage page with per-key breakdown
+// and individual transaction rows. Daily cadence: the data changes only
+// when the user makes API calls, not minute-to-minute.
+const OPENCODE_API_USAGE_ALARM = 'auto-sync-opencode-api-usage';
+const OPENCODE_API_USAGE_INTERVAL_MIN = 24 * 60;
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -181,6 +192,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'TRIGGER_BILLING_SYNC') {
+    billingSync().then((r) => sendResponse(r)).catch((e) => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
+  if (message.type === 'TRIGGER_OPENCODE_API_USAGE_SYNC') {
+    opencodeApiUsageSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === 'GET_LAST_SYNC_ALL') {
     chrome.storage.local.get('last_sync_all').then((d) => sendResponse(d.last_sync_all || null));
     return true;
@@ -199,6 +222,8 @@ async function syncAll() {
     { type: 'claude_code', label: 'Claude Code', fn: claudeCodeSync },
     { type: 'opencode_go', label: 'OpenCode Go', fn: opencodeGoSync },
     { type: 'zai', label: 'z.ai', fn: zaiSync },
+    { type: 'opencode_api_usage', label: 'OpenCode API', fn: opencodeApiUsageSync },
+    { type: 'billing', label: 'Billing', fn: billingSync },
   ];
 
   // Create ONE shared tab for all scrapers — each scraper navigates it to
@@ -641,6 +666,16 @@ async function ensureAlarms() {
       periodInMinutes: ZAI_SYNC_INTERVAL_MIN
     });
   }
+  if (!have.has(OPENCODE_API_USAGE_ALARM)) {
+    // OpenCode API usage — stagger after z.ai to spread out the sync load.
+    chrome.alarms.create(OPENCODE_API_USAGE_ALARM, {
+      delayInMinutes: 11,
+      periodInMinutes: OPENCODE_API_USAGE_INTERVAL_MIN
+    });
+  }
+  if (!have.has(BILLING_SYNC_ALARM)) {
+    chrome.alarms.create(BILLING_SYNC_ALARM, { delayInMinutes: 2, periodInMinutes: BILLING_SYNC_INTERVAL_MIN });
+  }
   if (!have.has('retry-queue')) {
     chrome.alarms.create('retry-queue', { delayInMinutes: 1, periodInMinutes: 5 });
   }
@@ -673,6 +708,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     opencodeGoSync();
   } else if (alarm.name === ZAI_SYNC_ALARM) {
     zaiSync();
+  } else if (alarm.name === OPENCODE_API_USAGE_ALARM) {
+    opencodeApiUsageSync();
+  } else if (alarm.name === BILLING_SYNC_ALARM) {
+    billingSync();
   } else if (alarm.name === 'retry-queue') {
     retryQueuedData();
   } else if (alarm.name === 'refresh-badge') {

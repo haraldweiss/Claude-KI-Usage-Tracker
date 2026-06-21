@@ -297,3 +297,16 @@ export interface PendingPlanChange {
   effective_from: string;
   note: string | null;
 }
+
+export interface AlertState {
+  low_balance: boolean;
+  rate_alert: boolean;
+  balance_usd: number | null;
+  last_topup_usd: number | null;
+  today_cost_usd?: number;
+  avg_daily_cost_usd?: number;
+  config: {
+    low_balance_threshold: number;
+    rate_multiplier: number;
+  };
+}

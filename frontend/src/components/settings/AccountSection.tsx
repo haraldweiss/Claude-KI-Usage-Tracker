@@ -2,7 +2,7 @@
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
 import { getAccount, patchAccount, getPlanPricing, getPlanPending, getPlanHistory, postPlanSchedule, deletePlanSchedule } from '../../services/api';
-import type { CurrentUser, PlanPricingRow, PendingPlanChange, PlanHistoryRow } from '../../types/api';
+import type { CurrentUser, PlanPricingRow, PendingPlanChange, PlanHistoryRow, AlertState } from '../../types/api';
 
 export default function AccountSection(): React.ReactElement {
   const [me, setMe] = useState<CurrentUser | null>(null);
@@ -25,6 +25,11 @@ export default function AccountSection(): React.ReactElement {
   // Task 16: history
   const [history, setHistory] = useState<PlanHistoryRow[]>([]);
 
+  // Alert config
+  const [alertConfig, setAlertConfig] = useState<{ low_balance_threshold: number; rate_multiplier: number }>({ low_balance_threshold: 20, rate_multiplier: 3 });
+  const [alertSaving, setAlertSaving] = useState(false);
+  const [alertStatus, setAlertStatus] = useState<string | null>(null);
+
   useEffect(() => {
     getAccount().then((u) => {
       setMe(u);
@@ -35,6 +40,10 @@ export default function AccountSection(): React.ReactElement {
     getPlanPricing().then((r) => setPlans(r.plans));
     getPlanPending().then(setPending).catch(console.error);
     getPlanHistory(5).then(setHistory).catch(console.error);
+    fetch('/claudetracker/api/usage/alerts', { credentials: 'include' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: AlertState | null) => { if (data?.config) setAlertConfig(data.config); })
+      .catch(console.error);
   }, []);
 
   const save = async () => {
@@ -50,6 +59,24 @@ export default function AccountSection(): React.ReactElement {
       setStatus('Fehler: ' + (e as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveAlertConfig = async () => {
+    setAlertSaving(true); setAlertStatus(null);
+    try {
+      const r = await fetch('/claudetracker/api/usage/alerts/config', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(alertConfig),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setAlertStatus('Gespeichert ✓');
+    } catch (e) {
+      setAlertStatus('Fehler: ' + (e as Error).message);
+    } finally {
+      setAlertSaving(false);
     }
   };
 
@@ -192,6 +219,48 @@ export default function AccountSection(): React.ReactElement {
               Plan-Wechsel einplanen
             </button>
           </form>
+        </details>
+
+        {/* Alert config */}
+        <details className="rounded border border-gray-200">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            Alert-Einstellungen
+          </summary>
+          <div className="border-t border-gray-200 px-4 py-3 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Low-Balance Schwellwert (%)</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={alertConfig.low_balance_threshold}
+                onChange={(e) => setAlertConfig((c) => ({ ...c, low_balance_threshold: Number(e.target.value) }))}
+                className="mt-1 w-full px-3 py-2 border rounded"
+              />
+              <p className="mt-1 text-xs text-gray-500">Alert wenn Guthaben unter X% des letzten Auflade-Betrags fällt.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Rate-Alert Faktor (×)</label>
+              <input
+                type="number"
+                min={1}
+                step={0.1}
+                value={alertConfig.rate_multiplier}
+                onChange={(e) => setAlertConfig((c) => ({ ...c, rate_multiplier: Number(e.target.value) }))}
+                className="mt-1 w-full px-3 py-2 border rounded"
+              />
+              <p className="mt-1 text-xs text-gray-500">Alert wenn heutiger Verbrauch das X-fache des 7-Tage-Schnitts überschreitet.</p>
+            </div>
+            <button
+              onClick={saveAlertConfig}
+              disabled={alertSaving}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {alertSaving ? 'Speichern…' : 'Speichern'}
+            </button>
+            {alertStatus && <p className="text-sm text-gray-600">{alertStatus}</p>}
+          </div>
         </details>
 
         {/* Task 16: Plan change history */}

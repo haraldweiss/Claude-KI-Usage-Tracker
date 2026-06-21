@@ -5,7 +5,8 @@ import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
 import { formatEur, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
-import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, OpenCodeApiSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
+import { AlertBanner } from './AlertBanner';
 
 /** Days remaining in the current month, including today. */
 function daysRemainingInMonth(): number {
@@ -119,17 +120,21 @@ export default function OverviewTab(): React.ReactElement {
   const meta = claudeAi?.meta ?? null;
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const zai: ZaiSpend | null = combined?.zai ?? null;
+  const opencodeApi: OpenCodeApiSpend | null = combined?.opencode_api ?? null;
   const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const planEur = subscriptionEur(plans, meta?.plan_name);
   const claudeAiTotalEur = planEur + additionalEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
-  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur;
+  const opencodeApiEur = opencodeApi?.total_cost_usd
+    ? opencodeApi.total_cost_usd * 0.92
+    : 0;
+  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + opencodeApiEur;
 
   // Number of subscription side-cards shown to the right of the three core
   // claude.ai cards — drives the responsive grid column count.
-  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0);
+  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (opencodeApi ? 1 : 0);
   const statusGridCols =
     statusCardCount >= 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
@@ -137,7 +142,7 @@ export default function OverviewTab(): React.ReactElement {
   // (already counted), so we only forecast the variable parts (additional
   // EUR + API USD->EUR). Early in the month we blend with the previous month's
   // daily rate so a single high day doesn't produce a wild forecast.
-  const variableSoFar = additionalEur + apiTotalEur;
+  const variableSoFar = additionalEur + apiTotalEur + opencodeApiEur;
   const day = dayOfMonth();
   const daysLeft = Math.max(0, daysRemainingInMonth() - 1); // -1 because today is partly done
   const currentDailyRate = day > 0 ? variableSoFar / day : 0;
@@ -177,6 +182,7 @@ export default function OverviewTab(): React.ReactElement {
 
   return (
     <div className="space-y-6 py-6">
+      <AlertBanner />
       {/* Hero */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -191,6 +197,7 @@ export default function OverviewTab(): React.ReactElement {
               claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
               {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
               {zaiEur > 0 && <> · z.ai {formatEur(zaiEur)}</>}
+              {opencodeApiEur > 0 && <> · OpenCode API ≈ {formatEur(opencodeApiEur)}</>}
             </p>
           </div>
           <div className="text-sm text-gray-500 sm:text-right">
@@ -317,6 +324,24 @@ export default function OverviewTab(): React.ReactElement {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* OpenCode API usage */}
+        {opencodeApi && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              OpenCode API
+            </div>
+            <div className="mt-2 text-xl font-bold text-gray-900">
+              {formatEur(opencodeApiEur)}
+            </div>
+            <div className="text-sm text-gray-600">≈ {opencodeApi.total_cost_usd.toFixed(2)} USD</div>
+            <div className="mt-3 space-y-1 text-xs text-gray-600">
+              <div>Input: {(opencodeApi.total_input_tokens / 1000).toFixed(0)}K Tokens</div>
+              <div>Output: {(opencodeApi.total_output_tokens / 1000).toFixed(0)}K Tokens</div>
+              <div>Keys: {opencodeApi.by_key.length}</div>
             </div>
           </div>
         )}
@@ -471,6 +496,9 @@ export default function OverviewTab(): React.ReactElement {
         )}
         {zai?.last_synced && (
           <span>z.ai-Sync: {formatRelativeTime(zai.last_synced)}</span>
+        )}
+        {opencodeApi && (
+          <span>OpenCode API: {formatEur(opencodeApiEur)}</span>
         )}
       </div>
     </div>

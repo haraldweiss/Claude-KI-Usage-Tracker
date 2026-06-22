@@ -18,12 +18,14 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 
 ## 1. What this project is
 
-- **Multi-source AI cost tracker**: surfaces real spend from 5 disconnected places into one dashboard:
+- **Multi-source AI cost tracker**: surfaces real spend from 7 disconnected places into one dashboard:
   1. `claude.ai/settings/usage` — consumer subscription
   2. `console.anthropic.com/settings/keys` — workspace API keys
   3. `platform.claude.com/claude-code` — Claude Code keys + LOC metrics
   4. `opencode.ai` — OpenCode Go workspace subscription (added 2026-05-27)
   5. `z.ai/manage-apikey/coding-plan` — GLM Coding Plan subscription (added 2026-06-14)
+  6. `chatgpt.com/codex/settings/usage` — ChatGPT Pro/Plus Codex usage (added 2026-06-22)
+  7. `platform.openai.com/usage` — OpenAI API month-to-date spend (added 2026-06-22)
 - Three components: **backend** (Express + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3)
 - Hosted at `https://wolfinisoftware.de/claudetracker/` with magic-link auth + API tokens
 - Default branch: `main`, remote: `github.com:haraldweiss/Claude-KI-Usage-Tracker`
@@ -80,7 +82,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 ### 3.3 Cost math is user-trust-critical
 - All currency conversions go through `frankfurter.app` daily; cache the rate.
 - `formatEur` / `formatUsd` in extension popup: always `isFinite()` guard before format. Past bug surfaced `NaN€` when a scraper returned undefined.
-- "Grand total" in `OverviewTab` must include **all five sources** (claude.ai, console, Claude Code, OpenCode Go, z.ai GLM Coding Plan) — if you add a 6th source, add it to the sum (and to `getSpendingTotal`'s `grand_total_eur`).
+- "Grand total" in `OverviewTab` must include **all seven sources** (claude.ai, console, Claude Code, OpenCode Go, z.ai GLM Coding Plan, Codex, OpenAI API) — if you add an 8th source, add it to the sum (and to `getSpendingTotal`'s `grand_total_eur`).
 
 ### 3.4 Validators / XSS
 - **Don't** use `.escape()` on user input in `express-validator`. React auto-escapes on render; `.escape()` corrupts legitimate characters in stored notes. Removed in `92bc43f`.
@@ -550,6 +552,65 @@ Nächstes Feature: Low-Balance-Alert + Rate-Alert (Spec ausstehend)
 - Billing-Scraper ist Regex auf Plaintext — bei Layout-Änderungen zuerst in `scrapeBillingPage()` schauen
 
 **MV3 Cold-Start-Hinweis:** Nach Extension-Reload braucht der Service Worker manchmal >3s zum Aufwachen → Popup zeigt kurz "Backend nicht erreichbar". Schließen und neu öffnen reicht.
+
+---
+
+### 2026-06-22 — OpenAI API Layout-Änderung fixt (opencode)
+
+**Problem:** OpenAI hat das `platform.openai.com/usage` Layout komplett geändert → Scraper meldete `layout_changed`.
+
+**Neues Layout:**
+```
+All API keys | 06/07/26-06/22/26 | Total Spend | $0.00 | Group by | 1d | June spend
+Total tokens | 0 | Total requests | 0
+```
+
+**Altes Layout:**
+```
+Jun 1–Jun 22 Total spend $7.12 Input tokens 120K Output tokens 8K Requests 9 Organization wolfini
+```
+
+**Änderungen:**
+- Date Format: `06/07/26-06/22/26` (MM/DD/YY-MM/DD/YY) statt `Jun 1–22, 2026`
+- Cost Format: `Total Spend | $0.00` statt `Total spend: $7.12` (keine Labels mehr)
+- Organization: Wird nicht mehr angezeigt → Fallback auf `'Unknown'`
+- Tokens/Requests: Pipe-getrennte Werte statt Label-Wert-Paare
+
+**Files:**
+- `extension/usage-parser-openai-api.js`: `parseOpenAiDateRange()` + `parseOpenAiApiUsageText()` für neues Layout
+- `extension/background-scraper-openai-api.js`: Enhanced diagnostic logging entfernt
+- `extension/tests/usage-parsers.test.js`: Tests auf neues Format angepasst
+
+**Deploy:** `b41868f` fix(extension): OpenAI API scraper for new layout
+
+**Status:** Codex ✅, OpenAI API ✅ (mit period_not_verified für falsches Date-Format im UI)
+
+---
+
+### 2026-06-22 — Codex und OpenAI API als neue Kostentracking-Quellen (opencode)
+
+**Was:** ChatGPT Codex (Pro/Plus) und OpenAI API MTD-Kosten als 7. Kostentracking-Quellen integriert. Blueprint war OpenCode Go + z.ai.
+
+**Live ausgebaut (Chrome Browser MCP, eingeloggt):**
+- **Codex:** `chatgpt.com/codex/settings/usage` — 5h/Weekly Limits, Credits, Plan-Name
+- **OpenAI API:** `platform.openai.com/usage` — MTD-Kosten, Tokens, Requests, Organization
+
+**Touch-Points:**
+- `extension/background-scraper-codex.js` (neu): Scrapt Codex Analytics für Limits + Plan-Name
+- `extension/usage-parser-codex.js` (neu): Deutsches/Englisches Parsen (Komma/Punkt, 5h/Weekly/Weekly)
+- `extension/background-scraper-openai-api.js` (neu): Scrapt OpenAI Usage (mit Month-to-Date Click)
+- `extension/usage-parser-openai-api.js` (neu): Englisches/Deutsches Parsen + Date-Range-Verifizierung
+- `extension/background.js`: Codex/OpenAI Sync-Steps, Alarms (24h Cadence)
+- `extension/manifest.json`: Permissions für `chatgpt.com/*` + `platform.openai.com/*`
+- `backend/src/controllers/usageController.ts`: `codex_sync`, `openai_api_sync` Sources, Dedupe, Grand-Total-Erweiterung
+- `backend/src/services/planPricingService.ts`: Seed "ChatGPT Pro" = 20 € (Fallback)
+- `frontend/src/types/api.ts`: `CodexSpend`, `OpenAiApiSpend` Typen
+- `frontend/src/components/OverviewTab.tsx`: Codex (5h/Weekly Progress Bars) + OpenAI API Cards
+- `frontend/index.html`: `usage-parser-codex.js`, `usage-parser-openai-api.js` Imports
+
+**Verifiziert (Code-Ebene):** Extension-Tests 8/8 ✅, Backend type-check ✅, Parser-Tests 8/8 ✅, Syntax-check ✅
+
+**Deploy-Hinweis:** Extension braucht Permissions für `chatgpt.com/*` und `platform.openai.com/*`. Chrome zeigt Permission-Dialog nach Reload.
 
 ---
 

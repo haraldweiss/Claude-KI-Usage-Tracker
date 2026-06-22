@@ -22,13 +22,15 @@ A web application + browser extension that tracks the **real cost** of using AI 
 
 ## 🎯 What it does
 
-The dashboard tells you, in one number, what your AI tools actually cost you this month. It pulls from four otherwise-disconnected places:
+The dashboard tells you, in one number, what your AI tools actually cost you this month. It pulls from seven otherwise-disconnected places:
 
 1. **claude.ai/settings/usage** — the consumer subscription page (Plan name, Zusatznutzung, weekly limits)
 2. **console.anthropic.com/settings/keys** — workspace API keys + their cumulative cost
 3. **platform.claude.com/claude-code** — Claude Code keys with cost + lines-of-code metrics
 4. **opencode.ai** — OpenCode Go workspace subscription usage quotas (plan, continuous/weekly/monthly usage %)
 5. **z.ai/manage-apikey/coding-plan** — GLM Coding Plan subscription (plan name + monthly price from `/my-plan`, 5-hour/weekly/monthly quota % + absolute reset times from `/usage`)
+6. **chatgpt.com/codex/settings/usage** — ChatGPT Pro/Plus Codex usage (5-hour/weekly limits, credits, interactions, plugin calls)
+7. **platform.openai.com/usage** — OpenAI API month-to-date spend (organization, total tokens, total requests, cost)
 
 The browser extension scrapes those pages on a schedule, posts the numbers to the local backend, and the backend exposes them through a typed API the React dashboard renders.
 

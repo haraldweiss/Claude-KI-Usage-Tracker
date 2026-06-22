@@ -45,34 +45,43 @@ async function clickOpenAiMonthToDate(tabId) {
     target: { tabId },
     func: () => {
       const visible = (element) => element.getClientRects().length > 0;
-      const controls = Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
-      const preset = controls.find((element) => /^(?:Month to date|This month|Monat bis heute|Dieser Monat)$/i.test((element.innerText || '').trim()));
-      if (preset) {
-        preset.click();
-        return 'selected';
-      }
-      const dateControl = controls.find((element) => {
-        const text = `${element.innerText || ''} ${element.getAttribute('aria-label') || ''}`;
-        return /date|datum|last 30|letzte 30|\b[A-Z][a-z]{2}\s+\d{1,2}\b/i.test(text);
+      const allClickable = Array.from(document.querySelectorAll('button, [role="button"], [role="tab"], span[tabindex]')).filter(visible);
+      // Try literal "Month to date" / "Monat bis heute" first
+      let btn = allClickable.find((el) => {
+        const t = (el.innerText || el.textContent || '').trim();
+        return /^(?:Month to date|This month|Monat bis heute|Dieser Monat|Aktueller Monat)$/i.test(t);
       });
-      if (dateControl) {
-        dateControl.click();
-        return 'opened';
+      if (btn) { btn.click(); return 'selected'; }
+      // Try date range picker button (contains current month name)
+      btn = allClickable.find((el) => {
+        const t = (el.innerText || el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '');
+        return /date|datum|last 30|letzte 30|range|zeitraum|zeitraum/i.test(t);
+      });
+      if (!btn) {
+        // Last resort: try any button with a date-like text (e.g. "Jun 1–22, 2026")
+        btn = allClickable.find((el) => {
+          const t = (el.innerText || el.textContent || '').trim();
+          return /[A-Z][a-z]{2}\s+\d{1,2}[–\-]\d{1,2}/.test(t);
+        });
       }
+      if (btn) { btn.click(); return 'opened'; }
       return 'not_found';
     }
   });
 
   if (openResult?.result === 'selected') return true;
   if (openResult?.result !== 'opened') return false;
-  await sleep(500);
+  await sleep(800);
 
   const [selectResult] = await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
       const visible = (element) => element.getClientRects().length > 0;
-      const controls = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"]')).filter(visible);
-      const preset = controls.find((element) => /^(?:Month to date|This month|Monat bis heute|Dieser Monat)$/i.test((element.innerText || '').trim()));
+      const allClickable = Array.from(document.querySelectorAll('button, [role="button"], [role="menuitem"], [role="option"]')).filter(visible);
+      const preset = allClickable.find((el) => {
+        const t = (el.innerText || el.textContent || '').trim();
+        return /^(?:Month to date|This month|Monat bis heute|Dieser Monat|Aktueller Monat)$/i.test(t);
+      });
       if (!preset) return false;
       preset.click();
       return true;
@@ -124,7 +133,14 @@ async function openaiApiSync(externalTabId = null) {
       await chrome.storage.local.set({ last_openai_api_sync: Date.now(), last_openai_api_sync_status: 'login_required' });
       return { skipped: true, reason: 'login_required', url: landedUrl };
     }
-    if (/\b(?:Sign in|Log in|Anmelden)\b/i.test(text) && !/Total spend|Total cost/i.test(text)) {
+    // OpenAI redirects unauthenticated requests to /login — detect both URL
+    // pattern and page text for robust login detection across layout changes.
+    if (landedUrl.includes('/login') || landedUrl.includes('/auth')) {
+      await chrome.storage.local.set({ last_openai_api_sync: Date.now(), last_openai_api_sync_status: 'login_required' });
+      return { skipped: true, reason: 'login_required', url: landedUrl };
+    }
+    if (/\b(?:Sign in|Log in|Anmelden|Sign up|Continue with|Email|Password)\b/i.test(text)
+        && !/Total spend|Total cost|Current usage|Aktuelle Nutzung/i.test(text)) {
       await chrome.storage.local.set({ last_openai_api_sync: Date.now(), last_openai_api_sync_status: 'login_required' });
       return { skipped: true, reason: 'login_required', url: landedUrl };
     }
@@ -135,11 +151,14 @@ async function openaiApiSync(externalTabId = null) {
 
     const expectedPeriod = openAiApiExpectedPeriod();
     await clickOpenAiMonthToDate(tabId);
-    await sleep(1000);
+    await sleep(3000);
     text = await waitForOpenAiApiText(tabId);
     const parsed = parseOpenAiApiUsageText(text, expectedPeriod);
     if (!parsed.success) {
-      await chrome.storage.local.set({ last_openai_api_sync: Date.now(), last_openai_api_sync_status: parsed.reason });
+      // Diagnostic: log first 1KB of page text for debugging
+      const preview = text.slice(0, 1024).replace(/\n+/g, ' | ');
+      console.warn('[openai-api-scraper] parse failed:', parsed.reason, `expected=${expectedPeriod.start}..${expectedPeriod.end}`, `preview=${preview}`);
+      await chrome.storage.local.set({ last_openai_api_sync: Date.now(), last_openai_api_sync_status: parsed.reason, last_openai_api_sync_debug: preview });
       return { skipped: true, reason: parsed.reason, url: landedUrl };
     }
 

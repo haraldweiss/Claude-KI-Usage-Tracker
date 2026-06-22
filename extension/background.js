@@ -4,12 +4,14 @@
 // ── Module imports (MV3 service worker: importScripts shares global scope) ──
 importScripts(
   'background-utils.js',
-  'background-scraper-claude.js',
-  'background-scraper-console.js',
+  'usage-parser-codex.js',
+  'usage-parser-openai-api.js',
   'background-scraper-claude-code.js',
   'background-scraper-opencode.js',
   'background-scraper-zai.js',
   'background-scraper-opencode-usage.js',
+  'background-scraper-codex.js',
+  'background-scraper-openai-api.js',
   'background-scraper-billing.js'
 );
 
@@ -54,36 +56,6 @@ async function authFetch(url, init = {}) {
     headers: { ...(init.headers || {}), ...auth }
   });
 }
-const AUTO_SYNC_ALARM = 'auto-sync-claude';
-const AUTO_SYNC_INTERVAL_MIN = 10;
-// claude.ai/settings/usage still works in normal browser tabs.
-// Extension tabs redirect to platform.claude.com, so we try both.
-const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
-
-// Plan B: Console scraping. Console totals update with significant lag and
-// don't change minute-to-minute, so 24h is plenty.
-const CONSOLE_SYNC_ALARM = 'auto-sync-console';
-const CONSOLE_SYNC_INTERVAL_MIN = 24 * 60;
-// Anthropic redirects console.anthropic.com/settings/keys → platform.claude.com,
-// so we go straight there. Old console.anthropic.com host_permission stays as
-// a fallback in case Anthropic flips the redirect back.
-const CONSOLE_KEYS_URL = 'https://platform.claude.com/settings/keys';
-const WORKSPACE_KEYS_PREFIX = 'https://platform.claude.com/settings/workspaces/';
-// Re-run workspace discovery (click through switcher) at most once a week.
-// Daily sync uses the cached list of workspace IDs so we don't pay the
-// click-simulation cost every day.
-const WORKSPACE_DISCOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-function workspaceKeysUrl(workspaceId) {
-  return `${WORKSPACE_KEYS_PREFIX}${workspaceId}/keys`;
-}
-
-function extractWorkspaceId(url) {
-  if (!url) return null;
-  const m = url.match(/\/workspaces\/(wrkspc_[A-Za-z0-9]+)/);
-  return m ? m[1] : null;
-}
-
 // Claude Code has its own usage page that reports per-key spend and lines-of-
 // code metrics. The settings/keys page reports 0 USD for claude_code_*-keys
 // because their billing flows through this surface instead.
@@ -122,6 +94,11 @@ const BILLING_SYNC_INTERVAL_MIN = 6 * 60;
 const OPENCODE_API_USAGE_ALARM = 'auto-sync-opencode-api-usage';
 const OPENCODE_API_USAGE_INTERVAL_MIN = 24 * 60;
 
+const CODEX_SYNC_ALARM = 'auto-sync-codex';
+const CODEX_SYNC_INTERVAL_MIN = 24 * 60;
+const OPENAI_API_SYNC_ALARM = 'auto-sync-openai-api';
+const OPENAI_API_SYNC_INTERVAL_MIN = 24 * 60;
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -145,20 +122,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getMonthlyStats()
       .then((stats) => sendResponse(stats))
       .catch(() => sendResponse(null));
-    return true;
-  }
-
-  if (message.type === 'TRIGGER_AUTO_SYNC') {
-    autoSync()
-      .then((result) => sendResponse({ success: true, result }))
-      .catch((error) => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-  if (message.type === 'TRIGGER_CONSOLE_SYNC') {
-    consoleSync()
-      .then((result) => sendResponse({ success: true, result }))
-      .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
 
@@ -197,6 +160,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'TRIGGER_CODEX_SYNC') {
+    codexSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'TRIGGER_OPENAI_API_SYNC') {
+    openaiApiSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === 'TRIGGER_OPENCODE_API_USAGE_SYNC') {
     opencodeApiUsageSync()
       .then((result) => sendResponse({ success: true, result }))
@@ -217,12 +194,12 @@ async function syncAll() {
   });
 
   const steps = [
-    { type: 'auto', label: 'Claude.ai', fn: autoSync },
-    { type: 'console', label: 'Console', fn: consoleSync },
     { type: 'claude_code', label: 'Claude Code', fn: claudeCodeSync },
     { type: 'opencode_go', label: 'OpenCode Go', fn: opencodeGoSync },
     { type: 'zai', label: 'z.ai', fn: zaiSync },
     { type: 'opencode_api_usage', label: 'OpenCode API', fn: opencodeApiUsageSync },
+    { type: 'codex', label: 'Codex', fn: codexSync },
+    { type: 'openai_api', label: 'OpenAI API', fn: openaiApiSync },
     { type: 'billing', label: 'Billing', fn: billingSync },
   ];
 
@@ -289,15 +266,6 @@ async function checkUsageThresholds() {
 
   const { combined } = stats;
   const alerts = [];
-
-  // Claude.ai
-  const meta = combined.claude_ai?.meta;
-  if (meta) {
-    if (typeof meta.session_pct === 'number')
-      alerts.push({ source: 'claude_ai_session', label: 'Claude.ai Sitzung', pct: meta.session_pct });
-    if (typeof meta.weekly_all_models_pct === 'number')
-      alerts.push({ source: 'claude_ai_weekly', label: 'Claude.ai Wochenlimit', pct: meta.weekly_all_models_pct });
-  }
 
   // OpenCode Go
   const og = combined.opencode_go;
@@ -503,115 +471,9 @@ async function retryQueuedData() {
 // existing usage tab or open a hidden one, scrape, post, and close it.
 // ---------------------------------------------------------------------------
 
-// Stable string of the headline figures, used to detect whether values
-// actually changed between two syncs. scraped_at is excluded on purpose —
-// it changes every run and would mask a no-op data plateau.
-const AUTO_SYNC_SIGNATURE_FIELDS = [
-  'weekly_all_models_pct',
-  'weekly_sonnet_pct',
-  'session_pct',
-  'spent_eur',
-  'spent_pct',
-  'balance_eur'
-];
-
-// "table found but every row has — for cost", etc.
-function scrapeConsoleKeysTable() {
-  const diag = {
-    rows: [],
-    tables_seen: 0,
-    candidate_headers: null,
-    all_headers: [],
-    body_row_count: 0,
-    rows_skipped_no_cost: 0,
-    rows_skipped_other: 0,
-    cost_samples: [],
-  };
-
-  // Try real <table> first, then fall back to ARIA tables (div-based grids).
-  const realTables = Array.from(document.querySelectorAll('table'));
-  const ariaTables = Array.from(document.querySelectorAll('[role="table"]'));
-  const tables = realTables.length > 0 ? realTables : ariaTables;
-  diag.tables_seen = tables.length;
-
-  // Lenient match: lowercase substring against a list of language variants.
-  // Handles English ("Cost", "Cost (USD)") and German ("Kosten",
-  // "Schlüssel", "Arbeitsbereich", "Zuletzt verwendet am"), incl. sort
-  // indicators and unit suffixes.
-  const matchAny = (headers, needles) =>
-    headers.findIndex((h) => needles.some((n) => h.includes(n)));
-
-  for (const table of tables) {
-    // Real <table>: headers from thead. ARIA: role="columnheader".
-    const headerEls = realTables.length > 0
-      ? table.querySelectorAll('thead th, thead td')
-      : table.querySelectorAll('[role="columnheader"]');
-    const headers = Array.from(headerEls).map((h) => h.textContent.trim().toLowerCase());
-    diag.all_headers.push(headers);
-
-    const costIdx = matchAny(headers, ['cost', 'kosten']);
-    if (costIdx === -1) continue;
-    diag.candidate_headers = headers;
-
-    const keyIdx = matchAny(headers, ['key', 'schlüssel', 'schluessel']);
-    const workspaceIdx = matchAny(headers, ['workspace', 'arbeitsbereich']);
-    const lastUsedIdx = matchAny(headers, ['last used', 'zuletzt verwendet']);
-
-    const rows = realTables.length > 0
-      ? Array.from(table.querySelectorAll('tbody tr'))
-      : Array.from(table.querySelectorAll('[role="row"]')).filter(
-          (r) => !r.querySelector('[role="columnheader"]')
-        );
-    diag.body_row_count = rows.length;
-
-    for (const row of rows) {
-      const cells = realTables.length > 0
-        ? Array.from(row.querySelectorAll('td'))
-        : Array.from(row.querySelectorAll('[role="cell"], [role="gridcell"]'));
-      if (cells.length === 0) { diag.rows_skipped_other++; continue; }
-
-      const costRaw = (cells[costIdx]?.textContent || '').trim();
-      if (diag.cost_samples.length < 8) diag.cost_samples.push(costRaw);
-      if (!costRaw || costRaw === '—' || costRaw === '-' || costRaw === '0') {
-        diag.rows_skipped_no_cost++;
-        continue;
-      }
-
-      const numMatch = costRaw.match(/[\d.,]+/);
-      if (!numMatch) { diag.rows_skipped_no_cost++; continue; }
-      const cost_usd = parseFloat(numMatch[0].replace(',', '.'));
-      if (!isFinite(cost_usd) || cost_usd < 0) { diag.rows_skipped_other++; continue; }
-
-      const keyCell = keyIdx >= 0 ? cells[keyIdx] : cells[0];
-      const keyText = (keyCell?.textContent || '').trim();
-      const skIdx = keyText.indexOf('sk-ant-');
-      const key_name = skIdx > 0 ? keyText.substring(0, skIdx).trim() : keyText.trim() || null;
-      const masked = skIdx >= 0 ? keyText.substring(skIdx).trim() : '';
-      const key_id_suffix = masked.length >= 4 ? masked.slice(-4) : null;
-
-      const workspace = workspaceIdx >= 0
-        ? (cells[workspaceIdx]?.textContent || '').trim().split('\n')[0].trim() || null
-        : null;
-      const last_used = lastUsedIdx >= 0
-        ? (cells[lastUsedIdx]?.textContent || '').trim() || null
-        : null;
-
-      diag.rows.push({ key_name, key_id_suffix, workspace, cost_usd, last_used });
-    }
-
-    return diag;
-  }
-  return diag;
-}
-
 // ---------------------------------------------------------------------------
-// Plan B (3rd source): platform.claude.com/claude-code
-//
-// The settings/keys console page reports 0 USD for claude_code_*-keys because
-// their billing surfaces here instead. We post one usage record per row in
-// the team table (real per-key spend + lines-of-code accepted) plus a single
-// aggregate row carrying the page-level metrics (total lines accepted,
-// suggestion accept rate).
+// Alarms (replace setInterval — service workers can be terminated; alarms wake
+// them back up reliably).
 // ---------------------------------------------------------------------------
 
 
@@ -629,20 +491,6 @@ async function ensureAlarms() {
   const existing = await chrome.alarms.getAll();
   const have = new Set(existing.map((a) => a.name));
 
-  if (!have.has(AUTO_SYNC_ALARM)) {
-    chrome.alarms.create(AUTO_SYNC_ALARM, {
-      delayInMinutes: 1,
-      periodInMinutes: AUTO_SYNC_INTERVAL_MIN
-    });
-  }
-  if (!have.has(CONSOLE_SYNC_ALARM)) {
-    // Run once a few minutes after startup so we have at least one snapshot
-    // even on fresh installs, then settle into the daily cadence.
-    chrome.alarms.create(CONSOLE_SYNC_ALARM, {
-      delayInMinutes: 3,
-      periodInMinutes: CONSOLE_SYNC_INTERVAL_MIN
-    });
-  }
   if (!have.has(CLAUDE_CODE_SYNC_ALARM)) {
     // Stagger the second daily scrape by a few minutes so we don't open
     // two background tabs in the same second on cold start.
@@ -673,6 +521,18 @@ async function ensureAlarms() {
       periodInMinutes: OPENCODE_API_USAGE_INTERVAL_MIN
     });
   }
+  if (!have.has(CODEX_SYNC_ALARM)) {
+    chrome.alarms.create(CODEX_SYNC_ALARM, {
+      delayInMinutes: 13,
+      periodInMinutes: CODEX_SYNC_INTERVAL_MIN
+    });
+  }
+  if (!have.has(OPENAI_API_SYNC_ALARM)) {
+    chrome.alarms.create(OPENAI_API_SYNC_ALARM, {
+      delayInMinutes: 15,
+      periodInMinutes: OPENAI_API_SYNC_INTERVAL_MIN
+    });
+  }
   if (!have.has(BILLING_SYNC_ALARM)) {
     chrome.alarms.create(BILLING_SYNC_ALARM, { delayInMinutes: 2, periodInMinutes: BILLING_SYNC_INTERVAL_MIN });
   }
@@ -698,11 +558,7 @@ chrome.runtime.onStartup.addListener(ensureAlarms);
 ensureAlarms();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === AUTO_SYNC_ALARM) {
-    autoSync();
-  } else if (alarm.name === CONSOLE_SYNC_ALARM) {
-    consoleSync();
-  } else if (alarm.name === CLAUDE_CODE_SYNC_ALARM) {
+  if (alarm.name === CLAUDE_CODE_SYNC_ALARM) {
     claudeCodeSync();
   } else if (alarm.name === OPENCODE_GO_SYNC_ALARM) {
     opencodeGoSync();
@@ -710,6 +566,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     zaiSync();
   } else if (alarm.name === OPENCODE_API_USAGE_ALARM) {
     opencodeApiUsageSync();
+  } else if (alarm.name === CODEX_SYNC_ALARM) {
+    codexSync();
+  } else if (alarm.name === OPENAI_API_SYNC_ALARM) {
+    openaiApiSync();
   } else if (alarm.name === BILLING_SYNC_ALARM) {
     billingSync();
   } else if (alarm.name === 'retry-queue') {

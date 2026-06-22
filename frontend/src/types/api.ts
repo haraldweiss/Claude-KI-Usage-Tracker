@@ -66,6 +66,31 @@ export interface ConsoleModelBreakdown {
   month: ConsoleModelRow[];
 }
 
+export interface CodexSpend {
+  plan_name: string | null;
+  plan_cost_eur: number;
+  five_hour_remaining_pct: number | null;
+  five_hour_reset_at: string | null;
+  weekly_remaining_pct: number | null;
+  weekly_reset_at: string | null;
+  credits_remaining: number | null;
+  interactions: number;
+  plugin_calls: number;
+  skills_used: number;
+  last_synced: string;
+}
+
+export interface OpenAiApiSpend {
+  organization_name: string;
+  period_start: string;
+  period_end: string;
+  cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  requests: number;
+  last_synced: string;
+}
+
 export interface CombinedSpendBreakdown {
   claude_ai: ClaudeAiSpend | null;
   anthropic_api: {
@@ -76,6 +101,8 @@ export interface CombinedSpendBreakdown {
   opencode_go?: OpenCodeGoSpend | null;
   zai?: ZaiSpend | null;
   opencode_api?: OpenCodeApiSpend | null;
+  codex?: CodexSpend | null;
+  openai_api?: OpenAiApiSpend | null;
   console_model_breakdown?: ConsoleModelBreakdown;
   exchange_rate?: {
     usd_to_eur: number;
@@ -158,6 +185,15 @@ export interface SpendingTotal {
   };
   opencode_api?: {
     total_usd: number;
+    total_eur: number;
+  };
+  openai_api?: {
+    total_usd: number;
+    total_eur: number;
+  };
+  codex?: {
+    plan_name: string | null;
+    monthly_eur: number;
     total_eur: number;
   };
   grand_total_eur?: number;

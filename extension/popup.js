@@ -144,39 +144,18 @@ function formatUsd(value) {
 }
 
 function displayStats(stats) {
-  const claudeAi = stats?.combined?.claude_ai;
-  const api = stats?.combined?.anthropic_api;
-  const meta = claudeAi?.meta;
-  const opencodeGo = stats?.combined?.opencode_go;
   const zai = stats?.combined?.zai;
+  const opencodeGo = stats?.combined?.opencode_go;
 
-  const claudeAiTotalEur = claudeAi?.total_eur ?? 0;
-  const apiUsd = api?.cost_usd ?? 0;
-  const apiEur = api?.cost_eur_equivalent ?? 0;
-  const grandTotal = claudeAiTotalEur + apiEur;
-
+  // Compute grand total from remaining (non-Claude) sources
+  const cg = stats?.combined;
+  const opencodeGoEur = (cg?.opencode_go?.plan_name === 'OpenCode Go') ? 20 : (cg?.opencode_go?.plan_name ? 10 : 0);
+  const zaiEur = cg?.zai?.plan_name ? 15 : 0;
+  const opencodeApiTotal = cg?.opencode_api?.total_cost_usd ?? 0;
+  const openaiApiTotal = cg?.openai_api?.cost_usd ?? 0;
+  const approxEur = (opencodeApiTotal + openaiApiTotal) * 0.92;
+  const grandTotal = opencodeGoEur + zaiEur + approxEur;
   document.getElementById('grand-total').textContent = formatEur(grandTotal);
-  document.getElementById('claudeai-total').textContent = claudeAi
-    ? `${formatEur(claudeAiTotalEur)}`
-    : '—';
-  document.getElementById('api-total').textContent =
-    apiUsd > 0 ? `${formatUsd(apiUsd)} ≈ ${formatEur(apiEur)}` : formatEur(0);
-  const weeklyEl = document.getElementById('weekly-pct');
-  const sessionEl = document.getElementById('session-pct');
-  if (typeof meta?.weekly_all_models_pct === 'number') {
-    weeklyEl.textContent = `${meta.weekly_all_models_pct}%`;
-    weeklyEl.classList.toggle('warning', meta.weekly_all_models_pct >= 90);
-  } else {
-    weeklyEl.textContent = '—';
-    weeklyEl.classList.remove('warning');
-  }
-  if (typeof meta?.session_pct === 'number') {
-    sessionEl.textContent = `${meta.session_pct}%`;
-    sessionEl.classList.toggle('warning', meta.session_pct >= 90);
-  } else {
-    sessionEl.textContent = '—';
-    sessionEl.classList.remove('warning');
-  }
 
   // OpenCode Go — show usage as "plan: C% · W% · M%" when data exists
   const opencodeRow = document.getElementById('opencode-row');
@@ -210,6 +189,69 @@ function displayStats(stats) {
   } else if (zaiEl) {
     zaiRow.style.display = 'none';
   }
+
+  // OpenCode API usage — show token totals and key count
+  const opencodeApi = stats?.combined?.opencode_api;
+  const opencodeApiRow = document.getElementById('opencode-api-row');
+  const opencodeApiEl = document.getElementById('opencode-api-summary');
+  if (opencodeApi && opencodeApiEl) {
+    opencodeApiRow.style.display = '';
+    const inK = Math.round((opencodeApi.total_input_tokens || 0) / 1000);
+    const outK = Math.round((opencodeApi.total_output_tokens || 0) / 1000);
+    const costStr = opencodeApi.total_cost_usd > 0
+      ? '$' + opencodeApi.total_cost_usd.toFixed(2)
+      : '' + (inK + outK) + 'K Tokens';
+    const keyCount = opencodeApi.by_key?.length || 0;
+    opencodeApiEl.textContent = keyCount > 0
+      ? costStr + ' · ' + keyCount + ' Keys'
+      : costStr;
+    opencodeApiEl.classList.remove('warning');
+  } else if (opencodeApiEl) {
+    opencodeApiRow.style.display = 'none';
+  }
+
+  // Codex — show remaining capacity percentages
+  const codex = stats?.combined?.codex;
+  const codexRow = document.getElementById('codex-row');
+  const codexEl = document.getElementById('codex-summary');
+  if (codex && codexEl) {
+    codexRow.style.display = '';
+    const fiveHour = Number(codex.five_hour_remaining_pct);
+    const weekly = Number(codex.weekly_remaining_pct);
+    const parts = [];
+    if (Number.isFinite(fiveHour)) parts.push('5h ' + fiveHour + '% frei');
+    if (Number.isFinite(weekly)) parts.push('Woche ' + weekly + '% frei');
+    codexEl.textContent = parts.length > 0 ? parts.join(' · ') : 'aktiv';
+    const minRemaining = Math.min(
+      Number.isFinite(fiveHour) ? fiveHour : 100,
+      Number.isFinite(weekly) ? weekly : 100
+    );
+    codexEl.classList.toggle('warning', minRemaining < 20);
+  } else if (codexEl) {
+    codexRow.style.display = 'none';
+    codexEl.classList.remove('warning');
+  }
+
+  // OpenAI API — show month-to-date cost and usage
+  const openaiApi = stats?.combined?.openai_api;
+  const openaiApiRow = document.getElementById('openai-api-row');
+  const openaiApiEl = document.getElementById('openai-api-summary');
+  if (openaiApi && openaiApiEl) {
+    openaiApiRow.style.display = '';
+    const cost = Number(openaiApi.cost_usd);
+    const input = Number(openaiApi.total_input_tokens || openaiApi.input_tokens);
+    const output = Number(openaiApi.total_output_tokens || openaiApi.output_tokens);
+    const requests = Number(openaiApi.requests);
+    const costPart = Number.isFinite(cost) ? '$' + cost.toFixed(2) + ' MTD' : '$0.00 MTD';
+    const tokensPart = (Number.isFinite(input) || Number.isFinite(output))
+      ? formatNumber((Number.isFinite(input) ? input : 0) + (Number.isFinite(output) ? output : 0)) + ' Tokens'
+      : '';
+    const reqPart = Number.isFinite(requests) ? requests + ' Requests' : '';
+    openaiApiEl.textContent = [costPart, tokensPart, reqPart].filter(Boolean).join(' · ');
+    openaiApiEl.classList.remove('warning');
+  } else if (openaiApiEl) {
+    openaiApiRow.style.display = 'none';
+  }
 }
 
 function showError(message, isSuccess = false) {
@@ -236,6 +278,8 @@ function showError(message, isSuccess = false) {
 }
 
 function formatNumber(num) {
+  if (!Number.isFinite(Number(num))) return '0';
+  num = Number(num);
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + 'M';
   } else if (num >= 1000) {

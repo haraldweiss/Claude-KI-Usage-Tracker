@@ -28,7 +28,7 @@ function NavBar(): React.ReactElement {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
         <div className="flex items-center gap-2">
           <span className="text-2xl">💻</span>
-          <h1 className="text-xl font-bold text-gray-900">Claude Usage Tracker</h1>
+          <h1 className="text-xl font-bold text-gray-900">KI Usage Tracker</h1>
         </div>
         <div className="flex gap-4 items-center">
           {NAV_LINKS.map(({ path, label }) => (

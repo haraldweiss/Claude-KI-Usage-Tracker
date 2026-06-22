@@ -75,7 +75,12 @@ async function billingSync(externalTabId = null) {
 
     if (data.balance_usd === null) {
       console.warn('[billing-scraper] could not find balance on billing page');
-      return { success: false, error: 'balance not found' };
+      await chrome.storage.local.set({
+        last_billing_sync: Date.now(),
+        last_billing_sync_status: 'balance_not_found',
+        last_billing_sync_result: null
+      });
+      return { skipped: true, reason: 'balance_not_found_kein_abo', url: BILLING_URL };
     }
 
     const apiBase = await getApiBase();

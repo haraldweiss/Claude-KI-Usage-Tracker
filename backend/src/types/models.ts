@@ -189,7 +189,9 @@ export enum SourceType {
   ZaiSync = 'zai_sync',
   OpenCodeApiSync = 'opencode_api_sync',
   AnthropicConsoleCostDay = 'anthropic_console_cost_day',
-  AnthropicConsoleCostMonth = 'anthropic_console_cost_month'
+  AnthropicConsoleCostMonth = 'anthropic_console_cost_month',
+  CodexSync = 'codex_sync',
+  OpenAiApiSync = 'openai_api_sync'
 }
 
 /**

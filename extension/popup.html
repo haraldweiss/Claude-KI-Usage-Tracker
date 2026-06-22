@@ -249,22 +249,7 @@
           <span class="stat-label">Gesamt diesen Monat</span>
           <span class="stat-value" id="grand-total">-</span>
         </div>
-        <div class="stat-item">
-          <span class="stat-label">claude.ai (Plan + Zusatz)</span>
-          <span class="stat-value" id="claudeai-total">-</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">Anthropic API</span>
-          <span class="stat-value" id="api-total">-</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">Wochenlimit</span>
-          <span class="stat-value" id="weekly-pct">-</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">Aktuelle Sitzung</span>
-          <span class="stat-value" id="session-pct">-</span>
-        </div>
+
         <div class="stat-item" id="opencode-row" style="display:none;">
           <span class="stat-label">OpenCode Go</span>
           <span class="stat-value" id="opencode-go-summary">-</span>
@@ -273,12 +258,24 @@
           <span class="stat-label">z.ai</span>
           <span class="stat-value" id="zai-summary">-</span>
         </div>
+        <div class="stat-item" id="opencode-api-row" style="display:none;">
+          <span class="stat-label">OpenCode API</span>
+          <span class="stat-value" id="opencode-api-summary">-</span>
+        </div>
+        <div class="stat-item" id="codex-row" style="display:none;">
+          <span class="stat-label">Codex</span>
+          <span class="stat-value" id="codex-summary">-</span>
+        </div>
+        <div class="stat-item" id="openai-api-row" style="display:none;">
+          <span class="stat-label">OpenAI API</span>
+          <span class="stat-value" id="openai-api-summary">-</span>
+        </div>
       </div>
 
       <div id="sync-info" class="sync-info" style="display: none;"></div>
 
       <div class="actions">
-        <button class="btn-primary" id="sync-btn" title="Claude.ai + Anthropic Console + Claude Code">↻ Sync alle</button>
+        <button class="btn-primary" id="sync-btn" title="Alle Quellen synchronisieren">↻ Sync alle</button>
         <button class="btn-secondary" id="refresh-btn">Refresh</button>
       </div>
 

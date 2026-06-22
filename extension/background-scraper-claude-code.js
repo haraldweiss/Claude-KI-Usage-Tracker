@@ -22,6 +22,14 @@ async function claudeCodeSync(externalTabId = null) {
       }
     }
 
+    // Check landing URL — without a Claude subscription the page redirects
+    // to claude.ai or account.anthropic.com (no longer in host_permissions).
+    const landingTab = await chrome.tabs.get(tabId);
+    const landingUrl = landingTab?.url || '';
+    if (!landingUrl.startsWith('https://platform.claude.com/')) {
+      return { skipped: true, reason: 'redirected_kein_abo', url: landingUrl };
+    }
+
     // Poll for the table to finish skeleton-loading. Anthropic shows
     // 'Loading...' placeholder rows for a few seconds while the data fetches.
     // We retry up to 8 times (~16s) before giving up.
@@ -29,18 +37,21 @@ async function claudeCodeSync(externalTabId = null) {
     let injection;
     while (attempt < 8) {
       await sleep(2000);
-      [injection] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const text = document.body.innerText || '';
-          // Quick gate: if any visible cell still says 'Loading...', the
-          // skeleton is up — bail out and let the caller retry.
-          if (/^\s*Loading\.\.\.\s*$/m.test(text)) {
-            return { still_loading: true };
+      try {
+        [injection] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const text = document.body.innerText || '';
+            if (/^\s*Loading\.\.\.\s*$/m.test(text)) {
+              return { still_loading: true };
+            }
+            return { still_loading: false };
           }
-          return { still_loading: false };
-        }
-      });
+        });
+      } catch (e) {
+        // executeScript may throw if page redirects mid-poll
+        return { skipped: true, reason: 'redirected_kein_abo', url: landingUrl };
+      }
       if (!injection?.result?.still_loading) break;
       attempt += 1;
     }

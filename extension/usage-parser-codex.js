@@ -56,9 +56,27 @@ function parseCodexUsageText(rawText) {
     return { success: false, reason: 'usage_cards_not_found' };
   }
 
+  // Extract ChatGPT plan name (Pro, Plus, Go, Free) from the page header.
+  // The analytics/settings page shows "Dein Plan: Pro", "Your plan: Plus",
+  // or just "ChatGPT Pro" / "ChatGPT Plus" in headings.
+  var planMatch = text.match(
+    /(?:Plan|plan|Dein Plan|Your plan|ChatGPT|Konto)[\s:–\-]*\n*\s*(Pro|Plus|Go|Free)\b/i
+  );
+  // Fallback: look for "Pro" / "Plus" / "Go" / "Free" in the first 200 chars
+  // (usually the page title or header area) but only if it's a standalone word.
+  if (!planMatch) {
+    var header = text.slice(0, 200);
+    var headerMatch = header.match(/\b(Pro|Plus|Go|Free)\b/);
+    if (headerMatch) planMatch = headerMatch;
+  }
+  var plan_name = planMatch ? planMatch[1] : null;
+  // Normalize: "Pro" -> "ChatGPT Pro"
+  if (plan_name) plan_name = 'ChatGPT ' + plan_name;
+
   return {
     success: true,
     data: {
+      plan_name: plan_name,
       five_hour_remaining_pct: fiveHour.remaining_pct,
       five_hour_reset_at: fiveHour.reset_at,
       weekly_remaining_pct: weekly.remaining_pct,

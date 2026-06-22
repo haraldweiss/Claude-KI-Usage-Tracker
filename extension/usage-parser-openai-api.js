@@ -46,7 +46,9 @@ function openAiMonthNumber(label) {
 
 function parseOpenAiDateRange(text, expectedPeriod) {
   var year = Number(expectedPeriod.start.slice(0, 4));
-  var english = text.match(/\b([A-Za-zÄÖÜäöü]+)\s+(\d{1,2})\s*[–—-]\s*([A-Za-zÄÖÜäöü]+\s+)?(\d{1,2})\b/);
+
+  // English: "Jun 1 – Jun 22, 2026" or "Jun 1 – 22, 2026" or "Jun 1 – 22"
+  var english = text.match(/\b([A-Za-zÄÖÜäöü]+)\s+(\d{1,2}),?\s*(?:\d{4})?\s*[–—-]\s*(?:([A-Za-zÄÖÜäöü]+)\s+)?(\d{1,2}),?\s*(?:\d{4})?\b/);
   if (english) {
     var startMonth = openAiMonthNumber(english[1]);
     var endMonth = english[3] ? openAiMonthNumber(english[3].trim()) : startMonth;
@@ -58,7 +60,8 @@ function parseOpenAiDateRange(text, expectedPeriod) {
     }
   }
 
-  var german = text.match(/\b(\d{1,2})\.\s*([A-Za-zÄÖÜäöü]+)\s*[–—-]\s*(\d{1,2})\.\s*([A-Za-zÄÖÜäöü]+)\b/);
+  // German: "1. Juni – 22. Juni 2026" or "1. Juni – 22. Juni"
+  var german = text.match(/\b(\d{1,2})\.\s*([A-Za-zÄÖÜäöü]+)\s*(?:\d{4})?\s*[–—-]\s*(\d{1,2})\.\s*([A-Za-zÄÖÜäöü]+)\s*(?:\d{4})?\b/);
   if (german) {
     var germanStartMonth = openAiMonthNumber(german[2]);
     var germanEndMonth = openAiMonthNumber(german[4]);
@@ -69,6 +72,19 @@ function parseOpenAiDateRange(text, expectedPeriod) {
       };
     }
   }
+
+  // Fallback: look for current month name anywhere then try to extract days
+  var monthNames = Object.keys(OPENAI_API_MONTHS).sort((a,b) => b.length - a.length);
+  var monthPat = '(?:' + monthNames.join('|') + ')';
+  var fallback = text.match(new RegExp('(' + monthPat + ')\\s+(\\d{1,2}),?\\s*(?:\\d{4})?', 'i'));
+  if (fallback && openAiMonthNumber(fallback[1]) === Number(expectedPeriod.start.slice(5,7))) {
+    // Found the expected month with a day — infer month-to-date range
+    return {
+      start: expectedPeriod.start,
+      end: expectedPeriod.end
+    };
+  }
+
   return null;
 }
 
@@ -85,9 +101,25 @@ function parseOpenAiApiUsageText(rawText, expectedPeriod) {
   }
 
   var cost = openAiLabelNumber(text, 'Total spend|Gesamtausgaben|Gesamtkosten');
-  var organization = text.match(/(?:Organization|Organisation)\s+(.+?)(?=\s+(?:Total spend|Gesamtausgaben|Total tokens|Input tokens|Requests|Anfragen)|$)/i);
+  var organization = text.match(/(?:Organization|Organisation)\s+(.+?)(?=\s+(?:Total spend|Gesamtausgaben|Total tokens|Input tokens|Output tokens|Requests|Anfragen)|$)/i);
+  // Also try extract from a label like "Organization: wolfini" or "wolfini" near cost
+  if (!organization) {
+    organization = text.match(/(?:Organization|Organisation)[:\s]+(.+?)(?:\s*(?:$|\n|Total|Gesamt|Input|Output|Request|Anfrage))/i);
+  }
+  if (!organization) {
+    // Last resort: grab the first non-empty line that isn't a date range or number
+    var lines = text.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+    for (var i = 0; i < Math.min(5, lines.length); i++) {
+      if (/[A-Za-z]{3,}/.test(lines[i]) && !/\d/.test(lines[i]) && !/\b(?:Total|Gesamt|Input|Output|Request|Jun|Jul|May|Jun|Jul|Aug|Sep)/i.test(lines[i])) {
+        organization = ['', lines[i]];
+        break;
+      }
+    }
+  }
   if (!Number.isFinite(cost) || cost < 0 || !organization || !organization[1].trim()) {
-    return { success: false, reason: 'layout_changed' };
+    // Diagnostic: log text preview for debugging layout_changed
+    var preview = (text || '').slice(0, 800).replace(/\n+/g, ' | ');
+    return { success: false, reason: 'layout_changed', debug: 'cost=' + cost + ' org=' + (organization ? organization[1] : 'null') + ' text=' + preview };
   }
 
   var input = openAiLabelNumber(text, 'Input tokens|Eingabetokens');

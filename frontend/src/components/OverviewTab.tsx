@@ -5,7 +5,7 @@ import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
 import { formatEur, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
-import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, OpenCodeApiSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, OpenCodeApiSpend, CodexSpend, OpenAiApiSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
 import { AlertBanner } from './AlertBanner';
 
 /** Days remaining in the current month, including today. */
@@ -121,6 +121,8 @@ export default function OverviewTab(): React.ReactElement {
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const zai: ZaiSpend | null = combined?.zai ?? null;
   const opencodeApi: OpenCodeApiSpend | null = combined?.opencode_api ?? null;
+  const codex: CodexSpend | null = combined?.codex ?? null;
+  const openaiApi: OpenAiApiSpend | null = combined?.openai_api ?? null;
   const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const planEur = subscriptionEur(plans, meta?.plan_name);
@@ -131,19 +133,21 @@ export default function OverviewTab(): React.ReactElement {
   const opencodeApiEur = opencodeApi?.total_cost_usd
     ? opencodeApi.total_cost_usd * usdToEur
     : 0;
-  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + opencodeApiEur;
+  const codexEur = codex?.plan_cost_eur ?? 0;
+  const openaiApiEur = openaiApi?.cost_usd ? openaiApi.cost_usd * usdToEur : 0;
+  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + opencodeApiEur + codexEur + openaiApiEur;
 
   // Number of subscription side-cards shown to the right of the three core
   // claude.ai cards — drives the responsive grid column count.
-  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (opencodeApi ? 1 : 0);
+  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (opencodeApi ? 1 : 0) + (codex ? 1 : 0) + (openaiApi ? 1 : 0);
   const statusGridCols =
-    statusCardCount >= 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
+    statusCardCount >= 6 ? 'md:grid-cols-6' : statusCardCount === 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
   // Forecast: extrapolate today's spend rate to month end. Plan-Abo is fixed
   // (already counted), so we only forecast the variable parts (additional
   // EUR + API USD->EUR). Early in the month we blend with the previous month's
   // daily rate so a single high day doesn't produce a wild forecast.
-  const variableSoFar = additionalEur + apiTotalEur + opencodeApiEur;
+  const variableSoFar = additionalEur + apiTotalEur + opencodeApiEur + openaiApiEur;
   const day = dayOfMonth();
   const daysLeft = Math.max(0, daysRemainingInMonth() - 1); // -1 because today is partly done
   const currentDailyRate = day > 0 ? variableSoFar / day : 0;
@@ -199,6 +203,8 @@ export default function OverviewTab(): React.ReactElement {
               {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
               {zaiEur > 0 && <> · z.ai {formatEur(zaiEur)}</>}
               {opencodeApiEur > 0 && <> · OpenCode API ≈ {formatEur(opencodeApiEur)}</>}
+              {codexEur > 0 && <> · {(codex?.plan_name ?? 'Codex')} {formatEur(codexEur)}/Monat</>}
+              {openaiApiEur > 0 && <> · OpenAI API ≈ {formatEur(openaiApiEur)}</>}
             </p>
           </div>
           <div className="text-sm text-gray-500 sm:text-right">
@@ -343,6 +349,67 @@ export default function OverviewTab(): React.ReactElement {
               <div>Input: {(opencodeApi.total_input_tokens / 1000).toFixed(0)}K Tokens</div>
               <div>Output: {(opencodeApi.total_output_tokens / 1000).toFixed(0)}K Tokens</div>
               <div>Keys: {opencodeApi.by_key.length}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Codex subscription remaining capacity */}
+        {codex && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              {codex.plan_name ?? 'Codex'}
+            </div>
+            {codex.plan_cost_eur > 0 && (
+              <div className="mt-1 text-lg font-bold text-gray-900">{formatEur(codex.plan_cost_eur)} / Monat</div>
+            )}
+            <div className="mt-3 space-y-2">
+              {typeof codex.five_hour_remaining_pct === 'number' && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">5-Std.-Limit</span>
+                    <span className="font-medium">{codex.five_hour_remaining_pct}% frei</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div className={`h-full rounded ${codex.five_hour_remaining_pct >= 50 ? 'bg-emerald-500' : codex.five_hour_remaining_pct >= 20 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, codex.five_hour_remaining_pct)}%` }} />
+                  </div>
+                </div>
+              )}
+              {typeof codex.weekly_remaining_pct === 'number' && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Wöchentlich</span>
+                    <span className="font-medium">{codex.weekly_remaining_pct}% frei</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div className={`h-full rounded ${codex.weekly_remaining_pct >= 50 ? 'bg-emerald-500' : codex.weekly_remaining_pct >= 20 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, codex.weekly_remaining_pct)}%` }} />
+                  </div>
+                </div>
+              )}
+              {typeof codex.credits_remaining === 'number' && (
+                <div className="mt-2 text-xs text-gray-600">
+                  Credits: {codex.credits_remaining.toFixed(1)} verbleibend
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* OpenAI API month-to-date */}
+        {openaiApi && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              OpenAI API
+            </div>
+            <div className="mt-2 text-xl font-bold text-gray-900">
+              ${openaiApi.cost_usd.toFixed(2)}
+            </div>
+            <div className="text-sm text-gray-600">{openaiApi.organization_name} · MTD</div>
+            <div className="mt-3 space-y-1 text-xs text-gray-600">
+              <div>Input: {(openaiApi.total_input_tokens / 1000).toFixed(0)}K Tokens</div>
+              <div>Output: {(openaiApi.total_output_tokens / 1000).toFixed(0)}K Tokens</div>
+              {openaiApi.requests > 0 && <div>Requests: {openaiApi.requests}</div>}
             </div>
           </div>
         )}
@@ -500,6 +567,12 @@ export default function OverviewTab(): React.ReactElement {
         )}
         {opencodeApi && (
           <span>OpenCode API: {formatEur(opencodeApiEur)}</span>
+        )}
+        {codex?.last_synced && (
+          <span>{codex.plan_name ?? 'Codex'}: {formatEur(codexEur)}/Monat</span>
+        )}
+        {openaiApi?.last_synced && (
+          <span>OpenAI API: {formatEur(openaiApiEur)}</span>
         )}
       </div>
     </div>

@@ -59,7 +59,7 @@ export async function trackUsage(
 
     // Dedupe: at most one snapshot per day per source — delete today's stale
     // rows for this source before inserting fresh ones.
-    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync', 'opencode_api_sync', 'anthropic_console_cost_day', 'anthropic_console_cost_month'] as const;
+    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync', 'opencode_api_sync', 'anthropic_console_cost_day', 'anthropic_console_cost_month', 'codex_sync', 'openai_api_sync'] as const;
     if ((SYNC_SOURCES as readonly string[]).includes(source)) {
       await runQuery(
         `DELETE FROM usage_records
@@ -573,6 +573,84 @@ export async function getSummary(
       }))
     } : null;
 
+    // -------- Codex subscription usage (from chatgpt.com) ---------
+    const codexRow = await allQuery<{ response_metadata: string | null; timestamp: string }>(
+      `SELECT response_metadata, timestamp
+       FROM usage_records
+       WHERE source = 'codex_sync' AND user_id = ?
+       ORDER BY timestamp DESC LIMIT 1`,
+      [req.user!.id]
+    );
+    let codexData: Record<string, unknown> | null = null;
+    if (codexRow?.[0]?.response_metadata) {
+      try { codexData = JSON.parse(codexRow[0].response_metadata) as Record<string, unknown>; } catch { codexData = null; }
+    }
+
+    interface CodexSummary {
+      plan_name: string | null;
+      plan_cost_eur: number;
+      five_hour_remaining_pct: number | null;
+      five_hour_reset_at: string | null;
+      weekly_remaining_pct: number | null;
+      weekly_reset_at: string | null;
+      credits_remaining: number | null;
+      interactions: number;
+      plugin_calls: number;
+      skills_used: number;
+      last_synced: string | null;
+    }
+
+    const codexPlanName = (codexData?.plan_name as string) ?? null;
+    const codexPlanCost = codexPlanName ? (await getPlanPrice(codexPlanName)) ?? 0 : 0;
+    const codex: CodexSummary | null = codexRow?.[0] ? {
+      plan_name: codexPlanName,
+      plan_cost_eur: codexPlanCost,
+      five_hour_remaining_pct: (codexData?.five_hour_remaining_pct as number) ?? null,
+      five_hour_reset_at: (codexData?.five_hour_reset_at as string) ?? null,
+      weekly_remaining_pct: (codexData?.weekly_remaining_pct as number) ?? null,
+      weekly_reset_at: (codexData?.weekly_reset_at as string) ?? null,
+      credits_remaining: (codexData?.credits_remaining as number) ?? null,
+      interactions: (codexData?.interactions as number) ?? 0,
+      plugin_calls: (codexData?.plugin_calls as number) ?? 0,
+      skills_used: (codexData?.skills_used as number) ?? 0,
+      last_synced: codexRow[0].timestamp
+    } : null;
+
+    // -------- OpenAI API month-to-date usage (from platform.openai.com) ---------
+    const openaiApiRow = await allQuery<{ cost_usd: number; response_metadata: string | null; timestamp: string }>(
+      `SELECT cost_usd, response_metadata, timestamp
+       FROM usage_records
+       WHERE source = 'openai_api_sync' AND user_id = ?
+       ORDER BY timestamp DESC LIMIT 1`,
+      [req.user!.id]
+    );
+    let openaiApiMeta: Record<string, unknown> | null = null;
+    if (openaiApiRow?.[0]?.response_metadata) {
+      try { openaiApiMeta = JSON.parse(openaiApiRow[0].response_metadata) as Record<string, unknown>; } catch { openaiApiMeta = null; }
+    }
+
+    interface OpenAiApiSummary {
+      organization_name: string;
+      period_start: string;
+      period_end: string;
+      cost_usd: number;
+      total_input_tokens: number;
+      total_output_tokens: number;
+      requests: number;
+      last_synced: string | null;
+    }
+
+    const openaiApi: OpenAiApiSummary | null = openaiApiRow?.[0] ? {
+      organization_name: (openaiApiMeta?.organization_name as string) || '',
+      period_start: (openaiApiMeta?.period_start as string) || '',
+      period_end: (openaiApiMeta?.period_end as string) || '',
+      cost_usd: openaiApiRow[0].cost_usd || 0,
+      total_input_tokens: (openaiApiMeta?.input_tokens as number) ?? (openaiApiMeta?.total_input_tokens as number) ?? 0,
+      total_output_tokens: (openaiApiMeta?.output_tokens as number) ?? (openaiApiMeta?.total_output_tokens as number) ?? 0,
+      requests: (openaiApiMeta?.requests as number) ?? 0,
+      last_synced: openaiApiRow[0].timestamp
+    } : null;
+
     const consoleModelDay = await allQuery<{ model: string; input_tokens: number; output_tokens: number; cost_usd: number }>(
       `SELECT model,
               SUM(input_tokens) as input_tokens,
@@ -618,6 +696,8 @@ export async function getSummary(
         opencode_go: opencodeGo,
         zai,
         opencode_api: opencodeApi,
+        codex,
+        openai_api: openaiApi,
         console_model_breakdown: {
           day: consoleModelDay,
           month: consoleModelMonth
@@ -947,6 +1027,23 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     // included alongside so the UI can render a transparency line.
     const fx = await convertUsdToEur(apiTotalUsd);
 
+    // ChatGPT Pro subscription cost (from codex_sync plan_name)
+    const codexPlanRow = await getQuery<{ response_metadata: string | null }>(
+      `SELECT response_metadata FROM usage_records
+       WHERE source = 'codex_sync' AND user_id = ? AND response_metadata IS NOT NULL
+       ORDER BY timestamp DESC LIMIT 1`,
+      [req.user!.id]
+    );
+    let codexPlanName: string | null = null;
+    let codexMonthlyEur = 0;
+    if (codexPlanRow?.response_metadata) {
+      try {
+        const md = JSON.parse(codexPlanRow.response_metadata) as { plan_name?: string };
+        codexPlanName = md?.plan_name ?? null;
+        if (codexPlanName) codexMonthlyEur = (await getPlanPrice(codexPlanName)) ?? 0;
+      } catch { /* ignore */ }
+    }
+
     // OpenCode Go subscription cost — fixed monthly fee added to totals.
     const opencodeGoRow = await getQuery<{ monthly_eur: number }>(
       `SELECT monthly_eur FROM plan_pricing WHERE plan_name = 'OpenCode Go'`
@@ -987,12 +1084,22 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     const opencodeApiTotalUsd = opencodeApiCostRow?.total_usd ?? 0;
     const opencodeApiFx = await convertUsdToEur(opencodeApiTotalUsd);
 
-    // Add opencode_api to the earliest-overall source list
+    // OpenAI API month-to-date cost
+    const openaiApiCostRow = await getQuery<{ total_usd: number }>(
+      `SELECT SUM(cost_usd) as total_usd
+       FROM usage_records
+       WHERE source = 'openai_api_sync' AND user_id = ?`,
+      [req.user!.id]
+    );
+    const openaiApiTotalUsd = openaiApiCostRow?.total_usd ?? 0;
+    const openaiApiFx = await convertUsdToEur(openaiApiTotalUsd);
+
+    // Add all new sources to the earliest-overall source list
     const earliestOverall2 = await getQuery<{ first_ts: string | null }>(
       `SELECT MIN(timestamp) as first_ts
          FROM usage_records
         WHERE user_id = ?
-          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync', 'zai_sync', 'opencode_api_sync')`,
+          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync', 'zai_sync', 'opencode_api_sync', 'codex_sync', 'openai_api_sync')`,
       [req.user!.id]
     );
     const since2 = earliestOverall2?.first_ts ? earliestOverall2.first_ts.slice(0, 10) : since;
@@ -1017,11 +1124,20 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
         monthly_eur: zaiMonthlyEur,
         total_eur: zaiTotalEur
       },
+      codex: {
+        plan_name: codexPlanName,
+        monthly_eur: codexMonthlyEur,
+        total_eur: codexMonthlyEur > 0 ? codexMonthlyEur * Math.max(1, months.length) : 0
+      },
       opencode_api: {
         total_usd: opencodeApiTotalUsd,
         total_eur: opencodeApiFx.eur
       },
-      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur + opencodeApiFx.eur,
+      openai_api: {
+        total_usd: openaiApiTotalUsd,
+        total_eur: openaiApiFx.eur
+      },
+      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur + opencodeApiFx.eur + openaiApiFx.eur + (codexMonthlyEur > 0 ? codexMonthlyEur * Math.max(1, months.length) : 0),
       exchange_rate: {
         usd_to_eur: fx.rate,
         rate_date: fx.rate_date

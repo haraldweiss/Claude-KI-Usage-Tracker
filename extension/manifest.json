@@ -11,13 +11,11 @@
     "notifications"
   ],
   "host_permissions": [
-    "https://claude.ai/*",
-    "https://api.claude.ai/*",
-    "https://account.anthropic.com/*",
-    "https://console.anthropic.com/*",
     "https://platform.claude.com/*",
     "https://opencode.ai/*",
     "https://z.ai/*",
+    "https://chatgpt.com/*",
+    "https://platform.openai.com/*",
     "http://localhost:3000/*",
     "http://localhost:3001/*",
     "https://wolfinisoftware.de/*",

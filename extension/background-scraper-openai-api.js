@@ -153,13 +153,43 @@ async function openaiApiSync(externalTabId = null) {
     await clickOpenAiMonthToDate(tabId);
     await sleep(3000);
     text = await waitForOpenAiApiText(tabId);
+    
+    // Enhanced diagnostic: log full page structure for debugging
+    const [diagnostic] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const bodyText = document.body?.innerText || '';
+        const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4')).map(h => h.innerText).join(' | ');
+        const buttons = Array.from(document.querySelectorAll('button')).map(b => b.innerText).filter(Boolean).join(', ');
+        const tables = Array.from(document.querySelectorAll('table, [role="table"]')).length;
+        const costElements = Array.from(document.querySelectorAll('[class*="cost"], [class*="spend"], [class*="total"]'))
+          .map(el => el.innerText).filter(Boolean).join(' | ');
+        return {
+          bodyLength: bodyText.length,
+          headings,
+          buttons,
+          tables,
+          costElements,
+          url: window.location.href,
+          bodyPreview: bodyText.slice(0, 1500).replace(/\n+/g, ' | ')
+        };
+      }
+    });
+    
+    console.log('[openai-api-scraper] diagnostic:', JSON.stringify(diagnostic?.result, null, 2));
+    
     const parsed = parseOpenAiApiUsageText(text, expectedPeriod);
     if (!parsed.success) {
-      // Diagnostic: log first 1KB of page text for debugging
+      // Enhanced diagnostic: include full diagnostic info
       const preview = text.slice(0, 1024).replace(/\n+/g, ' | ');
-      console.warn('[openai-api-scraper] parse failed:', parsed.reason, `expected=${expectedPeriod.start}..${expectedPeriod.end}`, `preview=${preview}`);
-      await chrome.storage.local.set({ last_openai_api_sync: Date.now(), last_openai_api_sync_status: parsed.reason, last_openai_api_sync_debug: preview });
-      return { skipped: true, reason: parsed.reason, url: landedUrl };
+      console.warn('[openai-api-scraper] parse failed:', parsed.reason, `expected=${expectedPeriod.start}..${expectedPeriod.end}`, `preview=${preview}`, `diagnostic=${JSON.stringify(diagnostic?.result)}`);
+      await chrome.storage.local.set({ 
+        last_openai_api_sync: Date.now(), 
+        last_openai_api_sync_status: parsed.reason, 
+        last_openai_api_sync_debug: preview,
+        last_openai_api_sync_diagnostic: JSON.stringify(diagnostic?.result)
+      });
+      return { skipped: true, reason: parsed.reason, url: landedUrl, diagnostic: diagnostic?.result };
     }
 
     const payload = buildOpenAiApiTrackPayload(parsed.data, new Date().toISOString());

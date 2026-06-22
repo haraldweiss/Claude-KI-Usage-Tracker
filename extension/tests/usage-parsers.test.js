@@ -79,13 +79,13 @@ test('accepts zero API usage for a verified month-to-date period', () => {
 test('parses nonzero API totals with abbreviated tokens', () => {
   const { parseOpenAiApiUsageText } = loadParser('usage-parser-openai-api.js');
   const result = parseOpenAiApiUsageText(
-    'Jun 1–Jun 22 Total spend $7.12 Input tokens 120K Output tokens 8K Requests 9 Organization wolfini',
+    'All API keys | 06/01/26-06/22/26 | Total Spend | $7.12 | Group by | 1d | June spend | Total tokens | 128K | Total requests | 9',
     { start: '2026-06-01', end: '2026-06-22' }
   );
   assert.equal(result.success, true);
   assert.equal(result.data.cost_usd, 7.12);
-  assert.equal(result.data.input_tokens, 120000);
-  assert.equal(result.data.output_tokens, 8000);
+  assert.equal(result.data.input_tokens, 128000); // Total tokens used as fallback
+  assert.equal(result.data.output_tokens, 0);
   assert.equal(result.data.requests, 9);
 });
 

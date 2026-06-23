@@ -737,6 +737,11 @@ const steps = [
 - Git diff zeigt korrekte Änderungen ✅
 - Grand Total zeigt jetzt ~70€ statt 0€ (bei existierenden Daten) ✅
 
+**Nachträglicher Fix (2026-06-23):**
+- `extension/background-scraper-claude.js`: `AUTO_SYNC_SIGNATURE_FIELDS` definiert (war undefiniert → Bug). Enthält die relevanten Felder (`spent_eur`, `spent_pct`, `weekly_all_models_pct`, `weekly_sonnet_pct`, `monthly_pct`, `weekly_limit_pct`, `session_pct`, `balance_eur`). Ohne diesen Fix wurde `last_auto_sync_change_at` nie aktualisiert → Extension zeigte immer "Werte unverändert seit" dem ersten Sync.
+
+**Verifiziert:** `node --check background-scraper-claude.js` ✅, Commit `37b56d2`
+
 **Open Issues (für nächste Session):**
 - Backend `/summary` endpoint gibt `total_cost` nur für usage_records (API-Nutzung), nicht für Plan-Preise. Extension berechnet Total selbst aus `combined` Objekt.
 - Backend könnte ein `grand_total_eur` Feld im summary-Response bereitstellen (ähnlich wie in `/spending-total` endpoint).

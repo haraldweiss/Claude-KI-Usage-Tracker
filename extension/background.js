@@ -6,6 +6,8 @@ importScripts(
   'background-utils.js',
   'usage-parser-codex.js',
   'usage-parser-openai-api.js',
+  'background-scraper-claude.js',
+  'background-scraper-console.js',
   'background-scraper-claude-code.js',
   'background-scraper-opencode.js',
   'background-scraper-zai.js',
@@ -56,6 +58,16 @@ async function authFetch(url, init = {}) {
     headers: { ...(init.headers || {}), ...auth }
   });
 }
+// Claude.ai consumer subscription usage page — scrapes the settings/usage page
+// for subscription spend, session limits, and reset timers.
+const CLAUDE_AI_SYNC_ALARM = 'auto-sync-claude-ai';
+const CLAUDE_AI_SYNC_INTERVAL_MIN = 24 * 60;
+const CLAUDE_AI_USAGE_URL = 'https://claude.ai/settings/usage';
+
+// Anthropic Console — scrapes the API keys usage across all workspaces.
+const CONSOLE_SYNC_ALARM = 'auto-sync-console';
+const CONSOLE_SYNC_INTERVAL_MIN = 24 * 60;
+
 // Claude Code has its own usage page that reports per-key spend and lines-of-
 // code metrics. The settings/keys page reports 0 USD for claude_code_*-keys
 // because their billing flows through this surface instead.
@@ -132,6 +144,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'TRIGGER_CLAUDE_AI_SYNC') {
+    autoSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'TRIGGER_CONSOLE_SYNC') {
+    consoleSync()
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === 'TRIGGER_SYNC_ALL') {
     // Fire-and-forget: the popup will close as soon as the first hidden tab
     // opens, so we orchestrate here and persist the result to storage. The
@@ -194,6 +220,8 @@ async function syncAll() {
   });
 
   const steps = [
+    { type: 'claude_ai', label: 'Claude.ai', fn: autoSync },
+    { type: 'console', label: 'Anthropic Console', fn: consoleSync },
     { type: 'claude_code', label: 'Claude Code', fn: claudeCodeSync },
     { type: 'opencode_go', label: 'OpenCode Go', fn: opencodeGoSync },
     { type: 'zai', label: 'z.ai', fn: zaiSync },
@@ -491,8 +519,22 @@ async function ensureAlarms() {
   const existing = await chrome.alarms.getAll();
   const have = new Set(existing.map((a) => a.name));
 
+  if (!have.has(CLAUDE_AI_SYNC_ALARM)) {
+    // Stagger the first daily scrape (claude.ai) by a few minutes.
+    chrome.alarms.create(CLAUDE_AI_SYNC_ALARM, {
+      delayInMinutes: 1,
+      periodInMinutes: CLAUDE_AI_SYNC_INTERVAL_MIN
+    });
+  }
+  if (!have.has(CONSOLE_SYNC_ALARM)) {
+    // Stagger the console sync a couple of minutes after claude.ai.
+    chrome.alarms.create(CONSOLE_SYNC_ALARM, {
+      delayInMinutes: 3,
+      periodInMinutes: CONSOLE_SYNC_INTERVAL_MIN
+    });
+  }
   if (!have.has(CLAUDE_CODE_SYNC_ALARM)) {
-    // Stagger the second daily scrape by a few minutes so we don't open
+    // Stagger the third daily scrape by a few minutes so we don't open
     // two background tabs in the same second on cold start.
     chrome.alarms.create(CLAUDE_CODE_SYNC_ALARM, {
       delayInMinutes: 5,
@@ -558,7 +600,11 @@ chrome.runtime.onStartup.addListener(ensureAlarms);
 ensureAlarms();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === CLAUDE_CODE_SYNC_ALARM) {
+  if (alarm.name === CLAUDE_AI_SYNC_ALARM) {
+    autoSync();
+  } else if (alarm.name === CONSOLE_SYNC_ALARM) {
+    consoleSync();
+  } else if (alarm.name === CLAUDE_CODE_SYNC_ALARM) {
     claudeCodeSync();
   } else if (alarm.name === OPENCODE_GO_SYNC_ALARM) {
     opencodeGoSync();

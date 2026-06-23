@@ -304,6 +304,9 @@ export default function CombinedCostTab(): React.ReactElement {
               {opencodeGo.plan_name}-Abonnement
             </p>
           )}
+          {opencodeGoEur > 0 && (
+            <div className="mt-2 text-lg font-bold text-gray-900">{formatEur(opencodeGoEur)} / Monat</div>
+          )}
           <div className="mt-4 space-y-4">
             {opencodeGo.continuous_pct != null && (
               <div>
@@ -380,9 +383,14 @@ export default function CombinedCostTab(): React.ReactElement {
             )}
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            GLM Coding Plan{zaiEur > 0 && <> · {formatEur(zaiEur)} / Monat</>}
-            {zai.price_usd != null && <> ({formatUsd(zai.price_usd)})</>}
+            GLM Coding Plan
           </p>
+          {zaiEur > 0 && (
+            <div className="mt-2 text-lg font-bold text-gray-900">{formatEur(zaiEur)} / Monat</div>
+          )}
+          {zai.price_usd != null && (
+            <div className="text-xs text-gray-500">{formatUsd(zai.price_usd)}</div>
+          )}
           <div className="mt-4 space-y-4">
             {zai.five_hour_pct != null && (
               <div>

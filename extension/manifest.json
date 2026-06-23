@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Claude Usage Tracker",
-  "version": "2.0.0",
-  "description": "Track your Claude.ai usage in real-time",
+  "name": "KI Usage Tracker",
+  "version": "2.1.0",
+  "description": "Track KI/LLM usage across 7 sources: Claude.ai, Anthropic Console, Claude Code, OpenCode Go, z.ai, Codex, OpenAI API",
   "permissions": [
     "tabs",
     "scripting",
@@ -11,6 +11,8 @@
     "notifications"
   ],
   "host_permissions": [
+    "https://claude.ai/*",
+    "https://account.anthropic.com/*",
     "https://platform.claude.com/*",
     "https://opencode.ai/*",
     "https://z.ai/*",
@@ -27,6 +29,6 @@
 
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Claude Usage Tracker"
+    "default_title": "KI Usage Tracker"
   }
 }

@@ -273,6 +273,9 @@ export default function OverviewTab(): React.ReactElement {
             <div className="mt-2 text-xl font-bold text-gray-900">
               {opencodeGo.plan_name ?? 'OpenCode Go'}
             </div>
+            {opencodeGoEur > 0 && (
+              <div className="mt-1 text-sm text-gray-600">{formatEur(opencodeGoEur)} / Monat</div>
+            )}
             <div className="mt-3 space-y-2">
               {opencodeGo.continuous_pct != null && (
                 <div>

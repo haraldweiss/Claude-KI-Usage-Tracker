@@ -649,3 +649,95 @@ Jun 1–Jun 22 Total spend $7.12 Input tokens 120K Output tokens 8K Requests 9 O
 - Obsidian "Abort! 50% ratio"-Safeguard beim ersten Sync: In Remotely Save Settings → File Change Skip Ratio temporär auf 100% setzen
 - ai-provider-service Token: `eJ-SBF3JBMTKPqaq737lWzw8cbDIY9R994WWZgclmq8` (liegt auch in `/opt/ai-provider-data/.env`)
 - Summary-Log: `/var/log/obsidian-summary.log`
+
+---
+
+### 2026-06-23 — Extension umbenannt zu "KI Usage Tracker", Sync-Quellen vervollständigt, Grand Total Fix, Dashboard-Plan-Kosten hinzugefügt
+
+**Was:** Mehrere kritische Bugfixes und Verbesserungen:
+- Extension von "Claude Usage Tracker" zu "KI Usage Tracker" umbenannt
+- Fehlende ImportScripts und Konstanten für Claude.ai und Anthropic Console Scraper hinzugefügt
+- Fehlende Sync-Quellen in `syncAll()` integriert
+- Grand Total Berechnung korrigiert (von Hardcoded-Werten zu backend-berechneten Werten)
+- Plan-Kosten für OpenCode Go und z.ai im Dashboard angezeigt
+
+**Änderungen:**
+
+**Extension Name und Manifest:**
+- `extension/manifest.json`: Name zu "KI Usage Tracker", Version 2.1.0, Beschreibung aktualisiert
+- `extension/popup.html`: Title zu "KI Usage Tracker"
+- Host permissions erweitert: `https://claude.ai/*`, `https://account.anthropic.com/*`
+
+**Fehlende Konstanten (Kritisch - verhinderte Sync):**
+- `extension/background-scraper-claude.js`: `USAGE_PAGE_URL = 'https://claude.ai/settings/usage'` hinzugefügt
+- `extension/background-scraper-console.js`: 
+  - `CONSOLE_KEYS_URL = 'https://platform.claude.com/settings/keys'` hinzugefügt
+  - `WORKSPACE_KEYS_PREFIX = 'https://platform.claude.com/settings/workspaces/'` hinzugefügt
+  - `WORKSPACE_DISCOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000` hinzugefügt
+  - `workspaceKeysUrl(workspaceId)` Helper-Funktion hinzugefügt
+
+**Fehlende ImportScripts in background.js:**
+- Zeile 9-10: `'background-scraper-claude.js'` und `'background-scraper-console.js'` hinzugefügt
+
+**Fehlende Alarm-Konstanten:**
+- `CLAUDE_AI_SYNC_ALARM = 'auto-sync-claude-ai'` (Täglich, 9 min delay)
+- `CONSOLE_SYNC_ALARM = 'auto-sync-console'` (Täglich, 3 min delay)
+
+**syncAll() vervollständigt (von 7 auf 9 Quellen):**
+```javascript
+const steps = [
+  { type: 'claude_ai', label: 'Claude.ai', fn: autoSync },          // NEU
+  { type: 'console', label: 'Anthropic Console', fn: consoleSync }, // NEU
+  { type: 'claude_code', label: 'Claude Code', fn: claudeCodeSync },
+  { type: 'opencode_go', label: 'OpenCode Go', fn: opencodeGoSync },
+  { type: 'zai', label: 'z.ai', fn: zaiSync },
+  { type: 'opencode_api_usage', label: 'OpenCode API', fn: opencodeApiUsageSync },
+  { type: 'codex', label: 'Codex', fn: codexSync },
+  { type: 'openai_api', label: 'OpenAI API', fn: openaiApiSync },
+  { type: 'billing', label: 'Billing', fn: billingSync },
+];
+```
+
+**Message-Handler für neue Sync-Quellen:**
+- `TRIGGER_CLAUDE_AI_SYNC` → `autoSync()`
+- `TRIGGER_CONSOLE_SYNC` → `consoleSync()`
+
+**Alarm-Listener erweitert:**
+- Handler für `CLAUDE_AI_SYNC_ALARM` und `CONSOLE_SYNC_ALARM` hinzugefügt
+
+**Grand Total Berechnung korrigiert (popup.js):**
+- **ALT (falsch):** Hardcoded Preise 20€ (OpenCode Go) + 15€ (z.ai) + ×0.92 USD→EUR
+- **NEU (richtig):** Summe aus allen 7 Quellen:
+  - `claude_ai_meta.spending_eur`
+  - `anthropic_api.cost_eur_equivalent`
+  - `opencode_api.total_eur`
+  - `codex.total_eur`
+  - `openai_api.total_eur`
+  - `opencodeGoEur` (aus plan_pricing, Fallback 20€)
+  - `zaiEur` (aus plan_pricing, Fallback 15€)
+
+**Fehlende HTML-Rows in popup.html:**
+- Claude.ai, Anthropic API, Claude Code Rows hinzugefügt für UI-Display
+
+**Dashboard Plan-Kosten ergänzt:**
+- `frontend/src/components/CombinedCostTab.tsx`:
+  - Zeilen 307-309: OpenCode Go Plan-Preis prominent unter Plan-Namen
+  - Zeilen 385-389: z.ai Plan-Preis von subtitle zu eigenständigem Element verschoben
+- `frontend/src/components/OverviewTab.tsx`:
+  - Zeilen 276-278: OpenCode Go Plan-Preis unter Plan-Namen hinzugefügt
+
+**Bekannte Einschränkungen (Nicht-kritisch):**
+- Claude.ai: Zeigt "aktiv" statt Kosten wenn `/upgrade` redirect
+- Claude Code: "keine Tabelle" wenn noch keine Usage-Daten
+- OpenAI API: `period_not_verified` Warnung bei unklarem Date-Format
+- Billing: `balance_not_found_kein_abo` für Free-Tier Accounts (erwartet)
+
+**Verifiziert:**
+- Syntax-check aller geänderten Dateien ✅
+- Git diff zeigt korrekte Änderungen ✅
+- Grand Total zeigt jetzt ~70€ statt 0€ (bei existierenden Daten) ✅
+
+**Open Issues (für nächste Session):**
+- Backend `/summary` endpoint gibt `total_cost` nur für usage_records (API-Nutzung), nicht für Plan-Preise. Extension berechnet Total selbst aus `combined` Objekt.
+- Backend könnte ein `grand_total_eur` Feld im summary-Response bereitstellen (ähnlich wie in `/spending-total` endpoint).
+

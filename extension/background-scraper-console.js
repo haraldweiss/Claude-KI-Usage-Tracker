@@ -1,3 +1,25 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
+
+// Anthropic Console settings/keys URL (redirects to workspace-specific page)
+const CONSOLE_KEYS_URL = 'https://platform.claude.com/settings/keys';
+
+// Workspace keys page URL prefix
+const WORKSPACE_KEYS_PREFIX = 'https://platform.claude.com/settings/workspaces/';
+
+// Helper: construct URL for a specific workspace's keys page
+function workspaceKeysUrl(workspaceId) {
+  return `${WORKSPACE_KEYS_PREFIX}${workspaceId}/keys`;
+}
+
+// Workspace discovery cache TTL (7 days)
+const WORKSPACE_DISCOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Sleep helper (from background-utils.js but keep local for independence)
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function discoverWorkspaces(tabId) {
   const errors = [];
 

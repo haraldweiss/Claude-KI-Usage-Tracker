@@ -1,6 +1,6 @@
-# Claude Usage Tracker
+# KI Usage Tracker
 
-A web application + browser extension that tracks the **real cost** of using AI across six surfaces — claude.ai subscription, Anthropic Console API keys, Claude Code, OpenCode Go, z.ai GLM Coding Plan, and live API credit balance — and surfaces it as a single number on a unified dashboard with proactive alerts.
+A web application + browser extension that tracks the **real cost** of using AI across seven sources — claude.ai subscription, Anthropic Console API keys, Claude Code, OpenCode Go, z.ai GLM Coding Plan, ChatGPT Codex, and OpenAI API usage — and surfaces it as a single number on a unified dashboard with proactive alerts.
 
 **Status**: ✅ Phase 5 — Multi-Source Cost Tracker (live on VPS, Plan-B architecture, multi-user auth)
 
@@ -25,9 +25,12 @@ A web application + browser extension that tracks the **real cost** of using AI 
 The dashboard tells you, in one number, what your AI tools actually cost you this month. It pulls from seven otherwise-disconnected places:
 
 1. **claude.ai/settings/usage** — the consumer subscription page (Plan name, Zusatznutzung, weekly limits)
-2. **console.anthropic.com/settings/keys** — workspace API keys + their cumulative cost
+2. **platform.claude.com/settings/keys** — Anthropic Console workspace API keys + their cumulative cost
 3. **platform.claude.com/claude-code** — Claude Code keys with cost + lines-of-code metrics
 4. **opencode.ai** — OpenCode Go workspace subscription usage quotas (plan, continuous/weekly/monthly usage %)
+5. **z.ai/my-plan** — GLM Coding Plan subscription (plan name, price, auto-renew date, 5h/weekly/monthly quota %)
+6. **chatgpt.com/codex/settings/usage** — ChatGPT Codex limits (5h/Weekly remaining %, credits, plan name)
+7. **platform.openai.com/usage** — OpenAI API month-to-date spend, tokens, requests, organization
 5. **z.ai/manage-apikey/coding-plan** — GLM Coding Plan subscription (plan name + monthly price from `/my-plan`, 5-hour/weekly/monthly quota % + absolute reset times from `/usage`)
 6. **chatgpt.com/codex/settings/usage** — ChatGPT Pro/Plus Codex usage (5-hour/weekly limits, credits, interactions, plugin calls)
 7. **platform.openai.com/usage** — OpenAI API month-to-date spend (organization, total tokens, total requests, cost)
@@ -126,9 +129,9 @@ The scripts auto-detect when launched from a worktree and point the backend at t
    - **Hosted instance**: set Backend-API URL to `https://your-domain/claudetracker/api`, paste the **API Token** from Settings → API Token → "Speichern". The extension sends `Authorization: Bearer <token>` on every request; no Basic-Auth credentials are needed.
 
 ### 5. Trigger your first sync
-Log into claude.ai, console.anthropic.com, platform.claude.com, opencode.ai, and z.ai in regular browser tabs (so the extension can reuse your sessions). Then click **↻ Sync alle** in the popup — it runs all five sources sequentially, persists per-step progress to `chrome.storage.local`, and shows the result in a coloured status box (green = all OK, yellow = some skipped, red = error).
+Log into claude.ai, platform.claude.com, opencode.ai, z.ai, chatgpt.com, and platform.openai.com in regular browser tabs (so the extension can reuse your sessions). Then click **↻ Sync alle** in the popup — it runs all seven sources sequentially, persists per-step progress to `chrome.storage.local`, and shows the result in a coloured status box (green = all OK, yellow = some skipped, red = error).
 
-> **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all five scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
+> **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all seven scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
 
 For ad-hoc runs from the service-worker console:
 ```javascript
@@ -225,7 +228,7 @@ cat > /etc/claudetracker/claudetracker.env <<'EOF'
 SECRETS_KEY=...
 SMTP_USER=...
 SMTP_PASS=...
-MAIL_FROM=Claude Usage Tracker <claudetracker@wolfinisoftware.de>
+MAIL_FROM=KI Usage Tracker <claudetracker@wolfinisoftware.de>
 EOF
 chmod 600 /etc/claudetracker/claudetracker.env
 
@@ -342,7 +345,7 @@ Claude-KI-Usage-Tracker/
 - `GET /api/usage/summary?period=day|week|month` — combined headline numbers + per-source breakdown + EUR-equivalent of the API USD figure + the exchange rate used.
 - `GET /api/usage/models` — per-model token breakdown. Filters out the three synthetic sync sources (`claude_official_sync`, `anthropic_console_sync`, `claude_code_sync`) since they don't carry per-message tokens.
 - `GET /api/usage/history?limit=500&offset=0` — recent usage records.
-- `GET /api/usage/console/keys` — latest snapshot per key from both `console.anthropic.com` and `platform.claude.com/claude-code`. Single response, source-tagged.
+- `GET /api/usage/console/keys` — latest snapshot per key from both `platform.claude.com/settings/keys` and `platform.claude.com/claude-code`. Single response, source-tagged.
 - `GET /api/usage/spending-total` — all-time totals per month, plus grand total in EUR using the latest stored exchange rate.
 
 ### Pricing management
@@ -387,7 +390,7 @@ CORS_ALLOWED_ORIGINS=https://wolfinisoftware.de # comma-separated extras
 # Auth (required on VPS; sensible defaults for local dev shown)
 VERIFY_BASE_URL=https://your-domain/claudetracker/auth/verify
                                                 # full URL the magic-link points to
-MAIL_FROM=Claude Usage Tracker <noreply@your-domain>
+MAIL_FROM=KI Usage Tracker <noreply@your-domain>
                                                 # From: address for magic-link emails
 SMTP_HOST=localhost                             # SMTP relay host (default: localhost)
 SMTP_PORT=25                                    # SMTP port (default: 25)

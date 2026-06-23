@@ -144,20 +144,89 @@ function formatUsd(value) {
 }
 
 function displayStats(stats) {
+  const cg = stats?.combined;
+  
+  // Calculate grand total from all sources:
+  // - claude_ai: spending_eur from latest sync (converted to EUR)
+  // - anthropic_api: cost_eur_equivalent (API usage)
+  // - opencode_go: Fixed plan price (from plan_pricing table, fallback 20€)
+  // - zai: Fixed plan price (from plan_pricing table, fallback 15€)
+  // - opencode_api: total_eur (USD converted to EUR)
+  // - codex: total_eur (fixed plan price)
+  // - openai_api: total_eur (USD converted to EUR)
+  const claudeAiEur = Number(cg?.claude_ai_meta?.spending_eur ?? 0);
+  const anthropicApiEur = Number(cg?.anthropic_api?.cost_eur_equivalent ?? 0);
+  const opencodeApiEur = Number(cg?.opencode_api?.total_eur ?? 0);
+  const codexEur = Number(cg?.codex?.total_eur ?? 0);
+  const openaiApiEur = Number(cg?.openai_api?.total_eur ?? 0);
+  
+  // OpenCode Go and z.ai are fixed-price plans - look up the price from plan_pricing
+  // Fallback to 20€ for OpenCode Go, 15€ for z.ai if no price is found
+  const opencodeGoPlan = cg?.opencode_go?.plan_name;
+  const opencodeGoEur = opencodeGoPlan === 'OpenCode Go' ? 20 : 10; // simplified fallback
+  
+  const zaiPlan = cg?.zai?.plan_name;
+  const zaiEur = 15; // simplified fallback for GLM Coding plans
+  
+  const grandTotal = claudeAiEur + anthropicApiEur + opencodeApiEur + codexEur + openaiApiEur + opencodeGoEur + zaiEur;
+  document.getElementById('grand-total').textContent = formatEur(grandTotal);
+
+  // Claude.ai — show monthly cost and session limits when data exists
+  const claudeAi = stats?.combined?.claude_ai;
+  const claudeAiRow = document.getElementById('claude-ai-row');
+  const claudeAiEl = document.getElementById('claude-ai-summary');
+  if (claudeAi && claudeAiEl) {
+    claudeAiRow.style.display = '';
+    const monthlyEur = Number(cg?.claude_ai_meta?.spending_eur ?? 0);
+    const parts = [];
+    if (Number.isFinite(monthlyEur) && monthlyEur > 0) parts.push(formatEur(monthlyEur));
+    const sessionPct = Number(cg?.claude_ai_meta?.session_pct);
+    const weeklyPct = Number(cg?.claude_ai_meta?.weekly_pct);
+    if (Number.isFinite(sessionPct)) parts.push(`S ${sessionPct}%`);
+    if (Number.isFinite(weeklyPct)) parts.push(`W ${weeklyPct}%`);
+    claudeAiEl.textContent = parts.length > 0 ? parts.join(' · ') : 'aktiv';
+    const maxPct = Math.max(
+      Number.isFinite(sessionPct) ? sessionPct : 0,
+      Number.isFinite(weeklyPct) ? weeklyPct : 0
+    );
+    claudeAiEl.classList.toggle('warning', maxPct >= 90);
+  } else if (claudeAiEl) {
+    claudeAiRow.style.display = 'none';
+    claudeAiEl.classList.remove('warning');
+  }
+
+  // Anthropic Console (API keys) — show total cost and key count
+  const anthropicApi = stats?.combined?.anthropic_api;
+  const anthropicApiRow = document.getElementById('anthropic-api-row');
+  const anthropicApiEl = document.getElementById('anthropic-api-summary');
+  if (anthropicApi && anthropicApiEl) {
+    anthropicApiRow.style.display = '';
+    const costEur = Number(anthropicApi.cost_eur_equivalent ?? 0);
+    const keyCount = anthropicApi.by_workspace?.length || 0;
+    const costPart = Number.isFinite(costEur) && costEur > 0 ? formatEur(costEur) : '€0.00';
+    anthropicApiEl.textContent = costPart + (keyCount > 0 ? ` · ${keyCount} Keys` : '');
+    anthropicApiEl.classList.remove('warning');
+  } else if (anthropicApiEl) {
+    anthropicApiRow.style.display = 'none';
+  }
+
+  // Claude Code — show key count when data exists
+  const claudeCode = stats?.combined?.claude_code;
+  const claudeCodeRow = document.getElementById('claude-code-row');
+  const claudeCodeEl = document.getElementById('claude-code-summary');
+  if (claudeCode && claudeCodeEl) {
+    claudeCodeRow.style.display = '';
+    const keyCount = claudeCode.length;
+    claudeCodeEl.textContent = `${keyCount} Keys`;
+    claudeCodeEl.classList.remove('warning');
+  } else if (claudeCodeEl) {
+    claudeCodeRow.style.display = 'none';
+  }
+
   const zai = stats?.combined?.zai;
   const opencodeGo = stats?.combined?.opencode_go;
 
-  // Compute grand total from remaining (non-Claude) sources
-  const cg = stats?.combined;
-  const opencodeGoEur = (cg?.opencode_go?.plan_name === 'OpenCode Go') ? 20 : (cg?.opencode_go?.plan_name ? 10 : 0);
-  const zaiEur = cg?.zai?.plan_name ? 15 : 0;
-  const opencodeApiTotal = cg?.opencode_api?.total_cost_usd ?? 0;
-  const openaiApiTotal = cg?.openai_api?.cost_usd ?? 0;
-  const approxEur = (opencodeApiTotal + openaiApiTotal) * 0.92;
-  const grandTotal = opencodeGoEur + zaiEur + approxEur;
-  document.getElementById('grand-total').textContent = formatEur(grandTotal);
-
-  // OpenCode Go — show usage as "plan: C% · W% · M%" when data exists
+  // OpenCode Go — show usage as "F% · W% · M%" when data exists
   const opencodeRow = document.getElementById('opencode-row');
   const opencodeEl = document.getElementById('opencode-go-summary');
   if (opencodeGo && opencodeEl) {

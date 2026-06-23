@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
+
+// Claude.ai consumer subscription usage page URL
+const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
+
 function autoSyncSignature(d) {
   return AUTO_SYNC_SIGNATURE_FIELDS.map((f) => `${f}=${d?.[f] ?? ''}`).join('|');
 }

@@ -4,6 +4,19 @@
 // Claude.ai consumer subscription usage page URL
 const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
 
+// Fields to track for change detection - these are the values that actually
+// matter for spending/usage changes. Timestamps and preview text are excluded.
+const AUTO_SYNC_SIGNATURE_FIELDS = [
+  'spent_eur',
+  'spent_pct',
+  'weekly_all_models_pct',
+  'weekly_sonnet_pct',
+  'monthly_pct',
+  'weekly_limit_pct',
+  'session_pct',
+  'balance_eur'
+];
+
 function autoSyncSignature(d) {
   return AUTO_SYNC_SIGNATURE_FIELDS.map((f) => `${f}=${d?.[f] ?? ''}`).join('|');
 }

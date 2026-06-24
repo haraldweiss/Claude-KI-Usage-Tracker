@@ -933,6 +933,20 @@ ssh -R 40000:localhost:1080 oracle-vm
 - `api.ts` — `updateProviderConfig()`, `getProviderStatuses()`
 - `types/api.ts` — `ProviderConfig`, `ProviderStatus` Typen
 
-**Hinweis:** Die Backend-API wird vom Frontend aktuell NICHT genutzt. Die Settings-Providerkarten fetchen aus `getSummary`/`getPlanPricing`/`getAlerts`. Falls PATCH-Konfiguration per UI gewünscht, muss `ProviderSettingsSection.tsx` erweitert werden.
+**Nachtrag:** ProviderSettingsSection wurde später auf die Backend-API umgestellt (`getProviders()` statt `getSummary`/`getPlanPricing`/`getAlerts`). Jede Karte hat jetzt einen Plan-Dropdown + ✓ zum Speichern via PATCH.
 
 **Deploy:** Frontend dist → rsync; Backend dist → docker cp → restart; Apache graceful reload ✅
+
+#### 5. Follow-ups (Pi, gleiche Session)
+- **Readability**: Codex-Karte: Titel `text-xl font-bold` (statt `text-xs uppercase`); Aktive Abos: `text-sm font-semibold`
+- **ProviderSettingsSection → API**: Komplett-Rewrite: fetch aus `GET /api/settings/providers` + Plan-Dropdown + PATCH-Speichern
+- **Multi-Provider Insights**: `InsightsBlock.tsx` - Cost Ranking (größter Kostenblock), Fix/Variable-Split, Limit-Auslastung über ALLE Provider, Monats-Breakdown mit allen 7 Quellen
+- **DB Cleanup**: Duplicate "GLM Coding Lite-Monthly Plan" gelöscht; stale "codex:Unknown" aus pricing entfernt
+
+**Commits (56c61a3 → 315452b, 4 Commits):**
+```
+56c61a3 feat(ui,backend): provider settings overview, dashboard overhaul, pricing fixes
+cd9a149 fix(ui): improve readability of ChatGPT Plus and pricing in dashboard
+021791d feat(ui): wire ProviderSettingsSection to backend API with plan selector
+315452b feat(ui): multi-provider insights in Recommendations tab
+```

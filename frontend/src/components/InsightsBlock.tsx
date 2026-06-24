@@ -123,6 +123,12 @@ function priorCycleDailyRate(allTime: SpendingTotal | null): number | null {
 const MIN_DAYS_FOR_FORECAST = 3;
 const FORECAST_SMOOTHING_DAYS = 7;
 
+/** Resolve the monthly subscription EUR for a plan name from the pricing table. */
+function subEur(plans: PlanPricingRow[], name: string | null | undefined): number {
+  if (!name) return 0;
+  return plans.find((p) => p.plan_name === name)?.monthly_eur ?? 0;
+}
+
 function buildInsights(
   combined: CombinedSpendBreakdown | null,
   allTime: SpendingTotal | null,
@@ -133,12 +139,23 @@ function buildInsights(
 
   const claudeAi = combined?.claude_ai ?? null;
   const meta = claudeAi?.meta ?? null;
-  const apiUsd = combined?.anthropic_api?.cost_usd ?? 0;
   const apiEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
-  const planEur = plans.find((p) => p.plan_name === meta?.plan_name)?.monthly_eur ?? 0;
+  const planEur = subEur(plans, meta?.plan_name);
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const claudeAiTotalEur = planEur + additionalEur;
-  const grandTotalEur = claudeAiTotalEur + apiEur;
+
+  // -------- All provider costs --------
+  const opencodeGoEur = subEur(plans, 'OpenCode Go');
+  const zaiSpend = combined?.zai ?? null;
+  const zaiEur = subEur(plans, zaiSpend?.plan_name);
+  const codexSpend = combined?.codex ?? null;
+  const codexEur = codexSpend?.plan_cost_eur ?? subEur(plans, 'ChatGPT Plus');
+  const usdToEur = combined?.exchange_rate?.usd_to_eur ?? 0.92;
+  const opencodeApiEur = combined?.opencode_api?.total_cost_usd
+    ? combined.opencode_api.total_cost_usd * usdToEur : 0;
+  const openaiApiEur = combined?.openai_api?.cost_usd
+    ? combined.openai_api.cost_usd * usdToEur : 0;
+  const grandTotalEur = claudeAiTotalEur + apiEur + opencodeGoEur + zaiEur + codexEur + opencodeApiEur + openaiApiEur;
   const daysTracked = daysSince(allTime?.since);
 
   // -------- Plan right-sizing --------
@@ -228,21 +245,28 @@ function buildInsights(
     }
   }
 
-  // -------- Cost source ratio --------
-  if (claudeAiTotalEur + apiEur > 0) {
-    const claudeShare = (claudeAiTotalEur / (claudeAiTotalEur + apiEur)) * 100;
-    const allTimeApiEur = allTime?.anthropic_api?.total_eur_equivalent ?? 0;
-    const apiStale = apiUsd === 0 && allTimeApiEur > 0;
+  // -------- Provider cost ranking --------
+  if (grandTotalEur > 0) {
+    const costs: { label: string; eur: number }[] = [
+      { label: 'Claude.ai', eur: claudeAiTotalEur },
+      { label: 'Anthropic API', eur: apiEur },
+    ];
+    if (opencodeGoEur > 0) costs.push({ label: 'OpenCode Go', eur: opencodeGoEur });
+    if (zaiEur > 0) costs.push({ label: 'z.ai', eur: zaiEur });
+    if (codexEur > 0) costs.push({ label: codexSpend?.plan_name && codexSpend.plan_name !== 'Unknown' ? codexSpend.plan_name : 'Codex', eur: codexEur });
+    if (opencodeApiEur > 0) costs.push({ label: 'OpenCode API', eur: opencodeApiEur });
+    if (openaiApiEur > 0) costs.push({ label: 'OpenAI API', eur: openaiApiEur });
+    costs.sort((a, b) => b.eur - a.eur);
+
+    const top = costs[0];
+    const topShare = grandTotalEur > 0 ? (top.eur / grandTotalEur) * 100 : 0;
+    const costLines = costs.map((c) => `${c.label} ${formatEur(c.eur)}`).join(' · ');
+
     insights.push({
-      level: 'info',
-      title: 'Kosten-Verteilung diesen Monat',
-      body: `${claudeShare.toFixed(0)}% deiner Kosten kommen aus claude.ai (Subscription + Zusatznutzung), ${(100 - claudeShare).toFixed(0)}% aus der Anthropic API.${
-        apiUsd > 0
-          ? ` API-Spend ${formatUsd(apiUsd)} ≈ ${formatEur(apiEur)}.`
-          : apiStale
-            ? ` Hinweis: API-Kosten gesamt liegen bei ${formatEur(allTimeApiEur)} — diesen Monat aber kein neuer Sync von der Anthropic Console.`
-            : ''
-      }`
+      level: topShare > 50 ? 'warn' : 'info',
+      title: `${top.label} ist der größte Kostenblock`,
+      body: `${topShare.toFixed(0)}% der Gesamtkosten (${formatEur(grandTotalEur)}). Verteilung: ${costLines}.`,
+      action: topShare > 50 ? `Fokus auf ${top.label} optimieren — hier liegt das meiste Potenzial.` : undefined,
     });
   }
 
@@ -284,32 +308,79 @@ function buildInsights(
   }
 
   // -------- All-time grand total context --------
-  // Use actual elapsed days for the average — counting "months" by number of
-  // billing cycles touched is misleading when tracking just started (3 days
-  // of data shouldn't extrapolate to a "monthly average").
   if (allTime && allTime.claude_ai.months.length > 0) {
     const cycles = allTime.claude_ai.months.length;
     const total = allTime.grand_total_eur ?? allTime.claude_ai.total_eur;
     const claudeAiSub = allTime.claude_ai.subscription_eur ?? 0;
     const claudeAiAdd = allTime.claude_ai.additional_eur ?? 0;
     const apiAllTimeEur = allTime.anthropic_api?.total_eur_equivalent ?? 0;
+    // Multi-provider totals not available in allTime — use current-month as proxy
+    const otherMonthlyEur = opencodeGoEur + zaiEur + codexEur + opencodeApiEur + openaiApiEur;
     const breakdown = `Abo ${formatEur(claudeAiSub)} + Zusatznutzung ${formatEur(claudeAiAdd)}${apiAllTimeEur > 0 ? ` + API ${formatEur(apiAllTimeEur)}` : ''}`;
     const sinceLabel = allTime.since
       ? new Date(allTime.since).toLocaleDateString('de-DE')
       : '?';
     let body: string;
     if (daysTracked < INSIGHT_CONFIDENCE_TIERS.confident) {
-      body = `${formatEur(total)} (${breakdown}) über ${daysTracked} ${daysTracked === 1 ? 'Tag' : 'Tage'} Tracking — noch zu kurz für einen belastbaren Monatsschnitt.`;
+      body = `${formatEur(total)} (${breakdown}) über ${daysTracked} ${daysTracked === 1 ? 'Tag' : 'Tage'} Tracking — noch zu kurz für einen belastbaren Monatsschnitt.${
+        otherMonthlyEur > 0 ? ` Zusätzlich ca. ${formatEur(otherMonthlyEur)}/Monat aus anderen Providern (OpenCode Go, z.ai, Codex).` : ''
+      }`;
     } else {
       const dailyAvg = total / Math.max(1, daysTracked);
       const monthlyExtrap = dailyAvg * 30;
-      body = `${formatEur(total)} (${breakdown}) über ${daysTracked} Tage (${cycles} ${cycles === 1 ? 'Cycle' : 'Cycles'}). Tagesschnitt ${formatEur(dailyAvg)}, hochgerechnet ca. ${formatEur(monthlyExtrap)}/Monat.`;
+      body = `${formatEur(total)} (${breakdown}) über ${daysTracked} Tage (${cycles} ${cycles === 1 ? 'Cycle' : 'Cycles'}). Tagesschnitt ${formatEur(dailyAvg)}, hochgerechnet ca. ${formatEur(monthlyExtrap)}/Monat.${
+        otherMonthlyEur > 0 ? ` Zusätzlich ca. ${formatEur(otherMonthlyEur)}/Monat aus anderen Providern. Gesamt ca. ${formatEur(monthlyExtrap + otherMonthlyEur)}/Monat.` : ''
+      }`;
     }
     insights.push({
       level: 'info',
       title: `Insgesamt seit ${sinceLabel}`,
       body,
       confidence: getConfidenceLevel(daysTracked)
+    });
+  }
+
+  // -------- Subscription vs variable split --------
+  const subTotal = planEur + opencodeGoEur + zaiEur + codexEur;
+  const varTotal = additionalEur + apiEur + opencodeApiEur + openaiApiEur;
+  if (subTotal + varTotal > 0) {
+    const subShare = ((subTotal / (subTotal + varTotal)) * 100);
+    insights.push({
+      level: subShare > 70 ? 'info' : 'good',
+      title: 'Fixkosten vs. variable Kosten',
+      body: `${formatEur(subTotal)} fixe Abos (${subShare.toFixed(0)}%) · ${formatEur(varTotal)} variabel (${(100 - subShare).toFixed(0)}%).${
+        varTotal > subTotal
+          ? ' Variable Kosten dominieren — API-Nutzung im Auge behalten.'
+          : ' Fixe Abos dominieren — die Kosten sind gut planbar.'
+      }`
+    });
+  }
+
+  // -------- Utilization cross-check --------
+  const utilItems: string[] = [];
+  if (typeof meta?.weekly_all_models_pct === 'number') utilItems.push(`Claude.ai: ${meta.weekly_all_models_pct}%`);
+  const og = combined?.opencode_go;
+  if (og?.continuous_pct != null) utilItems.push(`OpenCode Go: ${og.continuous_pct}%`);
+  if (og?.weekly_pct != null) utilItems.push(`OpenCode Go Wo: ${og.weekly_pct}%`);
+  const z = combined?.zai;
+  if (z?.weekly_pct != null) utilItems.push(`z.ai Wo: ${z.weekly_pct}%`);
+  if (z?.five_hour_pct != null) utilItems.push(`z.ai 5h: ${z.five_hour_pct}%`);
+  const cx = combined?.codex;
+  if (cx?.five_hour_remaining_pct != null) utilItems.push(`Codex 5h: ${100 - cx.five_hour_remaining_pct}%`);
+  if (cx?.weekly_remaining_pct != null) utilItems.push(`Codex Wo: ${100 - cx.weekly_remaining_pct}%`);
+  if (utilItems.length > 0) {
+    const highUtil = utilItems.filter(i => {
+      const m = i.match(/(\d+)%/);
+      return m && parseInt(m[1]) >= 75;
+    });
+    insights.push({
+      level: highUtil.length > 0 ? 'warn' : 'good',
+      title: highUtil.length > 0
+        ? `${highUtil.length} Limit${highUtil.length > 1 ? 's' : ''} zu >75% ausgelastet`
+        : 'Alle Limits haben ausreichend Reserve',
+      body: utilItems.join(' · ') + (highUtil.length > 0
+        ? ' · Einige Kontingente sind knapp — Reset-Zeiten im Dashboard prüfen.'
+        : ''),
     });
   }
 
@@ -327,7 +398,15 @@ function buildInsights(
     insights.unshift({
       level: 'info',
       title: 'Diesen Monat',
-      body: `${formatEur(grandTotalEur)} (claude.ai ${formatEur(claudeAiTotalEur)} + API ≈ ${formatEur(apiEur)}).`
+      body: `Gesamt ${formatEur(grandTotalEur)} — ${[
+        claudeAiTotalEur > 0 ? `Claude.ai ${formatEur(claudeAiTotalEur)}` : '',
+        apiEur > 0 ? `API ${formatEur(apiEur)}` : '',
+        opencodeGoEur > 0 ? `OpenCode Go ${formatEur(opencodeGoEur)}` : '',
+        zaiEur > 0 ? `z.ai ${formatEur(zaiEur)}` : '',
+        codexEur > 0 ? `${codexSpend?.plan_name && codexSpend.plan_name !== 'Unknown' ? codexSpend.plan_name : 'Codex'} ${formatEur(codexEur)}` : '',
+        opencodeApiEur > 0 ? `OpenCode API ${formatEur(opencodeApiEur)}` : '',
+        openaiApiEur > 0 ? `OpenAI API ${formatEur(openaiApiEur)}` : '',
+      ].filter(Boolean).join(' · ')}.`
     });
   }
 

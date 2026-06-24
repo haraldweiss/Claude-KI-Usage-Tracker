@@ -71,7 +71,10 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 ### Architecture
 - **Backend**: Node.js + Express + TypeScript (strict mode), SQLite, additive migrations.
 - **Frontend**: React + TypeScript + Vite, Tailwind CSS. Same-origin XHRs in production; dev server uses Vite proxy.
-- **Extension**: Chrome MV3 (v2.0.0), configurable Backend URL + API Token in the popup so the same extension build works against local dev (`localhost:3000`) and the deployed VPS.
+- **Extension**: Chrome MV3 (v3.2.1), configurable Backend URL + API Token in the popup. Two sync modes: auto-export cookies to server-scraper, and **🔐 Sync geschützte Quellen** button for sources with httponly cookies.
+- **Server-Scraper**: Playwright TypeScript scrapers running on the VPS via systemd timer (every 2h). Handles 3 sources (Codex, OpenAI API, Claude.ai) using cookies auto-exported from the extension.
+- **Hybrid sync**: 3 sources scraped server-side (cookie export works) + 4 sources scraped in-extension (httponly cookies encrypted by macOS Keychain — console, claude-code, z.ai, opencode).
+- **Proxy tunnel**: SOCKS5 via SSH reverse tunnel (microsocks on Mac + ssh -R) to route Playwright traffic through the residential IP, bypassing Cloudflare challenges.
 - **VPS deployment**: Apache reverse-proxy + systemd unit + Let's Encrypt TLS + magic-link auth + automated health monitoring with email alerts.
 
 ---
@@ -118,7 +121,7 @@ The scripts auto-detect when launched from a worktree and point the backend at t
 
 ### 4. Install the extension
 
-> **Version note**: the extension is now at **v2.0.0** (MV3). It is incompatible with any v1.x install — remove the old version from `chrome://extensions` before loading this one.
+> **Version note**: the extension is now at **v3.2.1** (MV3). It is incompatible with any v1.x install — remove the old version from `chrome://extensions` before loading this one.
 
 1. Open `chrome://extensions`.
 2. Enable Developer mode (top right).
@@ -129,7 +132,7 @@ The scripts auto-detect when launched from a worktree and point the backend at t
    - **Hosted instance**: set Backend-API URL to `https://your-domain/claudetracker/api`, paste the **API Token** from Settings → API Token → "Speichern". The extension sends `Authorization: Bearer <token>` on every request; no Basic-Auth credentials are needed.
 
 ### 5. Trigger your first sync
-Log into claude.ai, platform.claude.com, opencode.ai, z.ai, chatgpt.com, and platform.openai.com in regular browser tabs (so the extension can reuse your sessions). Then click **↻ Sync alle** in the popup — it runs all seven sources sequentially, persists per-step progress to `chrome.storage.local`, and shows the result in a coloured status box (green = all OK, yellow = some skipped, red = error).
+Log into all services in regular browser tabs. The **server-scraper** (every 2h) handles Codex, OpenAI API, and Claude.ai automatically. For the 4 sources with macOS Keychain-encrypted httponly cookies (Anthropic Console, Claude Code, z.ai, OpenCode Go), open the extension popup and click **🔐 Sync geschützte Quellen** — it opens 4 tabs, scrapes data, and posts to the backend.
 
 > **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all seven scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
 
@@ -160,6 +163,43 @@ The tracker is also deployable as a subpath of an existing Apache vhost — usef
 | TLS | Let's Encrypt cert managed by the surrounding vhost (no separate cert for the subpath). |
 
 The frontend production build reads `frontend/.env.production` (`VITE_API_URL=/claudetracker`) so all fetches use a same-origin relative URL — no separate API hostname, no CORS dance.
+
+### Server-Scraper (Playwright)
+
+The server-scraper runs on the VPS via systemd timer (`ki-usage-scraper.timer`, every 2h). It uses Playwright with headless Chromium to scrape 3 cost sources:
+
+| Source | File | Data extracted |
+|---|---|---|
+| Codex | `codex.ts` | Plan name, 5h/weekly quota %, credits |
+| OpenAI API | `openai-api.ts` | MTD spend, tokens, requests |
+| Claude.ai | `claude-ai.ts` | Session spend, weekly/monthly limits |
+
+Cookies are auto-exported from the Chrome extension (v3.2.1+) and uploaded to `POST /api/cookies/upload`. The backend saves them to `/opt/claudetracker-data/cookies/`, symlinked to the server-scraper's cookie directory.
+
+**Proxy tunnel** (for Cloudflare bypass): The server-scraper runs through a SOCKS5 proxy that routes traffic via the Mac's residential IP.
+
+```bash
+# On Mac (one-time):
+brew install microsocks
+microsocks -i 127.0.0.1 -p 1080 &
+
+# SSH reverse tunnel:
+ssh -R 40000:localhost:1080 oracle-vm
+
+# In /etc/systemd/system/ki-usage-scraper.service:
+# Environment=PLAYWRIGHT_PROXY_URL=socks5://127.0.0.1:40000
+```
+
+**Extension sync** (4 sources with httponly cookies): Open the popup and click **🔐 Sync geschützte Quellen**. The extension opens tabs for:
+
+| Source | URL scraper | Data |
+|---|---|---|
+| Anthropic Console | `platform.claude.com/settings/keys` | Per-workspace API key costs |
+| Claude Code | `platform.claude.com/claude-code/usage` | Per-member costs, lines, accept rate |
+| z.ai | `z.ai/manage-apikey/coding-plan/` | Plan name, price, 5h/weekly/monthly quotas |
+| OpenCode Go | `opencode.ai/workspace/.../go` | Plan name, continuous/weekly/monthly usage % |
+
+Data from both pipelines flows to the same backend (`POST /api/usage/track`) and is displayed in the React dashboard.
 
 ### Deploy a fresh build
 
@@ -486,7 +526,7 @@ MIT — see [LICENSE](./LICENSE).
 
 ---
 
-**Last Updated**: June 2026 (Phase 5 — multi-source cost tracker, VPS deployment, USD/EUR conversion, live insights, multi-user magic-link auth, code quality pass, tab-lifecycle refactoring, modular extension scrapers)
+**Last Updated**: June 2026 (Phase 6 — Hybrid server-scraper + extension sync, Playwright scrapers, proxy tunnel, macOS Keychain cookie workaround)
 **Maintained by**: Harald Weiss
 **Repository**: [GitHub](https://github.com/haraldweiss/Claude-KI-Usage-Tracker)
 

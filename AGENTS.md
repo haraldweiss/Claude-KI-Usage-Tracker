@@ -845,36 +845,63 @@ ssh oracle-vm 'cd /opt/claudetracker/server-scraper && npx tsx src/index.ts'
 ssh oracle-vm 'journalctl -u ki-usage-scraper --since "10 minutes ago" --no-pager'
 ```
 
-### 2026-06-24 — Server-Scraper live: 3/8 aktiv, Proxy für Rest nötig
+### 2026-06-24 — Hybrid-Architektur: Server-Scraper (3) + Extension Sync (4)
 
-**Der Server-Scraper läuft automatisch auf Oracle VM (alle 2h via systemd Timer).**
+**Problem gelöst:** macOS 27 Beta + Chrome 127 speichert httponly-Cookies nur in `encrypted_value` (macOS Keychain). CLI-Tools (sqlite3, Playwright, cookie-extract) können sie nicht lesen. Lösung: **Hybrid-Ansatz**.
 
-| Quelle | Impl. | Proxy? | Status |
+| Pipeline | Quellen | Cookie-Zugriff | Taktung |
 |---|---|---|---|
-| ✅ Codex | `codex.ts` | Nein | ✅ live |
-| ✅ OpenAI API | `openai-api.ts` | Nein | ✅ live |
-| ✅ Claude.ai | `claude-ai.ts` | Nein | ✅ live (kein Plan) |
-| ❌ Anthropic Console | `anthropic-console.ts` | **Ja** | Session invalid von DC-IP |
-| ❌ Claude Code | `claude-code.ts` | **Ja** | gleiche Domain |
-| ❌ OpenCode Go | `opencode-go.ts` | **Ja** | login_required |
-| ❌ z.ai | `zai.ts` | Vielleicht | timeout/leere Seite |
-| ❌ OpenCode API | `opencode-api-usage.ts` | **Ja** | login_required |
+| 🤖 **Server-Scraper** (Playwright auf Oracle VM) | Codex, OpenAI API, Claude.ai | Extension exportiert via `chrome.cookies.getAll()` → POST `/api/cookies/upload` | Alle 2h via systemd Timer |
+| 🔐 **Extension Sync** (im Chrome-Popup) | Anthropic Console, Claude Code, z.ai, OpenCode Go | Chrome selbst (Tabs öffnen, executeScript, POST ans Backend) | Per Button-Klick |
 
-**Proxy-Konfiguration** (in `/etc/systemd/system/ki-usage-scraper.service`):
-```
-Environment=PLAYWRIGHT_PROXY_URL=http://user:pass@residential-proxy:port
-```
-Nach Setzen: `sudo systemctl daemon-reload && sudo systemctl restart ki-usage-scraper.timer`
-
-**Cookies aktualisieren:**
+**Proxy-Tunnel** (für Cloudflare-Bypass auf Server-Seite):
 ```bash
-cd /Library/WebServer/Documents/KI\ Usage\ tracker/server-scraper
-npx tsx src/cookie-extract.ts
-cp cookies/opencode-go.json cookies/opencode-api.json
-rsync -avz cookies/ oracle-vm:/opt/claudetracker/server-scraper/cookies/
+# Mac (einmalig):
+brew install microsocks
+microsocks -i 127.0.0.1 -p 1080 &
+
+# SSH Reverse Tunnel (dieses Fenster offen lassen):
+ssh -R 40000:localhost:1080 oracle-vm
+
+# Service-File hat bereits:
+# Environment=PLAYWRIGHT_PROXY_URL=socks5://127.0.0.1:40000
 ```
 
-**Neuer API-Token** (alter wurde revoziert):
-`ck_live_86510a1c7edc99018667decaa3fc9ad2675f4d49d7b4e29108cb208fb943ed8a`
-→ In Extension → Einstellungen eintragen.
+**Server-Scraper Service** (auf Oracle VM):
 ```
+/etc/systemd/system/ki-usage-scraper.service
+  ExecStart: tsx src/index.ts (alle 8 Scraper)
+  API_TOKEN=ck_live_f2969d64fb2be544cf909eb9cbffb24dd07bc45940ece0475cba7c625c316f0c (user_id=2)
+  PLAYWRIGHT_PROXY_URL=socks5://127.0.0.1:40000
+/etc/systemd/system/ki-usage-scraper.timer
+  OnCalendar=0/2:00 (alle 2h), RandomizedDelaySec=180
+```
+
+**Scraper-Implementierung** (alle 8 in `server-scraper/src/scrapers/`):
+| Datei | Quelle | Typ | Status |
+|---|---|---|---|
+| `codex.ts` | ChatGPT Codex | Server | ✅ posted data |
+| `openai-api.ts` | OpenAI API MTD | Server | ✅ posted (0 data) |
+| `claude-ai.ts` | Claude.ai Consumer | Server | ✅ posted (kein Plan) |
+| `anthropic-console.ts` | platform.claude.com/keys | Extension | ✅ via 🔐 Sync |
+| `claude-code.ts` | platform.claude.com/claude-code | Extension | ✅ via 🔐 Sync |
+| `opencode-go.ts` | opencode.ai workspace | Extension | ✅ via 🔐 Sync |
+| `zai.ts` | z.ai coding plan | Extension | ✅ via 🔐 Sync |
+| `opencode-api-usage.ts` | opencode.ai usage table | Extension | ⏳ nicht getestet |
+
+**Cookies-Upstream:** Extension v3.2.1 exportiert Cookies via `chrome.cookies.getAll()`:
+- `background.js`: Auto-Upload bei Startup + alle 6h an `POST /api/cookies/upload`
+- `sameSite` normalisiert (no_restriction→None, strict→Strict, lax→Lax)
+- `expires` auf +24h gesetzt (kurzlebige Auth-Tokens)
+- Backend speichert in `/opt/claudetracker-data/cookies/` → Symlink nach `/opt/claudetracker/server-scraper/cookies`
+
+**Backend:** `POST /api/cookies/upload` (kein Auth, routes/cookies.ts, cookieController.ts)
+
+**Extension-Popup:**
+- 🔐 **Sync geschützte Quellen** Button (orange) → `TRIGGER_SYNC_HARD_SOURCES` → `syncHardSources()`
+- Öffnet 4 Tabs nacheinander, scraped per `executeScript`, POSTet ans Backend, schließt Tabs
+- Zeigt ✅/❌ pro Quelle + Auto-Refresh nach 5s
+
+**Noch offen:**
+- `opencode-api-usage.ts` scrapt per-key aggregates — noch nicht via Extension getestet
+- Server-Scraper `opencode-go.ts` + `zai.ts` haben `login_required` (keine gültigen Cookies auf VM — Proxy allein reicht nicht, da Session-Cookies fehlen)

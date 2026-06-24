@@ -225,14 +225,14 @@ export default function OverviewTab(): React.ReactElement {
 
       {/* Subscription pricing summary */}
       {(planEur > 0 || opencodeGoEur > 0 || zaiEur > 0 || (codex != null) || apiTotalEur > 0 || opencodeApiEur > 0) && (
-        <div className="bg-white rounded-lg shadow px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm leading-tight">
+        <div className="bg-white rounded-lg shadow px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm leading-snug">
           <span className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide shrink-0">Aktive Abos</span>
-          {planEur > 0 && <span className="text-gray-700 whitespace-nowrap"><span className="font-medium">{meta?.plan_name ?? 'Claude.ai'}</span> {formatEur(planEur)}<span className="hidden sm:inline">/Monat</span></span>}
-          {opencodeGo != null && <span className="text-gray-700 whitespace-nowrap"><span className="font-medium">OpenCode Go</span> {formatEur(opencodeGoEur)}<span className="hidden sm:inline">/Monat</span></span>}
-          {zai != null && <span className="text-gray-700 whitespace-nowrap max-w-[200px] truncate" title={zai?.plan_name ?? 'z.ai'}><span className="font-medium">{zai?.plan_name ? zai.plan_name.replace(/^GLM\s+/,'').replace(/-Monthly\s*Plan$/,'') : 'z.ai'}</span> {formatEur(zaiEur)}<span className="hidden sm:inline">/Monat</span></span>}
-          {codex != null && <span className="text-gray-700 whitespace-nowrap"><span className="font-medium">{codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}</span> {formatEur(codexEur)}<span className="hidden sm:inline">/Monat</span></span>}
+          {planEur > 0 && <span className="text-gray-800 whitespace-nowrap"><span className="font-semibold">{meta?.plan_name ?? 'Claude.ai'}</span> {formatEur(planEur)}<span className="hidden sm:inline text-gray-500">/Monat</span></span>}
+          {opencodeGo != null && <span className="text-gray-800 whitespace-nowrap"><span className="font-semibold">OpenCode Go</span> {formatEur(opencodeGoEur)}<span className="hidden sm:inline text-gray-500">/Monat</span></span>}
+          {zai != null && <span className="text-gray-800 whitespace-nowrap max-w-[220px] truncate" title={zai?.plan_name ?? 'z.ai'}><span className="font-semibold">{zai?.plan_name ? zai.plan_name.replace(/^GLM\s+/,'').replace(/-Monthly\s*Plan$/,'') : 'z.ai'}</span> {formatEur(zaiEur)}<span className="hidden sm:inline text-gray-500">/Monat</span></span>}
+          {codex != null && <span className="text-gray-800 whitespace-nowrap"><span className="font-semibold">{codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}</span> {formatEur(codexEur)}<span className="hidden sm:inline text-gray-500">/Monat</span></span>}
           {(apiTotalEur > 0 || opencodeApiEur > 0) && (
-            <span className="text-gray-400 whitespace-nowrap">
+            <span className="text-gray-500 whitespace-nowrap">
               + {formatEur(apiTotalEur + opencodeApiEur + openaiApiEur)}<span className="hidden sm:inline"> variabel</span>
             </span>
           )}
@@ -444,12 +444,13 @@ export default function OverviewTab(): React.ReactElement {
         {/* Codex subscription (ChatGPT Plus/Pro) */}
         {codex && (
           <div className="bg-white rounded-lg shadow p-5 min-w-0">
-            <div className="flex items-start justify-between gap-2">
-              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide truncate min-w-0" title={codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}>
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Codex (ChatGPT)</div>
+            <div className="mt-1 flex items-start justify-between gap-2">
+              <span className="text-xl font-bold text-gray-900 truncate" title={codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}>
                 {codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}
-              </div>
+              </span>
               {codex.plan_cost_eur > 0 && (
-                <span className="text-sm font-bold text-gray-900 shrink-0">{formatEur(codex.plan_cost_eur)}/Monat</span>
+                <span className="text-lg font-bold text-gray-900 shrink-0">{formatEur(codex.plan_cost_eur)}<span className="hidden sm:inline">/Monat</span></span>
               )}
             </div>
             <div className="mt-3 space-y-2">

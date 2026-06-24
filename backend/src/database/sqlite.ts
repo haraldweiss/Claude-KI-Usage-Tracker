@@ -562,6 +562,20 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // Provider config table: per-user status/plan assignment per provider
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS provider_config (
+                user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider_name  TEXT NOT NULL,
+                status_label   TEXT,
+                plan_name      TEXT,
+                PRIMARY KEY (user_id, provider_name)
+              )`,
+              (tErr: Error | null) => (tErr ? reject(tErr) : resolve())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

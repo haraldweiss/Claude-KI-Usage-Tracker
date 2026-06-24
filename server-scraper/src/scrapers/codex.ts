@@ -16,10 +16,11 @@ function extractCodexUsage(): Record<string, unknown> | null {
 
   // Plan name
   const planMatch = body.match(/(?:Plan|Abo|Subscription)[:\s]+([A-Za-z0-9\s]+)/i);
-  const planName = planMatch ? planMatch[1].trim() : 'Unknown';
+  const planName = planMatch ? planMatch[1].trim() : null;
 
   // Usage percentages — look for patterns like "5h 82%" or "Weekly 38%"
-  const usage: Record<string, unknown> = { plan_name: planName };
+  const usage: Record<string, unknown> = {};
+  if (planName) usage.plan_name = planName;
 
   // 5h/Weekly limits
   const fiveHourMatch = body.match(/(?:5h|5\s*hours?|Std\.?)[^0-9]*?(\d{1,3})\s*%/i);
@@ -59,7 +60,7 @@ export async function scrape(page: Page, config: ScraperConfig): Promise<Scraper
   }
 
   // Post as a single usage record
-  const planName = (usage.plan_name as string) || 'Unknown';
+  const planName = (usage.plan_name as string) || 'Codex';
   const row = {
     model: `codex:${planName}`,
     input_tokens: 0,

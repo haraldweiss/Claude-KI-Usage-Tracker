@@ -248,6 +248,19 @@ export interface PricingData {
 
 export type Period = 'day' | 'week' | 'month';
 
+export interface AlertInfo {
+  low_balance: boolean;
+  rate_alert: boolean;
+  balance_usd: number | null;
+  last_topup_usd: number | null;
+  today_cost_usd: number;
+  avg_daily_cost_usd: number;
+  config: {
+    low_balance_threshold: number;
+    rate_multiplier: number;
+  };
+}
+
 export interface APIError {
   error: string;
   status: number;
@@ -345,4 +358,26 @@ export interface AlertState {
     low_balance_threshold: number;
     rate_multiplier: number;
   };
+}
+
+/**
+ * Provider status info from GET /settings/providers
+ */
+export interface ProviderInfo {
+  key: string;
+  display_name: string;
+  icon: string;
+  status_label: string | null;
+  plan_name: string | null;
+  derived_status: 'active' | 'no_data' | 'no_plan';
+  last_sync: string | null;
+  scrape_summary: Record<string, unknown> | null;
+}
+
+/**
+ * Provider config update body for PATCH /settings/providers/:name
+ */
+export interface ProviderConfigUpdate {
+  status_label?: string;
+  plan_name?: string | null;
 }

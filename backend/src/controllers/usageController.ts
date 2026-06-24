@@ -180,9 +180,16 @@ export async function trackUsage(
     // Cost math is user-trust-critical — only upsert a finite, positive price,
     // and mark the row 'auto' so a manual user edit is never overwritten.
     if (source === 'zai_sync' && response_metadata && typeof response_metadata === 'object') {
-      const meta = response_metadata as { plan_name?: unknown; price_usd?: unknown };
-      const planName = typeof meta.plan_name === 'string' ? meta.plan_name.trim() : null;
-      const priceUsd = typeof meta.price_usd === 'number' ? meta.price_usd : null;
+      const meta = response_metadata as Record<string, unknown>;
+      // Handle both flat (server scraper) and nested {plan:{...}} (extension sync) formats
+      const planInfo = meta.plan as Record<string, unknown> | undefined;
+      const planName = typeof meta.plan_name === 'string' ? meta.plan_name.trim()
+                     : typeof planInfo?.plan_name === 'string' ? (planInfo.plan_name as string).trim()
+                     : null;
+      const priceUsd = typeof meta.price_usd === 'number' ? meta.price_usd
+                     : typeof planInfo?.price_usd === 'number' ? (planInfo.price_usd as number)
+                     : typeof planInfo?.price_usd === 'string' ? parseFloat(planInfo.price_usd as string)
+                     : null;
       if (planName && priceUsd != null && isFinite(priceUsd) && priceUsd > 0) {
         try {
           // Never clobber a price the user edited by hand in the pricing table.
@@ -383,16 +390,23 @@ export async function getSummary(
       }
     }
 
+    // Handle both flat (old server-scraper) and nested (extension sync) formats
+    const planInfo = (zaiMeta as Record<string, unknown>)?.plan as Record<string, unknown> | undefined;
+    const usageInfo = (zaiMeta as Record<string, unknown>)?.usage as Record<string, unknown> | undefined;
+
     const zai = zaiRow
       ? {
-          plan_name: zaiMeta?.plan_name ?? null,
-          price_usd: zaiMeta?.price_usd ?? null,
-          auto_renew_date: zaiMeta?.auto_renew_date ?? null,
-          five_hour_pct: zaiMeta?.five_hour_pct ?? null,
-          weekly_pct: zaiMeta?.weekly_pct ?? null,
-          weekly_reset: zaiMeta?.weekly_reset ?? null,
-          monthly_pct: zaiMeta?.monthly_pct ?? null,
-          monthly_reset: zaiMeta?.monthly_reset ?? null,
+          plan_name: zaiMeta?.plan_name ?? (planInfo?.plan_name as string) ?? null,
+          price_usd: typeof zaiMeta?.price_usd === 'number' ? zaiMeta.price_usd
+                     : typeof planInfo?.price_usd === 'number' ? planInfo.price_usd
+                     : typeof planInfo?.price_usd === 'string' ? parseFloat(planInfo.price_usd as string) || null
+                     : null,
+          auto_renew_date: zaiMeta?.auto_renew_date ?? (planInfo?.auto_renew_date as string) ?? null,
+          five_hour_pct: zaiMeta?.five_hour_pct ?? (usageInfo?.five_hour_pct as number) ?? null,
+          weekly_pct: zaiMeta?.weekly_pct ?? (usageInfo?.weekly_pct as number) ?? null,
+          weekly_reset: zaiMeta?.weekly_reset ?? (usageInfo?.weekly_reset as string) ?? null,
+          monthly_pct: zaiMeta?.monthly_pct ?? (usageInfo?.monthly_pct as number) ?? null,
+          monthly_reset: zaiMeta?.monthly_reset ?? (usageInfo?.monthly_reset as string) ?? null,
           last_synced: zaiRow.timestamp
         }
       : null;
@@ -600,8 +614,12 @@ export async function getSummary(
       last_synced: string | null;
     }
 
-    const codexPlanName = (codexData?.plan_name as string) ?? null;
-    const codexPlanCost = codexPlanName ? (await getPlanPrice(codexPlanName)) ?? 0 : 0;
+    let codexPlanName = (codexData?.plan_name as string) ?? null;
+    // Fallback: old syncs may have stored "Unknown" — resolve to a known plan
+    if (!codexPlanName || codexPlanName === 'Unknown') codexPlanName = 'ChatGPT Plus';
+    let codexPlanCost = codexPlanName ? (await getPlanPrice(codexPlanName)) ?? 0 : 0;
+    // Second fallback: if ChatGPT Plus isn't in plan_pricing, try others
+    if (codexPlanCost === 0) codexPlanCost = (await getPlanPrice('ChatGPT Pro')) ?? 0;
     const codex: CodexSummary | null = codexRow?.[0] ? {
       plan_name: codexPlanName,
       plan_cost_eur: codexPlanCost,

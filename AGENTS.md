@@ -905,3 +905,34 @@ ssh -R 40000:localhost:1080 oracle-vm
 **Noch offen:**
 - `opencode-api-usage.ts` scrapt per-key aggregates — noch nicht via Extension getestet
 - Server-Scraper `opencode-go.ts` + `zai.ts` haben `login_required` (keine gültigen Cookies auf VM — Proxy allein reicht nicht, da Session-Cookies fehlen)
+
+---
+
+### 2026-06-25 — Dashboard-Overhaul & Provider-Einstellungen (Pi)
+
+**Scope:** 9 Dateien geändert, 3 neue, ~324 Zeilen. Drei Themen in einer Session.
+
+#### 1. OverviewTab: mehr Preise + Auslastung sichtbar
+- **Anthropic API Karte**: EUR+USD-Kosten, Workspace-Aufteilung (truncate + "+ N weitere"), Guthaben, Tagesverbrauch, ⌀-Tag, Rate-Alert-Badge
+- **"Aktive Abos"-Zeile**: Alle Pläne unabhängig vom Preis listen; `/Monat` nur auf sm+; truncate für lange Namen
+- **Codex-Karte**: `remaining_pct` → `100-remaining_pct` (used %); Kosten prominent rechts oben; Fallback "ChatGPT Plus"
+- **Forecast**: "Fix-Abos" statt nur Plan-Abo + OpenCode Go; Grid max 6 cols; `min-w-0`+`truncate` auf allen Kartentiteln
+
+#### 2. Backend-Fixes: z.ai + Codex Preisauflösung
+- **Codex "Unknown"** → Backend fallback auf "ChatGPT Plus"/"ChatGPT Pro"; server-scraper sendet null statt "Unknown"; DB-Rows korrigiert
+- **z.ai nested format** → Extension speichert `{plan:{plan_name,price_usd},usage:{...}}`; Backend unterstützt jetzt beide Formate + `parseFloat` für string price; DB plan_pricing umbenannt
+
+#### 3. Settings: Provider-Übersicht (neu)
+- `frontend/src/components/settings/ProviderSettingsSection.tsx` — 7 farbcodierte Karten (einer pro Anbieter) mit Status, Plan, Kosten, Limits, Sync, Quelle, Scrape-URL
+- In `Settings.tsx` zwischen ProviderServiceSettings und PlanPricingTable eingefügt
+
+#### 4. Backend-Infrastruktur (vorbestehend, uncommitted)
+- `providerController.ts` + `routes/providers.ts` — GET/PATCH `/api/settings/providers`
+- `database/sqlite.ts` — `provider_config`-Tabelle
+- `app.ts` — Route registriert
+- `api.ts` — `updateProviderConfig()`, `getProviderStatuses()`
+- `types/api.ts` — `ProviderConfig`, `ProviderStatus` Typen
+
+**Hinweis:** Die Backend-API wird vom Frontend aktuell NICHT genutzt. Die Settings-Providerkarten fetchen aus `getSummary`/`getPlanPricing`/`getAlerts`. Falls PATCH-Konfiguration per UI gewünscht, muss `ProviderSettingsSection.tsx` erweitert werden.
+
+**Deploy:** Frontend dist → rsync; Backend dist → docker cp → restart; Apache graceful reload ✅

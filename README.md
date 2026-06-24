@@ -62,11 +62,11 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 - **Cooldown**: at most one alert per type per 6 hours — no spam on repeated syncs.
 
 ### Dashboard
-- **Übersicht (Overview)**: hero number in EUR, alert banners (low-balance / rate spike) at the top, status cards (Plan, Wochenlimits with colour-shifting progress bars, Budget, plus OpenCode Go and z.ai usage-quota cards when those sources have data), forecast card extrapolating today's daily rate to month-end, monthly trend block (≥ 2 months), sync-status footer.
+- **Übersicht (Overview)**: hero number in EUR, alert banners (low-balance / rate spike) at the top, "Aktive Abos" subscription summary bar, status cards (Plan, Wochenlimits with colour-shifting progress bars, Budget, **Anthropic API card** with workspace breakdown + balance + daily burn rate, OpenCode Go and z.ai usage-quota cards, Codex limits, OpenAI/OpenCode API costs), forecast card extrapolating today's daily rate to month-end, monthly trend block (≥ 2 months), sync-status footer.
 - **Modelle (Models)**: per-key detail table (key/member, source badge, workspace, cost, lines, last sync) with a per-model cost breakdown panel (last 24h / current month toggle) — pinpoints which model drove a spike without opening the Console.
 - **Gesamtkosten (Combined cost)**: same per-key table, plus a clearer "this month vs. all-time" split with a collapsible monthly breakdown (Plan-Abo + Zusatznutzung + total per month), and OpenCode Go + z.ai cards showing usage progress bars with reset timers.
 - **Recommendations**: live insights driven by the actual sync data (plan right-sizing based on weekly usage %, monthly-limit forecast, cost-source ratio, Claude Code key efficiency comparison) plus an interactive model suggester for ad-hoc "which model for task X?" queries.
-- **Settings**: editable Plan-Subscription pricing + editable Model token pricing + alert thresholds (low-balance % and rate multiplier).
+- **Settings**: **Provider-Übersicht** (7 farbcodierte Statuskarten aller Anbieter mit Plan, Kosten, Limits, Sync), editable Plan-Subscription pricing + editable Model token pricing + alert thresholds (low-balance % and rate multiplier).
 
 ### Architecture
 - **Backend**: Node.js + Express + TypeScript (strict mode), SQLite, additive migrations.

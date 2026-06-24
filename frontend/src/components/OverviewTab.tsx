@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
-import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
+import { getSummary, getSpendingTotal, getPlanPricing, getAlerts } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
-import { formatEur, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
-import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, OpenCodeApiSpend, CodexSpend, OpenAiApiSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
+import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, OpenCodeApiSpend, CodexSpend, OpenAiApiSpend, type PlanPricingRow, SpendingTotal, type AlertInfo } from '../types/api';
 import { AlertBanner } from './AlertBanner';
 
 /** Days remaining in the current month, including today. */
@@ -74,6 +74,7 @@ export default function OverviewTab(): React.ReactElement {
   const [combined, setCombined] = useState<CombinedSpendBreakdown | null>(null);
   const [allTime, setAllTime] = useState<SpendingTotal | null>(null);
   const [plans, setPlans] = useState<PlanPricingRow[]>([]);
+  const [alerts, setAlerts] = useState<AlertInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,15 +82,17 @@ export default function OverviewTab(): React.ReactElement {
     let cancelled = false;
     const load = async (): Promise<void> => {
       try {
-        const [summary, total, planRes] = await Promise.all([
+        const [summary, total, planRes, alertInfo] = await Promise.all([
           getSummary('month'),
           getSpendingTotal(),
-          getPlanPricing()
+          getPlanPricing(),
+          getAlerts()
         ]);
         if (cancelled) return;
         setCombined(summary.combined ?? null);
         setAllTime(total);
         setPlans(planRes.plans);
+        setAlerts(alertInfo);
         setError(null);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unknown error');
@@ -124,6 +127,8 @@ export default function OverviewTab(): React.ReactElement {
   const codex: CodexSpend | null = combined?.codex ?? null;
   const openaiApi: OpenAiApiSpend | null = combined?.openai_api ?? null;
   const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
+  const apiTotalUsd = combined?.anthropic_api?.cost_usd ?? 0;
+  const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const planEur = subscriptionEur(plans, meta?.plan_name);
   const claudeAiTotalEur = planEur + additionalEur;
@@ -139,9 +144,13 @@ export default function OverviewTab(): React.ReactElement {
 
   // Number of subscription side-cards shown to the right of the three core
   // claude.ai cards — drives the responsive grid column count.
-  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (opencodeApi ? 1 : 0) + (codex ? 1 : 0) + (openaiApi ? 1 : 0);
+  const hasAnthropicApi = apiTotalUsd > 0 || apiByWorkspace.length > 0;
+  const statusCardCount = 3 + (hasAnthropicApi ? 1 : 0) + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (opencodeApi ? 1 : 0) + (codex ? 1 : 0) + (openaiApi ? 1 : 0);
+  // Cap at 6 columns — 7+ makes cards too narrow even on md screens, causing
+  // text overflow. Cards wrap naturally into the next row.
+  const cappedCount = Math.min(statusCardCount, 6);
   const statusGridCols =
-    statusCardCount >= 6 ? 'md:grid-cols-6' : statusCardCount === 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
+    cappedCount >= 6 ? 'md:grid-cols-6' : cappedCount === 5 ? 'md:grid-cols-5' : cappedCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
   // Forecast: extrapolate today's spend rate to month end. Plan-Abo is fixed
   // (already counted), so we only forecast the variable parts (additional
@@ -198,13 +207,14 @@ export default function OverviewTab(): React.ReactElement {
             <div className="mt-2">
               <span className="text-3xl font-bold text-gray-900">{formatEur(grandTotalEur)}</span>
             </div>
-            <p className="mt-1 text-sm text-gray-500">
-              claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
-              {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
-              {zaiEur > 0 && <> · z.ai {formatEur(zaiEur)}</>}
-              {opencodeApiEur > 0 && <> · OpenCode API ≈ {formatEur(opencodeApiEur)}</>}
-              {codexEur > 0 && <> · {(codex?.plan_name ?? 'Codex')} {formatEur(codexEur)}/Monat</>}
-              {openaiApiEur > 0 && <> · OpenAI API ≈ {formatEur(openaiApiEur)}</>}
+            <p className="mt-1 text-sm text-gray-500 flex flex-wrap gap-x-1">
+              <span className="whitespace-nowrap">claude.ai {formatEur(claudeAiTotalEur)}</span>
+              <span className="whitespace-nowrap">· Anthropic API ≈ {formatEur(apiTotalEur)}</span>
+              {opencodeGoEur > 0 && <span className="whitespace-nowrap">· OpenCode Go {formatEur(opencodeGoEur)}</span>}
+              {zaiEur > 0 && <span className="whitespace-nowrap">· z.ai {formatEur(zaiEur)}</span>}
+              {opencodeApiEur > 0 && <span className="whitespace-nowrap">· OpenCode API ≈ {formatEur(opencodeApiEur)}</span>}
+              {codexEur > 0 && <span className="whitespace-nowrap">· {codex?.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'} {formatEur(codexEur)}/Monat</span>}
+              {openaiApiEur > 0 && <span className="whitespace-nowrap">· OpenAI API ≈ {formatEur(openaiApiEur)}</span>}
             </p>
           </div>
           <div className="text-sm text-gray-500 sm:text-right">
@@ -213,12 +223,28 @@ export default function OverviewTab(): React.ReactElement {
         </div>
       </div>
 
+      {/* Subscription pricing summary */}
+      {(planEur > 0 || opencodeGoEur > 0 || zaiEur > 0 || (codex != null) || apiTotalEur > 0 || opencodeApiEur > 0) && (
+        <div className="bg-white rounded-lg shadow px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm leading-tight">
+          <span className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide shrink-0">Aktive Abos</span>
+          {planEur > 0 && <span className="text-gray-700 whitespace-nowrap"><span className="font-medium">{meta?.plan_name ?? 'Claude.ai'}</span> {formatEur(planEur)}<span className="hidden sm:inline">/Monat</span></span>}
+          {opencodeGo != null && <span className="text-gray-700 whitespace-nowrap"><span className="font-medium">OpenCode Go</span> {formatEur(opencodeGoEur)}<span className="hidden sm:inline">/Monat</span></span>}
+          {zai != null && <span className="text-gray-700 whitespace-nowrap max-w-[200px] truncate" title={zai?.plan_name ?? 'z.ai'}><span className="font-medium">{zai?.plan_name ? zai.plan_name.replace(/^GLM\s+/,'').replace(/-Monthly\s*Plan$/,'') : 'z.ai'}</span> {formatEur(zaiEur)}<span className="hidden sm:inline">/Monat</span></span>}
+          {codex != null && <span className="text-gray-700 whitespace-nowrap"><span className="font-medium">{codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}</span> {formatEur(codexEur)}<span className="hidden sm:inline">/Monat</span></span>}
+          {(apiTotalEur > 0 || opencodeApiEur > 0) && (
+            <span className="text-gray-400 whitespace-nowrap">
+              + {formatEur(apiTotalEur + opencodeApiEur + openaiApiEur)}<span className="hidden sm:inline"> variabel</span>
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Status row */}
       <div className={`grid grid-cols-1 gap-6 ${statusGridCols}`}>
         {/* Plan-Status */}
-        <div className="bg-white rounded-lg shadow p-5">
+        <div className="bg-white rounded-lg shadow p-5 min-w-0">
           <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Claude.ai</div>
-          <div className="mt-1 text-lg font-semibold text-gray-900">{meta?.plan_name ?? '—'}</div>
+          <div className="mt-1 text-lg font-semibold text-gray-900 truncate" title={meta?.plan_name ?? '—'}>{meta?.plan_name ?? '—'}</div>
           <div className="text-sm text-gray-600">{formatEur(planEur)} / Monat</div>
           <div className="mt-3 text-xs text-gray-500">
             Zusatznutzung {formatEur(additionalEur)}
@@ -264,14 +290,68 @@ export default function OverviewTab(): React.ReactElement {
           </div>
         </div>
 
+        {/* Anthropic Console API */}
+        {hasAnthropicApi && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                Anthropic API
+              </div>
+              {(alerts?.rate_alert || alerts?.low_balance) && (
+                <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700">
+                  {alerts.rate_alert ? '⚠️ Rate' : '⚠️ Balance'}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-gray-900">{formatEur(apiTotalEur)}</span>
+              <span className="text-sm text-gray-500">{formatUsd(apiTotalUsd)}</span>
+            </div>
+            {apiByWorkspace.length > 0 && (
+              <div className="mt-2 -mx-0.5 text-xs text-gray-600 space-y-0.5">
+                {apiByWorkspace.slice(0, 4).map((w) => (
+                  <div key={w.workspace} className="flex justify-between min-w-0 gap-1 px-0.5">
+                    <span className="truncate min-w-0" title={w.workspace}>{w.workspace}</span>
+                    <span className="font-medium shrink-0">{formatUsd(w.cost_usd)}</span>
+                  </div>
+                ))}
+                {apiByWorkspace.length > 4 && (
+                  <div className="text-gray-400 italic pl-0.5">+ {apiByWorkspace.length - 4} weitere</div>
+                )}
+              </div>
+            )}
+            {/* Billing / burn rate */}
+            {alerts && (
+              <div className="mt-3 pt-2 border-t border-gray-100 space-y-1 text-xs text-gray-500">
+                {alerts.balance_usd != null && (
+                  <div className="flex justify-between">
+                    <span>Guthaben</span>
+                    <span className={alerts.low_balance ? 'text-red-600 font-medium' : ''}>
+                      {formatUsd(alerts.balance_usd)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Heute</span>
+                  <span>{formatUsd(alerts.today_cost_usd)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>⌀ Tag</span>
+                  <span>{formatUsd(alerts.avg_daily_cost_usd)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* OpenCode Go */}
         {opencodeGo && (
-          <div className="bg-white rounded-lg shadow p-5">
+          <div className="bg-white rounded-lg shadow p-5 min-w-0">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               OpenCode Go
             </div>
-            <div className="mt-2 text-xl font-bold text-gray-900">
-              {opencodeGo.plan_name ?? 'OpenCode Go'}
+            <div className="mt-2 text-xl font-bold text-gray-900 truncate" title={opencodeGo.plan_name ?? 'OpenCode Go'}>
+              {opencodeGo.plan_name && opencodeGo.plan_name !== 'Unknown' ? opencodeGo.plan_name : 'OpenCode Go'}
             </div>
             {opencodeGoEur > 0 && (
               <div className="mt-1 text-sm text-gray-600">{formatEur(opencodeGoEur)} / Monat</div>
@@ -340,60 +420,77 @@ export default function OverviewTab(): React.ReactElement {
 
         {/* OpenCode API usage */}
         {opencodeApi && (
-          <div className="bg-white rounded-lg shadow p-5">
+          <div className="bg-white rounded-lg shadow p-5 min-w-0">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               OpenCode API
             </div>
             <div className="mt-2 text-xl font-bold text-gray-900">
               {formatEur(opencodeApiEur)}
             </div>
-            <div className="text-sm text-gray-600">≈ {opencodeApi.total_cost_usd.toFixed(2)} USD</div>
+            <div className="text-sm text-gray-600 truncate">≈ {opencodeApi.total_cost_usd.toFixed(2)} USD</div>
             <div className="mt-3 space-y-1 text-xs text-gray-600">
               <div>Input: {(opencodeApi.total_input_tokens / 1000).toFixed(0)}K Tokens</div>
               <div>Output: {(opencodeApi.total_output_tokens / 1000).toFixed(0)}K Tokens</div>
               <div>Keys: {opencodeApi.by_key.length}</div>
+              {opencodeApiEur > 0 && opencodeApi.total_cost_usd > 0 && (
+                <div className="mt-2 pt-1.5 border-t border-gray-100 text-gray-500">
+                  ⌀ {formatEur(opencodeApiEur / Math.max(1, day))}/Tag
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Codex subscription remaining capacity */}
+        {/* Codex subscription (ChatGPT Plus/Pro) */}
         {codex && (
-          <div className="bg-white rounded-lg shadow p-5">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              {codex.plan_name ?? 'Codex'}
+          <div className="bg-white rounded-lg shadow p-5 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide truncate min-w-0" title={codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}>
+                {codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}
+              </div>
+              {codex.plan_cost_eur > 0 && (
+                <span className="text-sm font-bold text-gray-900 shrink-0">{formatEur(codex.plan_cost_eur)}/Monat</span>
+              )}
             </div>
-            {codex.plan_cost_eur > 0 && (
-              <div className="mt-1 text-lg font-bold text-gray-900">{formatEur(codex.plan_cost_eur)} / Monat</div>
-            )}
             <div className="mt-3 space-y-2">
-              {typeof codex.five_hour_remaining_pct === 'number' && (
-                <div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">5-Std.-Limit</span>
-                    <span className="font-medium">{codex.five_hour_remaining_pct}% frei</span>
+              {/* Convert remaining_pct → used_pct for consistency with other cards */}
+              {typeof codex.five_hour_remaining_pct === 'number' && (() => {
+                const used = Math.max(0, Math.min(100, 100 - codex.five_hour_remaining_pct!));
+                return (
+                  <div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-600">5-Std.-Limit</span>
+                      <span className="font-medium">{used}%</span>
+                    </div>
+                    <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                      <div className={`h-full rounded ${used < 50 ? 'bg-emerald-500' : used < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        style={{ width: `${Math.min(100, used)}%` }} />
+                    </div>
                   </div>
-                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
-                    <div className={`h-full rounded ${codex.five_hour_remaining_pct >= 50 ? 'bg-emerald-500' : codex.five_hour_remaining_pct >= 20 ? 'bg-amber-500' : 'bg-red-500'}`}
-                      style={{ width: `${Math.min(100, codex.five_hour_remaining_pct)}%` }} />
+                );
+              })()}
+              {typeof codex.weekly_remaining_pct === 'number' && (() => {
+                const used = Math.max(0, Math.min(100, 100 - codex.weekly_remaining_pct!));
+                return (
+                  <div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-600">Wöchentlich</span>
+                      <span className="font-medium">{used}%</span>
+                    </div>
+                    <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                      <div className={`h-full rounded ${used < 50 ? 'bg-emerald-500' : used < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        style={{ width: `${Math.min(100, used)}%` }} />
+                    </div>
                   </div>
-                </div>
-              )}
-              {typeof codex.weekly_remaining_pct === 'number' && (
-                <div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">Wöchentlich</span>
-                    <span className="font-medium">{codex.weekly_remaining_pct}% frei</span>
-                  </div>
-                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
-                    <div className={`h-full rounded ${codex.weekly_remaining_pct >= 50 ? 'bg-emerald-500' : codex.weekly_remaining_pct >= 20 ? 'bg-amber-500' : 'bg-red-500'}`}
-                      style={{ width: `${Math.min(100, codex.weekly_remaining_pct)}%` }} />
-                  </div>
-                </div>
-              )}
+                );
+              })()}
               {typeof codex.credits_remaining === 'number' && (
-                <div className="mt-2 text-xs text-gray-600">
-                  Credits: {codex.credits_remaining.toFixed(1)} verbleibend
+                <div className="mt-2 pt-1.5 border-t border-gray-100 text-xs text-gray-600">
+                  Credits: {codex.credits_remaining.toFixed(1)} frei
                 </div>
+              )}
+              {codex.interactions > 0 && (
+                <div className="text-xs text-gray-500">{codex.interactions} Interaktionen</div>
               )}
             </div>
           </div>
@@ -401,14 +498,14 @@ export default function OverviewTab(): React.ReactElement {
 
         {/* OpenAI API month-to-date */}
         {openaiApi && (
-          <div className="bg-white rounded-lg shadow p-5">
+          <div className="bg-white rounded-lg shadow p-5 min-w-0">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               OpenAI API
             </div>
             <div className="mt-2 text-xl font-bold text-gray-900">
               ${openaiApi.cost_usd.toFixed(2)}
             </div>
-            <div className="text-sm text-gray-600">{openaiApi.organization_name} · MTD</div>
+            <div className="text-sm text-gray-600 truncate" title={openaiApi.organization_name}>{openaiApi.organization_name || '—'} · MTD</div>
             <div className="mt-3 space-y-1 text-xs text-gray-600">
               <div>Input: {(openaiApi.total_input_tokens / 1000).toFixed(0)}K Tokens</div>
               <div>Output: {(openaiApi.total_output_tokens / 1000).toFixed(0)}K Tokens</div>
@@ -419,11 +516,11 @@ export default function OverviewTab(): React.ReactElement {
 
         {/* z.ai GLM Coding Plan */}
         {zai && (
-          <div className="bg-white rounded-lg shadow p-5">
+          <div className="bg-white rounded-lg shadow p-5 min-w-0">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               z.ai
             </div>
-            <div className="mt-2 text-xl font-bold text-gray-900">
+            <div className="mt-2 text-xl font-bold text-gray-900 truncate" title={zai.plan_name ?? 'GLM Coding Plan'}>
               {zai.plan_name ?? 'GLM Coding Plan'}
             </div>
             {zaiEur > 0 && <div className="text-sm text-gray-600">{formatEur(zaiEur)} / Monat</div>}
@@ -506,14 +603,14 @@ export default function OverviewTab(): React.ReactElement {
               Geglättete Hochrechnung: in den ersten {SMOOTHING_DAYS} Tagen mit der Tagesrate der
               vorherigen Abrechnungsperiode ({formatEur(priorDailyRate ?? 0)}/Tag) gewichtet —
               {' '}{Math.round(weight * 100)}% aktueller Monat, {Math.round((1 - weight) * 100)}%
-              Vorperiode. Plan-Abo ({formatEur(planEur)}) + OpenCode Go ({formatEur(opencodeGoEur)}) sind
-              fix; nur Zusatznutzung + API werden hochgerechnet.
+              Vorperiode. Fix-Abos ({formatEur(planEur + opencodeGoEur + zaiEur + codexEur)}) sind
+              konstant; nur Zusatznutzung + API werden hochgerechnet.
             </>
           ) : (
             <>
-              Lineare Extrapolation des bisherigen Tagesverbrauchs. Plan-Abo ({formatEur(planEur)}) +
-              OpenCode Go ({formatEur(opencodeGoEur)}) sind fix; nur Zusatznutzung + API werden
-              hochgerechnet.
+              Lineare Extrapolation des bisherigen Tagesverbrauchs. Fix-Abos
+              ({formatEur(planEur + opencodeGoEur + zaiEur + codexEur)}) sind konstant;
+              nur Zusatznutzung + API werden hochgerechnet.
             </>
           )}
         </p>
@@ -572,7 +669,7 @@ export default function OverviewTab(): React.ReactElement {
           <span>OpenCode API: {formatEur(opencodeApiEur)}</span>
         )}
         {codex?.last_synced && (
-          <span>{codex.plan_name ?? 'Codex'}: {formatEur(codexEur)}/Monat</span>
+          <span>{codex.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus'}: {formatEur(codexEur)}/Monat</span>
         )}
         {openaiApi?.last_synced && (
           <span>OpenAI API: {formatEur(openaiApiEur)}</span>

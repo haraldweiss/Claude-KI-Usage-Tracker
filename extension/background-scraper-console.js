@@ -20,6 +20,11 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function isNoWorkspaceDiscovery(errors) {
+  return Array.isArray(errors) &&
+    errors.some((err) => /no workspace links found via observer/i.test(err || ''));
+}
+
 async function discoverWorkspaces(tabId) {
   const errors = [];
 
@@ -341,6 +346,14 @@ async function consoleSync(externalTabId = null) {
     }
 
     if (workspaces.length === 0) {
+      if (isNoWorkspaceDiscovery(discoveryErrors)) {
+        await chrome.storage.local.set({ last_console_sync: Date.now() });
+        return {
+          skipped: true,
+          reason: 'no_workspaces',
+          preview: 'Anthropic Console sync skipped: no workspaces/API keys are available in this Chrome profile.'
+        };
+      }
       // Fallback: scrape the current page (still showing the active workspace's
       // keys table from the initial load). This gives us at least one
       // workspace's data, even without successful discovery.
@@ -492,6 +505,10 @@ async function consoleSync(externalTabId = null) {
       try { await chrome.tabs.remove(createdTabId); } catch {}
     }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { isNoWorkspaceDiscovery };
 }
 
 // Polls a tab for the Anthropic Console keys table. Retries the scrape

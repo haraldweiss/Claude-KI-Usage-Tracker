@@ -183,3 +183,10 @@ test('detects Claude.ai upgrade redirect as no active plan', () => {
   assert.equal(isClaudeNoPlanUrl('https://claude.ai/upgrade?plan=pro'), true);
   assert.equal(isClaudeNoPlanUrl('https://claude.ai/settings/usage'), false);
 });
+
+test('detects missing Anthropic Console workspace discovery as no workspaces', () => {
+  const { isNoWorkspaceDiscovery } = loadScripts(['background-scraper-console.js']);
+
+  assert.equal(isNoWorkspaceDiscovery(['no workspace links found via observer']), true);
+  assert.equal(isNoWorkspaceDiscovery(['inject: permission denied']), false);
+});

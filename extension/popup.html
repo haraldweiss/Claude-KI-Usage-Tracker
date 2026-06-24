@@ -68,6 +68,8 @@
     .settings .row { display: flex; gap: 6px; margin-top: 8px; }
     .settings button { padding: 6px 10px; font-size: 11px; }
     .badge { display: inline-block; background: #4caf50; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+    .btn-warning { background: #e67e22; color: white; }
+    .btn-warning:hover { background: #d35400; }
   </style>
 </head>
 <body>
@@ -81,6 +83,8 @@
 
     <div style="text-align:center;margin-bottom:8px;">
       <button class="btn-secondary" id="export-cookies-btn" style="font-size:11px;padding:6px 12px;width:auto;">🍪 Cookies exportieren (für Server-Scraper)</button>
+      <button class="btn-warning" id="hard-sync-btn" style="font-size:11px;padding:6px 12px;width:auto;margin-top:4px;">🔐 Sync geschützte Quellen (Console, Code, z.ai, opencode)</button>
+      <div id="hard-sync-status" style="font-size:10px;color:#666;margin-top:2px;min-height:14px;"></div>
     </div>
 
     <div id="loading" class="loading">Lade Daten…</div>

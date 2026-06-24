@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('refresh-btn').addEventListener('click', loadStats);
   document.getElementById('export-cookies-btn').addEventListener('click', exportCookiesToServer);
+  document.getElementById('hard-sync-btn').addEventListener('click', syncHardSources);
   document.getElementById('open-dashboard').addEventListener('click', async () => {
     const { dashboard_url } = await chrome.storage.local.get('dashboard_url');
     chrome.tabs.create({ url: dashboard_url || DEFAULT_DASHBOARD_URL });
@@ -270,6 +271,49 @@ function formatNumber(num) {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
   if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
   return num.toString();
+}
+
+/**
+ * Trigger sync of the 4 sources that need httponly cookies (macOS Keychain).
+ */
+async function syncHardSources() {
+  const btn = document.getElementById('hard-sync-btn');
+  const status = document.getElementById('hard-sync-status');
+  const originalText = btn.textContent;
+  btn.textContent = '⏳ Sync läuft...';
+  btn.disabled = true;
+  status.textContent = 'Öffne Tabs...';
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timeout nach 120s')), 120000);
+      chrome.runtime.sendMessage({ type: 'TRIGGER_SYNC_HARD_SOURCES' }, (response) => {
+        clearTimeout(timer);
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(response);
+      });
+    });
+
+    if (result?.results) {
+      const ok = result.results.filter(r => r.ok).length;
+      const fail = result.results.filter(r => !r.ok).length;
+      const details = result.results.map(r => `${r.source}: ${r.ok ? '✅' : '❌'}`).join(' · ');
+      status.textContent = `${ok} ok, ${fail} fehlgeschlagen — ${details}`;
+      btn.textContent = '✅ Sync fertig';
+    } else {
+      status.textContent = '❌ Keine Ergebnisse';
+      btn.textContent = originalText;
+    }
+  } catch (err) {
+    status.textContent = '❌ ' + err.message;
+    btn.textContent = originalText;
+  }
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.disabled = false;
+    // Auto-refresh stats
+    loadStats();
+  }, 5000);
 }
 
 /**

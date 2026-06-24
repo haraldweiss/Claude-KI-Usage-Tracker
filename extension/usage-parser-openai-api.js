@@ -151,9 +151,9 @@ function parseOpenAiApiUsageText(rawText, expectedPeriod) {
   }
 
   // NEW LAYOUT: "Total tokens | 0" (pipe-separated)
-  var input = 0;
-  var output = 0;
-  var total = 0;
+  var input = null;
+  var output = null;
+  var total = null;
   
   // Try new layout: "Total tokens | 0" or "Total tokens: 0"
   var totalTokensMatch = text.match(/Total\s+tokens\s*[:|]\s*([0-9][0-9.,]*\s*[KMB]?)/i);

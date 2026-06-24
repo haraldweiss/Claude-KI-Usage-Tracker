@@ -18,7 +18,9 @@ function loadScripts(files) {
     Date,
     Number,
     JSON,
-    console
+    console,
+    setTimeout,
+    clearTimeout
   };
   vm.createContext(context);
   for (const file of files) {
@@ -148,4 +150,13 @@ test('maps verified API usage into a monthly snapshot payload', () => {
   assert.equal(payload.workspace, 'wolfini');
   assert.equal(payload.response_metadata.period_start, '2026-06-01');
   assert.equal(payload.response_metadata.scraped_at, '2026-06-22T20:00:00.000Z');
+});
+
+test('timeout helper rejects stuck sync steps with the step label', async () => {
+  const { withTimeout } = loadScripts(['background-utils.js']);
+
+  await assert.rejects(
+    () => withTimeout(new Promise(() => {}), 5, 'OpenAI API'),
+    /OpenAI API timed out after 5ms/
+  );
 });

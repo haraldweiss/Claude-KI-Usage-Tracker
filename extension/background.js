@@ -110,6 +110,7 @@ const CODEX_SYNC_ALARM = 'auto-sync-codex';
 const CODEX_SYNC_INTERVAL_MIN = 24 * 60;
 const OPENAI_API_SYNC_ALARM = 'auto-sync-openai-api';
 const OPENAI_API_SYNC_INTERVAL_MIN = 24 * 60;
+const SYNC_ALL_STEP_TIMEOUT_MS = 120000;
 
 // ---------------------------------------------------------------------------
 // Message routing
@@ -251,7 +252,11 @@ async function syncAll() {
   for (const step of steps) {
     let outcome;
     try {
-      const result = await step.fn(sharedTabId);
+      const result = await withTimeout(
+        step.fn(sharedTabId),
+        SYNC_ALL_STEP_TIMEOUT_MS,
+        step.label
+      );
       if (result?.success) outcome = { label: step.label, status: 'ok' };
       else if (result?.skipped) outcome = { label: step.label, status: 'skipped', message: result?.reason || 'nichts zu syncen', url: result?.url, preview: result?.preview };
       else outcome = { label: step.label, status: 'error', message: result?.error || 'unbekannt' };

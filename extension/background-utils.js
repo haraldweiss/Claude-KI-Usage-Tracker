@@ -55,3 +55,20 @@ async function waitForTabReady(tabId, budgetMs = 30000, pollMs = 250) {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { withTimeout };
+}

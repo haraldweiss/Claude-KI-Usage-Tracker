@@ -16,7 +16,7 @@ export async function scrapeOpenAiApi(): Promise<ScraperResult> {
 
   try {
     console.log('[openai-api] navigating to usage page…');
-    await page.goto(OPENAI_USAGE_URL, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(OPENAI_USAGE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(5000);
 
     const data = await page.evaluate(() => {

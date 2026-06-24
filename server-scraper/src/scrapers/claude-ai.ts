@@ -18,7 +18,7 @@ export async function scrapeClaudeAi(contextCookies?: boolean): Promise<ScraperR
 
   try {
     console.log('[claude-ai] navigating to usage page…');
-    await page.goto(USAGE_URL, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(USAGE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Check for "no plan" redirect
     const currentUrl = page.url();

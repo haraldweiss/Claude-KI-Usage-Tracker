@@ -17,7 +17,7 @@ export async function scrapeAnthropicConsole(): Promise<ScraperResult> {
 
   try {
     console.log('[console] navigating to keys page…');
-    await page.goto(CONSOLE_URL, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(CONSOLE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Wait for the keys table to render
     await page.waitForTimeout(3000);
@@ -41,7 +41,7 @@ export async function scrapeAnthropicConsole(): Promise<ScraperResult> {
       const keysUrl = `${WORKSPACE_KEYS_PREFIX}${ws.id}/keys`;
       console.log(`[console] scraping ${ws.name} (${keysUrl})…`);
 
-      await page.goto(keysUrl, { waitUntil: 'networkidle', timeout: 20000 });
+      await page.goto(keysUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.waitForTimeout(2000);
 
       // Extract keys from table

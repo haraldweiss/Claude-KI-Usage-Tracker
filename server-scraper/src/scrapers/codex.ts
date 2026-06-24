@@ -42,7 +42,7 @@ function extractCodexUsage(): Record<string, unknown> | null {
 
 export async function scrape(page: Page, config: ScraperConfig): Promise<ScraperResult> {
   console.log('[codex] navigating to', CODEX_URL);
-  await page.goto(CODEX_URL, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {
+  await page.goto(CODEX_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {
     console.log('[codex] navigation timeout — page may be slow');
   });
   await page.waitForTimeout(3000);

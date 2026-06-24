@@ -746,3 +746,35 @@ const steps = [
 - Backend `/summary` endpoint gibt `total_cost` nur für usage_records (API-Nutzung), nicht für Plan-Preise. Extension berechnet Total selbst aus `combined` Objekt.
 - Backend könnte ein `grand_total_eur` Feld im summary-Response bereitstellen (ähnlich wie in `/spending-total` endpoint).
 
+### 2026-06-24 — Extension-Sync stabilisiert bei fehlenden Claude/Anthropic-Plänen (Codex)
+
+**Kontext:** User hat aktuell **keinen Claude.ai Plan** und **noch keine Anthropic Console Workspaces/API Keys**. Diese Quellen sollen beim Extension-`Sync alle` sauber übersprungen werden, nicht als Hänger/Fehler wirken. Aktuelle Codex-Usage beim Handoff: **19% übrig**, Reset laut User um **11:42**.
+
+**Fixes gelandet und auf `main` gepusht:**
+
+| Commit | Änderung |
+|---|---|
+| `0396db8` | OpenAI API Parser: `Total tokens \| 128K` wird nicht mehr als 0 Tokens gespeichert (`input/output/total` Sentinel `null` statt `0`). |
+| `63ea4ba` | `syncAll()` bekommt pro Quelle `withTimeout(..., 120000ms, label)`, damit ein hängender Provider den Popup-Status nicht endlos auf `running` hält. |
+| `4ada6ea` | Stale `last_sync_all.status = running` wird nach 20 Minuten zu `done` + Fehlerstep normalisiert; Popup lädt `background-utils.js` und korrigiert Storage beim Öffnen/Pollen. |
+| `7cc8d6a` | Claude.ai `/upgrade` Redirect wird als `skipped: no_plan` behandelt (kein aktiver Claude.ai Plan in diesem Chrome-Profil). |
+| `073021f` | Anthropic Console ohne Workspace-Links wird als `skipped: no_workspaces` behandelt, statt 30s Fallback-Tabellenscrape zu versuchen. |
+
+**Aktuelles erwartetes Popup-Verhalten nach Extension-Reload:**
+- `Claude.ai` → `no_plan`, wenn `https://claude.ai/settings/usage` auf `https://claude.ai/upgrade` redirected.
+- `Anthropic Console` → `no_workspaces`, wenn keine Workspaces/API-Keys vorhanden sind.
+- `Sync alle` sollte nach diesen Skips weiterlaufen und den Button wieder freigeben; alte `running`-States werden nach 20 Minuten automatisch als abgebrochen markiert.
+
+**Verifiziert lokal:**
+- `node --test extension/tests/usage-parsers.test.js` → 12/12 ✅
+- `node --check extension/background.js` ✅
+- `node --check extension/background-utils.js` ✅
+- `node --check extension/background-scraper-claude.js` ✅
+- `node --check extension/background-scraper-console.js` ✅
+- `node --check extension/popup.js` ✅
+
+**Noch manuell zu prüfen nach Reload in Chrome:**
+1. `chrome://extensions` → KI Usage Tracker → Aktualisieren/Reload
+2. Popup öffnen → `Sync alle`
+3. Erwartung: Claude.ai und Anthropic Console werden übersprungen; OpenCode Go, z.ai, Codex, OpenAI API etc. laufen weiter.
+4. Wenn wieder ein Hänger auftritt: `chrome.storage.local.get('last_sync_all')` aus dem Service-Worker-DevTools posten; die neuen `steps` zeigen dann die konkrete Quelle.

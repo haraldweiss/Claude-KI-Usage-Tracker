@@ -160,3 +160,18 @@ test('timeout helper rejects stuck sync steps with the step label', async () => 
     /OpenAI API timed out after 5ms/
   );
 });
+
+test('normalizes stale running sync-all state to done with an error step', () => {
+  const { normalizeSyncAllState } = loadScripts(['background-utils.js']);
+
+  const state = normalizeSyncAllState(
+    { status: 'running', startedAt: 1000, steps: [{ label: 'Claude.ai', status: 'skipped', message: 'no_data' }] },
+    1000 + 20 * 60 * 1000 + 1
+  );
+
+  assert.equal(state.status, 'done');
+  assert.equal(state.finishedAt, 1000 + 20 * 60 * 1000 + 1);
+  assert.equal(state.steps.at(-1).label, 'Sync');
+  assert.equal(state.steps.at(-1).status, 'error');
+  assert.match(state.steps.at(-1).message, /abgebrochen/);
+});

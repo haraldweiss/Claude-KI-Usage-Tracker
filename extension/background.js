@@ -209,7 +209,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'GET_LAST_SYNC_ALL') {
-    chrome.storage.local.get('last_sync_all').then((d) => sendResponse(d.last_sync_all || null));
+    chrome.storage.local.get('last_sync_all').then(async (d) => {
+      const normalized = normalizeSyncAllState(d.last_sync_all || null);
+      if (normalized !== d.last_sync_all) {
+        await chrome.storage.local.set({ last_sync_all: normalized });
+      }
+      sendResponse(normalized || null);
+    });
     return true;
   }
 });

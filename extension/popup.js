@@ -15,8 +15,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // (or just finished), surface it.
   const { last_sync_all } = await chrome.storage.local.get('last_sync_all');
   if (last_sync_all) {
-    renderLastSyncAll(last_sync_all);
-    if (last_sync_all.status === 'running') {
+    const normalized = await normalizeStoredSyncAllState(last_sync_all);
+    renderLastSyncAll(normalized);
+    if (normalized.status === 'running') {
       const syncBtn = document.getElementById('sync-btn');
       syncBtn.disabled = true;
       syncBtn.textContent = '⏳ Sync läuft…';
@@ -380,8 +381,9 @@ async function pollSyncAllProgress() {
   for (let i = 0; i < 60; i++) {  // up to ~60s
     const { last_sync_all } = await chrome.storage.local.get('last_sync_all');
     if (last_sync_all) {
-      renderLastSyncAll(last_sync_all);
-      if (last_sync_all.status === 'done') {
+      const normalized = await normalizeStoredSyncAllState(last_sync_all);
+      renderLastSyncAll(normalized);
+      if (normalized.status === 'done') {
         syncBtn.disabled = false;
         syncBtn.textContent = originalText;
         setTimeout(loadStats, 800);
@@ -393,6 +395,15 @@ async function pollSyncAllProgress() {
   }
   syncBtn.disabled = false;
   syncBtn.textContent = originalText;
+}
+
+async function normalizeStoredSyncAllState(state) {
+  if (typeof normalizeSyncAllState !== 'function') return state;
+  const normalized = normalizeSyncAllState(state);
+  if (normalized !== state) {
+    await chrome.storage.local.set({ last_sync_all: normalized });
+  }
+  return normalized;
 }
 
 // Format a relative timespan in German, picking the largest reasonable unit.

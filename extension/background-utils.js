@@ -69,6 +69,31 @@ function withTimeout(promise, timeoutMs, label) {
   });
 }
 
+const SYNC_ALL_STALE_MS = 20 * 60 * 1000;
+
+function normalizeSyncAllState(state, now = Date.now(), staleMs = SYNC_ALL_STALE_MS) {
+  if (!state || state.status !== 'running' || typeof state.startedAt !== 'number') {
+    return state;
+  }
+  if (now - state.startedAt <= staleMs) {
+    return state;
+  }
+
+  const steps = Array.isArray(state.steps) ? [...state.steps] : [];
+  steps.push({
+    label: 'Sync',
+    status: 'error',
+    message: 'abgebrochen: Service Worker wurde beendet oder ein Schritt hing zu lange'
+  });
+
+  return {
+    ...state,
+    status: 'done',
+    finishedAt: now,
+    steps
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { withTimeout };
+  module.exports = { withTimeout, normalizeSyncAllState };
 }

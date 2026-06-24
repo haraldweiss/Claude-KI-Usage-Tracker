@@ -12,6 +12,7 @@ import localUsageRoutes from './routes/localUsage.js';
 import savingsRoutes from './routes/savings.js';
 import catalogRoutes from './routes/catalog.js';
 import benchmarkRoutes from './routes/benchmark.js';
+import cookieUploadRoutes from './routes/cookies.js';
 import authRouter from './routes/auth.js';
 import accountRouter from './routes/account.js';
 import adminRouter from './routes/admin.js';
@@ -88,6 +89,7 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
   app.use('/api/savings', savingsRoutes);
   app.use('/api/catalog', catalogRoutes);
   app.use('/api/benchmarks', benchmarkRoutes);
+  app.use('/api/cookies', cookieUploadRoutes);
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok' });

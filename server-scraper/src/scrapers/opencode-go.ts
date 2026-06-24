@@ -26,26 +26,36 @@ export async function scrapeOpenCodeGo(): Promise<ScraperResult> {
     console.log('[opencode-go] navigating to workspace…');
     await page.goto(OPENCODE_WORKSPACE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // opencode.ai bounces through auth.opencode.ai/authorize. Wait for
-    // redirect chain to land back on opencode.ai.
-    const maxWait = Date.now() + 20000;
+    // opencode.ai bounces through auth.opencode.ai/authorize. Playwright
+    // follows HTTP redirects automatically, but the auth server may take
+    // time to validate the cookie and issue the redirect back. The cookie
+    // from the extension has domain=auth.opencode.ai — it is sent during
+    // the auth redirect leg, not on the initial opencode.ai request.
+    await page.waitForTimeout(3000);
+    const maxWait = Date.now() + 30000;
     let landed = false;
+    let lastUrl = '';
     while (Date.now() < maxWait) {
       const url = page.url();
-      if (url.startsWith('https://opencode.ai/')) {
+      if (url !== lastUrl) {
+        console.log('[opencode-go] URL:', url.substring(0, 80));
+        lastUrl = url;
+      }
+      if (url.startsWith('https://opencode.ai/') && !url.includes('auth.opencode')) {
         landed = true;
         break;
       }
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(300);
     }
     if (!landed) {
       const url = page.url();
+      // If we're still on auth.opencode.ai, the cookie might be invalid
       if (url.includes('auth.opencode.ai')) {
-        console.log('[opencode-go] login required (redirected to auth)');
+        console.log('[opencode-go] stuck on auth — cookie may be invalid');
         return { success: false, source: 'opencode_go_sync', skipped: true, reason: 'login_required' };
       }
-      console.log(`[opencode-go] unexpected URL: ${url}`);
-      return { success: false, source: 'opencode_go_sync', skipped: true, reason: `unexpected_url: ${url}` };
+      console.log('[opencode-go] unexpected final URL:', url);
+      return { success: false, source: 'opencode_go_sync', skipped: true, reason: `unexpected_url` };
     }
 
     // Let React render

@@ -1,21 +1,27 @@
 {
   "manifest_version": 3,
   "name": "KI Usage Tracker",
-  "version": "3.0.0",
-  "description": "Dashboard-Viewer für KI/LLM Kosten (Scraping läuft server-seitig)",
+  "version": "3.1.4",
+  "description": "Dashboard-Viewer f\u00fcr KI/LLM Kosten (Scraping l\u00e4uft server-seitig)",
   "permissions": [
     "storage",
     "cookies"
   ],
   "host_permissions": [
+    "https://claude.ai/",
     "https://claude.ai/*",
+    "https://platform.claude.com/",
     "https://platform.claude.com/*",
+    "https://opencode.ai/",
     "https://opencode.ai/*",
+    "https://z.ai/",
     "https://z.ai/*",
+    "https://chatgpt.com/",
     "https://chatgpt.com/*",
+    "https://platform.openai.com/",
     "https://platform.openai.com/*",
-    "https://wolfinisoftware.de/*",
-    "https://*.wolfinisoftware.de/*"
+    "https://wolfinisoftware.de/",
+    "https://wolfinisoftware.de/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -46,6 +46,13 @@ export async function scrapeZai(): Promise<ScraperResult> {
       return { success: false, source: 'zai_sync', skipped: true, reason: 'no_content' };
     }
 
+    // Wait for page to settle before evaluating
+    await page.waitForTimeout(2000);
+    const currentUrl = page.url();
+    if (currentUrl.includes('login') || currentUrl.includes('auth') || currentUrl.includes('signin')) {
+      console.log('[zai] redirected to login');
+      return { success: false, source: 'zai_sync', skipped: true, reason: 'login_required' };
+    }
     const plan = await page.evaluate(() => {
       const text = document.body.innerText || '';
       const result: Record<string, unknown> = {};
@@ -88,6 +95,13 @@ export async function scrapeZai(): Promise<ScraperResult> {
       // Still use plan data if we have it
     }
 
+    // Wait for usage page to settle
+    await page.waitForTimeout(2000);
+    const usageUrl = page.url();
+    if (usageUrl.includes('login') || usageUrl.includes('auth') || usageUrl.includes('signin')) {
+      console.log('[zai] redirected to login on usage page');
+      return { success: false, source: 'zai_sync', skipped: true, reason: 'login_required' };
+    }
     const usage = await page.evaluate(() => {
       const text = document.body.innerText || '';
       const result: Record<string, unknown> = {};

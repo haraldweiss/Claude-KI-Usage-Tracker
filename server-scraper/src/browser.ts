@@ -16,16 +16,19 @@ let context: BrowserContext | null = null;
 export async function getBrowser(): Promise<Browser> {
   if (!browser || !browser.isConnected()) {
     const headless = process.env.PLAYWRIGHT_HEADLESS !== 'false';
-    console.log(`[browser] launching (headless=${headless})`);
-    browser = await chromium.launch({
-      headless,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-blink-features=AutomationControlled',
-      ],
-    });
+    const proxyUrl = process.env.PLAYWRIGHT_PROXY_URL;
+    const args = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled',
+    ];
+    if (proxyUrl) {
+      // SOCKS5 via --proxy-server Chrome arg (more reliable than Playwright proxy option)
+      args.push(`--proxy-server=${proxyUrl}`);
+      console.log(`[browser] using proxy: ${proxyUrl.replace(/:[^:@]+@/, ':****@')}`);
+    }
+    browser = await chromium.launch({ headless, args });
   }
   return browser;
 }
@@ -38,8 +41,6 @@ export async function getContext(cookieKey?: string): Promise<BrowserContext> {
   const b = await getBrowser();
 
   if (!context || !context.browser()) {
-    // Proxy support: set PLAYWRIGHT_PROXY_URL=http://user:pass@host:port
-    const proxyUrl = process.env.PLAYWRIGHT_PROXY_URL;
     const ctxOpts: Record<string, unknown> = {
       viewport: { width: 1280, height: 720 },
       userAgent:
@@ -47,10 +48,6 @@ export async function getContext(cookieKey?: string): Promise<BrowserContext> {
       locale: 'de-DE',
       timezoneId: 'Europe/Berlin',
     };
-    if (proxyUrl) {
-      ctxOpts.proxy = { server: proxyUrl };
-      console.log(`[browser] using proxy: ${proxyUrl.replace(/:[^:@]+@/, ':****@')}`);
-    }
     context = await b.newContext(ctxOpts);
 
     // Hide Playwright/webdriver automation indicators
@@ -112,6 +109,13 @@ export async function loadCookies(context: BrowserContext, cookieKey: string): P
     if (Array.isArray(parsed)) {
       // Format 1: direct array of Cookie objects
       if (parsed.length > 0) {
+        // Normalize sameSite values (Chrome uses lowercase, Playwright expects PascalCase)
+        for (const c of parsed) {
+          if (c.sameSite === 'no_restriction') c.sameSite = 'None';
+          else if (c.sameSite === 'strict') c.sameSite = 'Strict';
+          else if (c.sameSite === 'lax') c.sameSite = 'Lax';
+          else if (c.sameSite === 'unspecified') c.sameSite = 'Lax';
+        }
         await context.addCookies(parsed);
         console.log(`[cookies] loaded ${parsed.length} cookies for ${cookieKey}`);
       }

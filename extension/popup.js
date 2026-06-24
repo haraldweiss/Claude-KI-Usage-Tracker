@@ -314,7 +314,12 @@ async function exportCookiesToServer() {
     a.click();
     URL.revokeObjectURL(url);
 
-    btn.textContent = `✅ ${cookies.length} Cookies → Download gestartet`;
+    // Also trigger upload to server-scraper
+    chrome.runtime.sendMessage({ type: 'EXPORT_COOKIES_NOW' }, (resp) => {
+      if (resp?.ok) console.log('[popup] cookies uploaded to server');
+    });
+
+    btn.textContent = `✅ ${cookies.length} Cookies → Download + Upload`;
     setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 3000);
   } catch (err) {
     btn.textContent = `❌ ${err.message}`;

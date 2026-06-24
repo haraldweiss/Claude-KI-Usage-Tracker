@@ -844,3 +844,37 @@ ssh oracle-vm 'cd /opt/claudetracker/server-scraper && npx tsx src/index.ts'
 # Timer Logs
 ssh oracle-vm 'journalctl -u ki-usage-scraper --since "10 minutes ago" --no-pager'
 ```
+
+### 2026-06-24 — Server-Scraper live: 3/8 aktiv, Proxy für Rest nötig
+
+**Der Server-Scraper läuft automatisch auf Oracle VM (alle 2h via systemd Timer).**
+
+| Quelle | Impl. | Proxy? | Status |
+|---|---|---|---|
+| ✅ Codex | `codex.ts` | Nein | ✅ live |
+| ✅ OpenAI API | `openai-api.ts` | Nein | ✅ live |
+| ✅ Claude.ai | `claude-ai.ts` | Nein | ✅ live (kein Plan) |
+| ❌ Anthropic Console | `anthropic-console.ts` | **Ja** | Session invalid von DC-IP |
+| ❌ Claude Code | `claude-code.ts` | **Ja** | gleiche Domain |
+| ❌ OpenCode Go | `opencode-go.ts` | **Ja** | login_required |
+| ❌ z.ai | `zai.ts` | Vielleicht | timeout/leere Seite |
+| ❌ OpenCode API | `opencode-api-usage.ts` | **Ja** | login_required |
+
+**Proxy-Konfiguration** (in `/etc/systemd/system/ki-usage-scraper.service`):
+```
+Environment=PLAYWRIGHT_PROXY_URL=http://user:pass@residential-proxy:port
+```
+Nach Setzen: `sudo systemctl daemon-reload && sudo systemctl restart ki-usage-scraper.timer`
+
+**Cookies aktualisieren:**
+```bash
+cd /Library/WebServer/Documents/KI\ Usage\ tracker/server-scraper
+npx tsx src/cookie-extract.ts
+cp cookies/opencode-go.json cookies/opencode-api.json
+rsync -avz cookies/ oracle-vm:/opt/claudetracker/server-scraper/cookies/
+```
+
+**Neuer API-Token** (alter wurde revoziert):
+`ck_live_86510a1c7edc99018667decaa3fc9ad2675f4d49d7b4e29108cb208fb943ed8a`
+→ In Extension → Einstellungen eintragen.
+```

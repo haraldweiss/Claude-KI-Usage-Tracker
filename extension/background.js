@@ -145,6 +145,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((e) => sendResponse({ ok: false, error: e.message }));
     return true;
   }
+  if (message.type === 'TRIGGER_SYNC_HARD_SOURCES') {
+    syncHardSources()
+      .then((r) => sendResponse(r))
+      .catch((e) => sendResponse({ error: e.message }));
+    return true;
+  }
   if (message.type === 'DEBUG_COOKIES') {
     getAllCookies().then((c) => {
       console.log('[cookies] DEBUG: ' + c.length + ' cookies');
@@ -203,6 +209,156 @@ setTimeout(() => {
 
 // Periodic re-export
 setInterval(exportCookiesToServer, AUTO_EXPORT_INTERVAL_MS);
+
+/**
+ * Sync the 4 sources that need httponly cookies (encrypted by macOS Keychain).
+ * The extension navigates to each page, scrapes data, and POSTs to the backend.
+ */
+async function syncHardSources() {
+  const { api_token, api_base } = await chrome.storage.local.get(['api_token', 'api_base']);
+  const baseUrl = (api_base || 'https://claudetracker.wolfinisoftware.de/api').replace(/\/+$/, '');
+  const headers = { 'Content-Type': 'application/json' };
+  if (api_token) headers['Authorization'] = 'Bearer ' + api_token;
+
+  const results = [];
+  const startTs = Date.now();
+
+  async function postSource(source, model, data) {
+    try {
+      const r = await fetch(baseUrl + '/usage/track', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model, input_tokens: 0, output_tokens: 0,
+          conversation_id: 'ext-sync-' + source + '-' + startTs,
+          source, response_metadata: data,
+        }),
+      });
+      return r.ok;
+    } catch { return false; }
+  }
+
+  // 1. Anthropic Console (platform.claude.com/settings/keys)
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://platform.claude.com/settings/keys',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 10000)); // wait for page
+    // Try to read keys table
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        // Find workspace names from sidebar links
+        const ws = [...document.querySelectorAll('a[href*="/settings/workspaces/"]')]
+          .map(a => ({ id: a.href.match(/\/workspaces\/([^/]+)/)?.[1], name: a.textContent?.trim() }));
+        return { workspaces: ws, text_preview: text.substring(0, 500) };
+      }
+    }).catch(() => null);
+    if (inj?.result) {
+      await postSource('anthropic_console_sync', 'Anthropic Console (Extension)', inj.result);
+      results.push({ source: 'console', ok: true });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'console', ok: false, error: e.message }); }
+
+  // 2. z.ai (my-plan + usage)
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 8000));
+    const [plan] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        return {
+          plan_name: text.match(/(GLM\s+Coding[^\n]*?Plan)/i)?.[1]?.trim(),
+          price_usd: text.match(/\$\s*([\d]+(?:\\.\d+)?)/)?.[1],
+          auto_renew_date: text.match(/Auto-renew\s+on\s+([\d.\-/]+)/i)?.[1],
+        };
+      }
+    }).catch(() => null);
+    // Usage page
+    await chrome.tabs.update(tab.id, { url: 'https://z.ai/manage-apikey/coding-plan/personal/usage' });
+    await new Promise(r => setTimeout(r, 8000));
+    const [usage] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        const pct = (lbl) => {
+          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,40}?(\\d+)\\s*%', 'i'));
+          return m ? parseInt(m[1]) : null;
+        };
+        return {
+          five_hour_pct: pct('5\\s*Hours?\\s*Quota'),
+          weekly_pct: pct('Weekly\\s*Quota'),
+          monthly_pct: pct('Total\\s*Monthly'),
+        };
+      }
+    }).catch(() => null);
+    if (plan?.result || usage?.result) {
+      await postSource('zai_sync', 'z.ai (Extension)', { plan: plan?.result, usage: usage?.result });
+      results.push({ source: 'zai', ok: true });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'zai', ok: false, error: e.message }); }
+
+  // 3. Claude Code
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://platform.claude.com/claude-code/usage',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 10000));
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        const rows = [...document.querySelectorAll('table tbody tr')].map(tr => {
+          const cells = [...tr.querySelectorAll('td')].map(td => td.textContent?.trim());
+          return cells;
+        });
+        return { rows_preview: rows.slice(0, 5), text_preview: text.substring(0, 1000) };
+      }
+    }).catch(() => null);
+    if (inj?.result) {
+      await postSource('claude_code_sync', 'Claude Code (Extension)', inj.result);
+      results.push({ source: 'claude_code', ok: true });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'claude_code', ok: false, error: e.message }); }
+
+  // 4. OpenCode Go
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 10000));
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        const planMatch = text.match(/(?:Du hast|You have)\s+(.+?)\s+(?:abonniert|subscribed)/i);
+        return {
+          plan_name: planMatch?.[1]?.trim(),
+          text_preview: text.substring(0, 500),
+        };
+      }
+    }).catch(() => null);
+    if (inj?.result) {
+      await postSource('opencode_go_sync', 'OpenCode Go (Extension)', inj.result);
+      results.push({ source: 'opencode_go', ok: true });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'opencode_go', ok: false, error: e.message }); }
+
+  console.log('[sync-hard] results:', JSON.stringify(results));
+  return { success: true, results };
+}
 
 async function fetchMonthlyStats() {
   const apiBase = await getApiBase();

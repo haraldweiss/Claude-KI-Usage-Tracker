@@ -101,14 +101,17 @@ export async function scrapeAnthropicConsole(): Promise<ScraperResult> {
 }
 
 /**
- * Extract workspace IDs from the sidebar navigation on platform.claude.com.
+ * Extract workspace IDs from the navigation or combobox on platform.claude.com.
+ * Uses multiple strategies:
+ *   1. Nav sidebar links (a[href*="/settings/workspaces/"])
+ *   2. Combobox/select dropdown options
+ *   3. Active workspace from URL
  */
 async function discoverWorkspaces(page: import('playwright').Page): Promise<Array<{ id: string; name: string }>> {
   try {
-    // Look for workspace links in the nav sidebar
-    const links = await page.evaluate(() => {
+    // Strategy 1: Nav sidebar links
+    const navLinks = await page.evaluate(() => {
       const results: Array<{ id: string; name: string }> = [];
-      // Match nav links matching /settings/workspaces/<id>/*
       for (const a of document.querySelectorAll('a[href*="/settings/workspaces/"]')) {
         const href = a.getAttribute('href') || '';
         const match = href.match(/\/settings\/workspaces\/([^/]+)/);
@@ -122,18 +125,60 @@ async function discoverWorkspaces(page: import('playwright').Page): Promise<Arra
       return results;
     });
 
-    if (links.length > 0) {
-      console.log(`[console] discovered ${links.length} workspaces via nav links`);
-      return links;
+    if (navLinks.length > 0) {
+      console.log(`[console] discovered ${navLinks.length} workspaces via nav links`);
+      return navLinks;
     }
 
-    // Fallback: try the active workspace from URL
+    // Strategy 2: Combobox/select with workspace options — open the dropdown
+    // and read options.
+    await page.waitForTimeout(1000);
+    const comboWorkspaces = await page.evaluate(() => {
+      const results: Array<{ id: string; name: string }> = [];
+
+      // Try to find and open the workspace switcher
+      const triggers = document.querySelectorAll<HTMLElement>(
+        '[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]'
+      );
+      for (const trigger of triggers) {
+        const text = trigger.textContent?.trim() || '';
+        // Check if this looks like a workspace switcher
+        if (text.includes('Workspace') || text.includes('workspace')) {
+          trigger.click();
+          break;
+        }
+      }
+
+      // Read options from any visible listbox/menu
+      const items = document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]');
+      for (const item of items) {
+        const name = item.textContent?.trim();
+        if (name && name.length > 0 && name.length < 60) {
+          // Extract ID from the option if available
+          const href = item.getAttribute('href') || item.getAttribute('data-value') || '';
+          const match = href.match(/workspaces\/([^/]+)/);
+          const id = match ? match[1] : name;
+          results.push({ id, name });
+        }
+      }
+
+      return results;
+    });
+
+    if (comboWorkspaces.length > 0) {
+      console.log(`[console] discovered ${comboWorkspaces.length} workspaces via combobox`);
+      return comboWorkspaces;
+    }
+
+    // Strategy 3: Active workspace from URL
     const url = page.url();
     const urlMatch = url.match(/\/settings\/workspaces\/([^/]+)/);
     if (urlMatch) {
+      console.log('[console] using active workspace from URL');
       return [{ id: urlMatch[1], name: 'Default' }];
     }
 
+    console.log('[console] no workspaces found');
     return [];
   } catch (err) {
     console.warn('[console] workspace discovery failed:', err);

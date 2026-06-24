@@ -18,6 +18,10 @@ import { SCRAPER_REGISTRY } from './types.js';
 import { scrapeClaudeAi } from './scrapers/claude-ai.js';
 import { scrapeAnthropicConsole } from './scrapers/anthropic-console.js';
 import { scrapeOpenAiApi } from './scrapers/openai-api.js';
+import { scrapeOpenCodeGo } from './scrapers/opencode-go.js';
+import { scrapeZai } from './scrapers/zai.js';
+import { scrapeClaudeCode } from './scrapers/claude-code.js';
+import { scrapeOpenCodeApiUsage } from './scrapers/opencode-api-usage.js';
 import { scrape as scrapeCodex } from './scrapers/codex.js';
 
 // ---- Handlers ----
@@ -27,6 +31,10 @@ const SELF_CONTAINED: Record<string, () => Promise<ScraperResult>> = {
   claude_ai: scrapeClaudeAi,
   console: scrapeAnthropicConsole,
   openai_api: scrapeOpenAiApi,
+  opencode_go: scrapeOpenCodeGo,
+  zai: scrapeZai,
+  claude_code: scrapeClaudeCode,
+  opencode_api: scrapeOpenCodeApiUsage,
 };
 
 /** Unified handlers — receive (page, config), return ScraperResult with optional rows[] */

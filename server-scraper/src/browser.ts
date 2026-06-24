@@ -38,13 +38,20 @@ export async function getContext(cookieKey?: string): Promise<BrowserContext> {
   const b = await getBrowser();
 
   if (!context || !context.browser()) {
-    context = await b.newContext({
+    // Proxy support: set PLAYWRIGHT_PROXY_URL=http://user:pass@host:port
+    const proxyUrl = process.env.PLAYWRIGHT_PROXY_URL;
+    const ctxOpts: Record<string, unknown> = {
       viewport: { width: 1280, height: 720 },
       userAgent:
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
       locale: 'de-DE',
       timezoneId: 'Europe/Berlin',
-    });
+    };
+    if (proxyUrl) {
+      ctxOpts.proxy = { server: proxyUrl };
+      console.log(`[browser] using proxy: ${proxyUrl.replace(/:[^:@]+@/, ':****@')}`);
+    }
+    context = await b.newContext(ctxOpts);
 
     // Hide Playwright/webdriver automation indicators
     await context.addInitScript(() => {

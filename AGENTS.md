@@ -943,10 +943,14 @@ ssh -R 40000:localhost:1080 oracle-vm
 - **Multi-Provider Insights**: `InsightsBlock.tsx` - Cost Ranking (größter Kostenblock), Fix/Variable-Split, Limit-Auslastung über ALLE Provider, Monats-Breakdown mit allen 7 Quellen
 - **DB Cleanup**: Duplicate "GLM Coding Lite-Monthly Plan" gelöscht; stale "codex:Unknown" aus pricing entfernt
 
-**Commits (56c61a3 → 315452b, 4 Commits):**
+**Commits (56c61a3 → 30b3bd8, 7 Commits):**
 ```
 56c61a3 feat(ui,backend): provider settings overview, dashboard overhaul, pricing fixes
 cd9a149 fix(ui): improve readability of ChatGPT Plus and pricing in dashboard
 021791d feat(ui): wire ProviderSettingsSection to backend API with plan selector
 315452b feat(ui): multi-provider insights in Recommendations tab
+3a75d03 docs: update README + AGENTS.md for multi-provider insights and API-wired settings
+30b3bd8 chore(deps): fix npm vulnerabilities — 0 high/critical remaining
 ```
+
+**Vulnerability Fix (Commit 30b3bd8):** GitHub Dependabot hatte 52 Alerts (25 high, 19 moderate, 8 low). Fix: Frontend `vite@^8.0.16`, Backend `jest@25→30` (entfernt `request`/`braces`/`form-data`-Kette). Ergebnis: Frontend 0, Backend 0 high/critical. 18 moderate in Backend verbleiben (dev-only, babel-plugin-istanbul). Dependabot aktualisiert beim nächsten Scan automatisch.

@@ -152,11 +152,13 @@ async function discoverWorkspaces(tabId) {
 // caller decides what to do with the rows.
 async function scrapeWorkspaceKeys(tabId, workspaceId) {
   await chrome.tabs.update(tabId, { url: workspaceKeysUrl(workspaceId) });
-  const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
+  // Reduced from 15s → 5s: platform.claude.com loads in 2-5s in practice.
+  // If Cloudflare or auth blocks, the URL never matches — fail fast.
+  const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 5000);
   if (!settled) {
     return { rows: [], reason: `keys page never loaded for ${workspaceId}` };
   }
-  return await pollForConsoleRows(tabId, 30000, 500);
+  return await pollForConsoleRows(tabId, 15000, 200);
 }
 
 // Inlined cost-table scraper — top-level so executeScript can serialize it.
@@ -307,6 +309,13 @@ async function consoleSync(externalTabId = null) {
 
     if (externalTabId !== null) {
       tabId = externalTabId;
+      // Navigate shared tab to console domain first — it's still on
+      // claude.ai from the previous step. Cross-domain navigation from
+      // syncAll's shared tab directly into workspace keys pages can
+      // trigger Cloudflare challenges; navigating to the main domain
+      // first avoids that.
+      await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+      await waitForTabReady(tabId, 15000);
     } else {
       const existing = await chrome.tabs.query({ url: `${WORKSPACE_KEYS_PREFIX}*` });
       if (existing.length > 0) {
@@ -447,8 +456,12 @@ async function consoleSync(externalTabId = null) {
 
     await chrome.storage.local.set({ last_console_sync: Date.now() });
 
-    // Per-workspace model breakdown from cost page (best-effort)
-    for (const ws of workspaces) {
+    // Cost pages skip when running from syncAll (externalTabId provided):
+    // navigating 5 workspaces × 2 periods (day+month) takes ~8 min and
+    // risks hitting the step timeout. Keys are the primary data.
+    if (externalTabId === null) {
+      // Per-workspace model breakdown from cost page (best-effort)
+      for (const ws of workspaces) {
       for (const period of ['day', 'month']) {
         try {
           const costData = await scrapeWorkspaceCost(tabId, ws.id, period);
@@ -481,6 +494,7 @@ async function consoleSync(externalTabId = null) {
         }
       }
     }
+  }
 
     const extras = [];
     if (workspaceFailures.length) extras.push(`failures: ${workspaceFailures.join(' | ')}`);

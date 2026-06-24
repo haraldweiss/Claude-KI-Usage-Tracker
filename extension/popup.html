@@ -1,245 +1,87 @@
 <!DOCTYPE html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later · © 2026 Harald Weiss -->
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KI Usage Tracker</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       width: 300px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: #333;
     }
-
-    .container {
-      padding: 20px;
-    }
-
-    .header {
-      color: white;
-      margin-bottom: 20px;
-      text-align: center;
-    }
-
-    .header h2 {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .header p {
-      font-size: 12px;
-      opacity: 0.9;
-    }
-
+    .container { padding: 20px; }
+    .header { color: white; margin-bottom: 20px; text-align: center; }
+    .header h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .header p { font-size: 12px; opacity: 0.9; }
     .stats {
-      background: white;
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 16px;
+      background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
-
     .stat-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
-      border-bottom: 1px solid #eee;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid #eee;
     }
-
-    .stat-item:last-child {
-      border-bottom: none;
-    }
-
-    .stat-label {
-      font-size: 13px;
-      color: #666;
-      font-weight: 500;
-    }
-
-    .stat-value {
-      font-size: 14px;
-      font-weight: 600;
-      color: #667eea;
-    }
-
-    .stat-value.warning {
-      color: #d32f2f;
-      background: #fce4e4;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-
-    .stat-value.warning::before {
-      content: '⚠ ';
-    }
-
+    .stat-item:last-child { border-bottom: none; }
+    .stat-label { font-size: 13px; color: #666; font-weight: 500; }
+    .stat-value { font-size: 14px; font-weight: 600; color: #667eea; }
+    .stat-value.warning { color: #d32f2f; background: #fce4e4; padding: 2px 6px; border-radius: 4px; }
+    .stat-value.warning::before { content: '⚠ '; }
     .sync-info {
-      background: rgba(255, 255, 255, 0.92);
-      border-radius: 8px;
-      padding: 8px 12px;
-      margin-bottom: 12px;
-      font-size: 11px;
-      color: #555;
-      line-height: 1.5;
+      background: rgba(255, 255, 255, 0.92); border-radius: 8px;
+      padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: #555;
     }
-
-    .sync-info .sync-info-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .sync-info .sync-info-label {
-      color: #888;
-    }
-
-    .sync-info .sync-info-value {
-      color: #333;
-      font-weight: 600;
-    }
-
-    .sync-info .sync-info-value.stale {
-      color: #c63;
-    }
-
-    .actions {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-
+    .sync-info-row { display: flex; justify-content: space-between; gap: 8px; }
+    .sync-info-label { color: #888; }
+    .sync-info-value { color: #333; font-weight: 600; }
+    .actions { display: flex; gap: 8px; margin-bottom: 16px; }
     button {
-      flex: 1;
-      padding: 10px;
-      border: none;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
+      flex: 1; padding: 10px; border: none; border-radius: 8px;
+      font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;
     }
-
-    .btn-primary {
-      background: #667eea;
-      color: white;
-    }
-
-    .btn-primary:hover {
-      background: #5568d3;
-      transform: translateY(-1px);
-    }
-
-    .btn-secondary {
-      background: #f0f2f5;
-      color: #333;
-    }
-
-    .btn-secondary:hover {
-      background: #e4e6eb;
-    }
-
-    .loading {
-      text-align: center;
-      padding: 20px;
-      color: white;
-      font-size: 12px;
-    }
-
+    .btn-primary { background: #667eea; color: white; }
+    .btn-primary:hover { background: #5568d3; transform: translateY(-1px); }
+    .btn-secondary { background: #f0f2f5; color: #333; }
+    .btn-secondary:hover { background: #e4e6eb; }
+    .loading { text-align: center; padding: 20px; color: white; font-size: 12px; }
     .error {
-      background: #fee;
-      border-left: 4px solid #f44;
-      color: #c33;
-      padding: 12px;
-      border-radius: 4px;
-      font-size: 12px;
-      margin-bottom: 16px;
+      background: #fee; border-left: 4px solid #f44; color: #c33;
+      padding: 12px; border-radius: 4px; font-size: 12px; margin-bottom: 16px;
     }
-
-    .footer {
-      color: white;
-      text-align: center;
-      font-size: 11px;
-      opacity: 0.8;
-      margin-top: 12px;
-    }
-
-    .footer a {
-      color: white;
-      text-decoration: none;
-      border-bottom: 1px dotted white;
-    }
-
+    .footer { color: white; text-align: center; font-size: 11px; opacity: 0.8; margin-top: 12px; }
+    .footer a { color: white; text-decoration: none; border-bottom: 1px dotted white; }
     .settings {
-      background: rgba(255, 255, 255, 0.95);
-      border-radius: 8px;
-      padding: 12px;
-      margin-top: 12px;
-      font-size: 11px;
+      background: rgba(255, 255, 255, 0.95); border-radius: 8px;
+      padding: 12px; margin-top: 12px; font-size: 11px;
     }
-
-    .settings summary {
-      cursor: pointer;
-      font-weight: 600;
-      color: #444;
-      list-style: none;
-    }
-
-    .settings summary::after {
-      content: ' ▾';
-    }
-
-    .settings[open] summary::after {
-      content: ' ▴';
-    }
-
-    .settings label {
-      display: block;
-      margin-top: 8px;
-      color: #555;
-      font-weight: 500;
-    }
-
+    .settings summary { cursor: pointer; font-weight: 600; color: #444; list-style: none; }
+    .settings summary::after { content: ' ▾'; }
+    .settings[open] summary::after { content: ' ▴'; }
+    .settings label { display: block; margin-top: 8px; color: #555; font-weight: 500; }
     .settings input {
-      width: 100%;
-      padding: 6px 8px;
-      margin-top: 3px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 11px;
-      font-family: ui-monospace, monospace;
+      width: 100%; padding: 6px 8px; margin-top: 3px;
+      border: 1px solid #ccc; border-radius: 4px; font-size: 11px; font-family: ui-monospace, monospace;
     }
-
-    .settings .row {
-      display: flex;
-      gap: 6px;
-      margin-top: 8px;
-    }
-
-    .settings button {
-      padding: 6px 10px;
-      font-size: 11px;
-    }
+    .settings .row { display: flex; gap: 6px; margin-top: 8px; }
+    .settings button { padding: 6px 10px; font-size: 11px; }
+    .badge { display: inline-block; background: #4caf50; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h2>📊 Diesen Monat</h2>
-      <p>Aktueller Stand aus Sync-Daten</p>
+      <p>Server-seitiges Scraping alle 15 Min</p>
     </div>
 
     <div id="error-container"></div>
-    <div id="sync-status"></div>
+
+    <div style="text-align:center;margin-bottom:8px;">
+      <button class="btn-secondary" id="export-cookies-btn" style="font-size:11px;padding:6px 12px;width:auto;">🍪 Cookies exportieren (für Server-Scraper)</button>
+    </div>
 
     <div id="loading" class="loading">Lade Daten…</div>
 
@@ -249,7 +91,6 @@
           <span class="stat-label">Gesamt diesen Monat</span>
           <span class="stat-value" id="grand-total">-</span>
         </div>
-
         <div class="stat-item" id="claude-ai-row" style="display:none;">
           <span class="stat-label">Claude.ai</span>
           <span class="stat-value" id="claude-ai-summary">-</span>
@@ -284,15 +125,17 @@
         </div>
       </div>
 
-      <div id="sync-info" class="sync-info" style="display: none;"></div>
-
-      <div class="actions">
-        <button class="btn-primary" id="sync-btn" title="Alle Quellen synchronisieren">↻ Sync alle</button>
-        <button class="btn-secondary" id="refresh-btn">Refresh</button>
+      <div class="sync-info" id="sync-info">
+        <div class="sync-info-row">
+          <span class="sync-info-label">Letzter Scrape</span>
+          <span class="sync-info-value" id="last-sync-time">—</span>
+        </div>
       </div>
 
       <div class="actions">
-        <button class="btn-secondary" id="open-dashboard" style="flex: 1;">📊 Dashboard</button>
+        <button class="btn-primary" id="refresh-btn">🔄 Aktualisieren</button>
+        <button class="btn-secondary" id="open-dashboard">📊 Dashboard</button>
+      </div>
       </div>
     </div>
 
@@ -303,16 +146,13 @@
       <label for="dashboard-url-input">Dashboard URL</label>
       <input id="dashboard-url-input" type="url" placeholder="https://wolfinisoftware.de/claudetracker" />
       <label for="api-token-input">API-Token</label>
-      <input id="api-token-input" type="password" autocomplete="off"
-        placeholder="ck_live_..." />
+      <input id="api-token-input" type="password" autocomplete="off" placeholder="ck_live_..." />
       <p style="font-size:10px;color:#777;margin-top:4px">
         Generiere im Dashboard unter Settings → API-Token.
       </p>
+      <button class="btn-secondary" id="open-token-page" type="button">Token-Seite öffnen</button>
       <label for="webhook-url-input">Webhook-URL (bei ≥90% Auslastung)</label>
       <input id="webhook-url-input" type="url" placeholder="https://example.com/webhook" />
-      <button class="btn-secondary" id="open-token-page" type="button">
-        Token-Seite öffnen
-      </button>
       <div class="row">
         <button class="btn-primary" id="settings-save">Speichern</button>
         <button class="btn-secondary" id="settings-reset">Zurücksetzen</button>
@@ -320,12 +160,11 @@
       <div id="settings-status" style="margin-top:6px; font-size:11px;"></div>
     </details>
 
-    <div class="footer" id="footer-status">
-      Backend: <span id="footer-api-base">localhost:3000</span>
+    <div class="footer">
+      Backend: <span id="footer-api-base">claudetracker.wolfinisoftware.de</span>
     </div>
   </div>
 
-  <script src="background-utils.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

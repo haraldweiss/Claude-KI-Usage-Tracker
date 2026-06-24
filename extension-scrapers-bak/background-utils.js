@@ -69,7 +69,11 @@ function withTimeout(promise, timeoutMs, label) {
   });
 }
 
-const SYNC_ALL_STALE_MS = 20 * 60 * 1000;
+// Stale threshold: 15 min. Console scraper with 5 workspaces needs ~9 min
+// (per-workspace keys + cost pages). The popup normalizes stale "running"
+// states when it opens; 15 min gives every step enough room to complete
+// before the display shows "abgebrochen".
+const SYNC_ALL_STALE_MS = 15 * 60 * 1000;
 
 function normalizeSyncAllState(state, now = Date.now(), staleMs = SYNC_ALL_STALE_MS) {
   if (!state || state.status !== 'running' || typeof state.startedAt !== 'number') {

@@ -1,0 +1,11 @@
+[Unit]
+Description=KI Usage Tracker — run Playwright scrapers every 15 minutes
+After=network.target
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

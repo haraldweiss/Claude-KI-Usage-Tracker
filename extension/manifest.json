@@ -1,32 +1,25 @@
 {
   "manifest_version": 3,
   "name": "KI Usage Tracker",
-  "version": "2.1.0",
-  "description": "Track KI/LLM usage across 7 sources: Claude.ai, Anthropic Console, Claude Code, OpenCode Go, z.ai, Codex, OpenAI API",
+  "version": "3.0.0",
+  "description": "Dashboard-Viewer für KI/LLM Kosten (Scraping läuft server-seitig)",
   "permissions": [
-    "tabs",
-    "scripting",
     "storage",
-    "alarms",
-    "notifications"
+    "cookies"
   ],
   "host_permissions": [
     "https://claude.ai/*",
-    "https://account.anthropic.com/*",
     "https://platform.claude.com/*",
     "https://opencode.ai/*",
     "https://z.ai/*",
     "https://chatgpt.com/*",
     "https://platform.openai.com/*",
-    "http://localhost:3000/*",
-    "http://localhost:3001/*",
     "https://wolfinisoftware.de/*",
     "https://*.wolfinisoftware.de/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
-
   "action": {
     "default_popup": "popup.html",
     "default_title": "KI Usage Tracker"

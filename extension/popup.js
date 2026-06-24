@@ -1,70 +1,39 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
-// Default endpoints — used on a fresh install and when the user clicks
-// "Zurücksetzen". Overrides live in chrome.storage.local under the same keys.
+// KI Usage Tracker — Viewer-only popup.
+// Scraping runs server-side via Playwright (server-scraper/).
+// This popup just displays data fetched from the backend.
+
 const DEFAULT_API_BASE = 'https://claudetracker.wolfinisoftware.de/api';
 const DEFAULT_DASHBOARD_URL = 'https://claudetracker.wolfinisoftware.de';
 
-// Load stats when popup opens
 document.addEventListener('DOMContentLoaded', async () => {
   await initSettings();
-  loadStats();
-  renderSyncInfo();
+  await loadStats();
 
-  // If a sync was launched in a previous popup-open and is still running
-  // (or just finished), surface it.
-  const { last_sync_all } = await chrome.storage.local.get('last_sync_all');
-  if (last_sync_all) {
-    const normalized = await normalizeStoredSyncAllState(last_sync_all);
-    renderLastSyncAll(normalized);
-    if (normalized.status === 'running') {
-      const syncBtn = document.getElementById('sync-btn');
-      syncBtn.disabled = true;
-      syncBtn.textContent = '⏳ Sync läuft…';
-      pollSyncAllProgress();
-    }
-  }
-
-  // Sync alle button — triggers Claude.ai, Anthropic Console, and Claude Code
-  document.getElementById('sync-btn').addEventListener('click', () => {
-    syncAll();
-  });
-
-  // Refresh button
-  document.getElementById('refresh-btn').addEventListener('click', () => {
-    loadStats();
-  });
-
-  // Dashboard button — uses the configured URL, not hardcoded localhost.
+  document.getElementById('refresh-btn').addEventListener('click', loadStats);
+  document.getElementById('export-cookies-btn').addEventListener('click', exportCookiesToServer);
   document.getElementById('open-dashboard').addEventListener('click', async () => {
     const { dashboard_url } = await chrome.storage.local.get('dashboard_url');
     chrome.tabs.create({ url: dashboard_url || DEFAULT_DASHBOARD_URL });
   });
-
-  // Settings save / reset
   document.getElementById('settings-save').addEventListener('click', saveSettings);
   document.getElementById('settings-reset').addEventListener('click', resetSettings);
-
   document.getElementById('open-token-page').addEventListener('click', async () => {
     const { dashboard_url } = await chrome.storage.local.get('dashboard_url');
-    const url = (dashboard_url || DEFAULT_DASHBOARD_URL) + '/settings';
-    chrome.tabs.create({ url });
+    chrome.tabs.create({ url: (dashboard_url || DEFAULT_DASHBOARD_URL) + '/settings' });
   });
 });
 
 async function initSettings() {
   const stored = await chrome.storage.local.get(['api_base', 'dashboard_url', 'api_token', 'webhook_url']);
-  const apiBase = stored.api_base || DEFAULT_API_BASE;
-  const dashboardUrl = stored.dashboard_url || DEFAULT_DASHBOARD_URL;
-
-  document.getElementById('api-base-input').value = apiBase;
-  document.getElementById('dashboard-url-input').value = dashboardUrl;
+  document.getElementById('api-base-input').value = stored.api_base || DEFAULT_API_BASE;
+  document.getElementById('dashboard-url-input').value = stored.dashboard_url || DEFAULT_DASHBOARD_URL;
   document.getElementById('api-token-input').value = stored.api_token || '';
   document.getElementById('webhook-url-input').value = stored.webhook_url || '';
 
   const footerEl = document.getElementById('footer-api-base');
   if (footerEl) {
-    try { footerEl.textContent = new URL(apiBase).host; } catch { footerEl.textContent = apiBase; }
+    try { footerEl.textContent = new URL(stored.api_base || DEFAULT_API_BASE).host; } catch { footerEl.textContent = stored.api_base || DEFAULT_API_BASE; }
   }
 }
 
@@ -83,453 +52,272 @@ async function saveSettings() {
     api_base: apiBase.replace(/\/+$/, ''),
     dashboard_url: dashboardUrl.replace(/\/+$/, ''),
     api_token: apiToken,
-    webhook_url: webhookUrl || undefined
+    webhook_url: webhookUrl || undefined,
   });
-  await chrome.storage.local.remove(['auth_user', 'auth_pass']);  // clean up old
   status.textContent = '✅ Gespeichert.';
   status.style.color = '#3a3';
   await initSettings();
 }
 
 async function resetSettings() {
-  await chrome.storage.local.remove(['api_base', 'dashboard_url', 'api_token', 'webhook_url', 'auth_user', 'auth_pass']);
+  await chrome.storage.local.remove(['api_base', 'dashboard_url', 'api_token', 'webhook_url']);
   await initSettings();
-  document.getElementById('settings-status').textContent = 'Auf localhost zurückgesetzt.';
+  document.getElementById('settings-status').textContent = 'Auf Standard zurückgesetzt.';
 }
 
 async function loadStats() {
   const loadingEl = document.getElementById('loading');
   const statsContainer = document.getElementById('stats-container');
   const errorContainer = document.getElementById('error-container');
+  loadingEl.style.display = 'block';
+  statsContainer.style.display = 'none';
+  errorContainer.innerHTML = '';
 
   try {
-    chrome.runtime.sendMessage({ type: 'GET_MONTHLY_STATS' }, (stats) => {
-      if (stats) {
-        displayStats(stats);
-        loadingEl.style.display = 'none';
-        statsContainer.style.display = 'block';
-        errorContainer.innerHTML = '';
-      } else {
-        showError('Backend nicht erreichbar. Prüfe Backend-URL & Auth in den Einstellungen.');
-      }
-    });
-
-    setTimeout(() => {
-      if (loadingEl.style.display !== 'none') {
-        showError('Backend nicht erreichbar. Prüfe Backend-URL & Auth in den Einstellungen.');
-      }
-    }, 3000);
-  } catch (error) {
-    showError(error.message);
+    const stats = await fetchMonthlyStats();
+    if (stats) {
+      displayStats(stats);
+      loadingEl.style.display = 'none';
+      statsContainer.style.display = 'block';
+    } else {
+      showError('Backend nicht erreichbar. Prüfe Backend-URL & Auth in den Einstellungen.');
+    }
+  } catch (err) {
+    showError(err.message);
   }
 }
 
-function formatEur(value) {
-  if (value === null || value === undefined || !isFinite(value)) return '0,00 €';
-  return new Intl.NumberFormat('de-DE', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
+async function fetchMonthlyStats() {
+  const { api_base, api_token } = await chrome.storage.local.get(['api_base', 'api_token']);
+  const baseUrl = (api_base || DEFAULT_API_BASE).replace(/\/+$/, '');
+  const headers = {};
+  if (api_token) headers['Authorization'] = `Bearer ${api_token}`;
 
-function formatUsd(value) {
-  if (value === null || value === undefined || !isFinite(value)) return '$0.00';
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
+  const response = await fetch(`${baseUrl}/usage/summary?period=month`, { headers });
+  if (!response.ok) return null;
+  return response.json();
 }
 
 function displayStats(stats) {
   const cg = stats?.combined;
-  
-  // Calculate grand total from all sources:
-  // - claude_ai: spending_eur from latest sync (converted to EUR)
-  // - anthropic_api: cost_eur_equivalent (API usage)
-  // - opencode_go: Fixed plan price (from plan_pricing table, fallback 20€)
-  // - zai: Fixed plan price (from plan_pricing table, fallback 15€)
-  // - opencode_api: total_eur (USD converted to EUR)
-  // - codex: total_eur (fixed plan price)
-  // - openai_api: total_eur (USD converted to EUR)
-  const claudeAiEur = Number(cg?.claude_ai_meta?.spending_eur ?? 0);
+  if (!cg) { showError('Keine Daten vom Backend.'); return; }
+
+  // Grand total: cost_eur from combined sources + flat plan fees
+  const caTotal = Number(cg?.claude_ai?.cost_eur ?? cg?.claude_ai?.total_eur ?? 0);
   const anthropicApiEur = Number(cg?.anthropic_api?.cost_eur_equivalent ?? 0);
   const opencodeApiEur = Number(cg?.opencode_api?.total_eur ?? 0);
-  const codexEur = Number(cg?.codex?.total_eur ?? 0);
-  const openaiApiEur = Number(cg?.openai_api?.total_eur ?? 0);
-  
-  // OpenCode Go and z.ai are fixed-price plans - look up the price from plan_pricing
-  // Fallback to 20€ for OpenCode Go, 15€ for z.ai if no price is found
-  const opencodeGoPlan = cg?.opencode_go?.plan_name;
-  const opencodeGoEur = opencodeGoPlan === 'OpenCode Go' ? 20 : 10; // simplified fallback
-  
-  const zaiPlan = cg?.zai?.plan_name;
-  const zaiEur = 15; // simplified fallback for GLM Coding plans
-  
-  const grandTotal = claudeAiEur + anthropicApiEur + opencodeApiEur + codexEur + openaiApiEur + opencodeGoEur + zaiEur;
+  const codexEur = Number(cg?.codex?.plan_cost_eur ?? cg?.codex?.total_eur ?? 0);
+  const openaiApiEur = Number(cg?.openai_api?.cost_usd ?? 0) * 0.92;
+  const opencodeGoEur = (cg?.opencode_go?.plan_name === 'OpenCode Go') ? 20 : 10;
+  const zaiEur = 15;
+
+  const grandTotal = caTotal + anthropicApiEur + opencodeApiEur + codexEur + openaiApiEur + opencodeGoEur + zaiEur;
   document.getElementById('grand-total').textContent = formatEur(grandTotal);
 
-  // Claude.ai — show monthly cost and session limits when data exists
-  const claudeAi = stats?.combined?.claude_ai;
-  const claudeAiRow = document.getElementById('claude-ai-row');
-  const claudeAiEl = document.getElementById('claude-ai-summary');
-  if (claudeAi && claudeAiEl) {
-    claudeAiRow.style.display = '';
-    const monthlyEur = Number(cg?.claude_ai_meta?.spending_eur ?? 0);
+  // Helper to show/hide rows
+  const showRow = (id, elId, content) => {
+    const row = document.getElementById(id);
+    const el = document.getElementById(elId);
+    if (!row || !el) return;
+    if (content) {
+      row.style.display = '';
+      el.textContent = content;
+      el.classList.remove('warning');
+    } else {
+      row.style.display = 'none';
+    }
+  };
+
+  // Claude.ai
+  const ca = cg?.claude_ai;
+  if (ca && ca.meta) {
+    const monthlyEur = Number(ca.meta.spending_eur ?? ca.cost_eur ?? 0);
     const parts = [];
     if (Number.isFinite(monthlyEur) && monthlyEur > 0) parts.push(formatEur(monthlyEur));
-    const sessionPct = Number(cg?.claude_ai_meta?.session_pct);
-    const weeklyPct = Number(cg?.claude_ai_meta?.weekly_pct);
+    const sessionPct = Number(ca.meta.session_pct);
+    const weeklyPct = Number(ca.meta.weekly_pct);
     if (Number.isFinite(sessionPct)) parts.push(`S ${sessionPct}%`);
     if (Number.isFinite(weeklyPct)) parts.push(`W ${weeklyPct}%`);
-    claudeAiEl.textContent = parts.length > 0 ? parts.join(' · ') : 'aktiv';
-    const maxPct = Math.max(
-      Number.isFinite(sessionPct) ? sessionPct : 0,
-      Number.isFinite(weeklyPct) ? weeklyPct : 0
-    );
-    claudeAiEl.classList.toggle('warning', maxPct >= 90);
-  } else if (claudeAiEl) {
-    claudeAiRow.style.display = 'none';
-    claudeAiEl.classList.remove('warning');
+    showRow('claude-ai-row', 'claude-ai-summary', parts.length > 0 ? parts.join(' · ') : 'aktiv');
+  } else if (ca && ca.cost_eur) {
+    showRow('claude-ai-row', 'claude-ai-summary', formatEur(ca.cost_eur));
+  } else {
+    showRow('claude-ai-row', 'claude-ai-summary', null);
   }
 
-  // Anthropic Console (API keys) — show total cost and key count
-  const anthropicApi = stats?.combined?.anthropic_api;
-  const anthropicApiRow = document.getElementById('anthropic-api-row');
-  const anthropicApiEl = document.getElementById('anthropic-api-summary');
-  if (anthropicApi && anthropicApiEl) {
-    anthropicApiRow.style.display = '';
-    const costEur = Number(anthropicApi.cost_eur_equivalent ?? 0);
-    const keyCount = anthropicApi.by_workspace?.length || 0;
+  // Anthropic Console
+  const ap = cg?.anthropic_api;
+  if (ap) {
+    const costEur = Number(ap.cost_eur_equivalent ?? 0);
+    const keyCount = ap.by_workspace?.length || 0;
     const costPart = Number.isFinite(costEur) && costEur > 0 ? formatEur(costEur) : '€0.00';
-    anthropicApiEl.textContent = costPart + (keyCount > 0 ? ` · ${keyCount} Keys` : '');
-    anthropicApiEl.classList.remove('warning');
-  } else if (anthropicApiEl) {
-    anthropicApiRow.style.display = 'none';
+    showRow('anthropic-api-row', 'anthropic-api-summary', costPart + (keyCount > 0 ? ` · ${keyCount} Keys` : ''));
+  } else {
+    showRow('anthropic-api-row', 'anthropic-api-summary', null);
   }
 
-  // Claude Code — show key count when data exists
-  const claudeCode = stats?.combined?.claude_code;
-  const claudeCodeRow = document.getElementById('claude-code-row');
-  const claudeCodeEl = document.getElementById('claude-code-summary');
-  if (claudeCode && claudeCodeEl) {
-    claudeCodeRow.style.display = '';
-    const keyCount = claudeCode.length;
-    claudeCodeEl.textContent = `${keyCount} Keys`;
-    claudeCodeEl.classList.remove('warning');
-  } else if (claudeCodeEl) {
-    claudeCodeRow.style.display = 'none';
-  }
+  // Claude Code
+  showRow('claude-code-row', 'claude-code-summary',
+    cg?.claude_code ? `${cg.claude_code.length} Keys` : null);
 
-  const zai = stats?.combined?.zai;
-  const opencodeGo = stats?.combined?.opencode_go;
-
-  // OpenCode Go — show usage as "F% · W% · M%" when data exists
-  const opencodeRow = document.getElementById('opencode-row');
-  const opencodeEl = document.getElementById('opencode-go-summary');
-  if (opencodeGo && opencodeEl) {
-    opencodeRow.style.display = '';
+  // OpenCode Go
+  const og = cg?.opencode_go;
+  if (og) {
     const parts = [];
     let maxPct = 0;
-    if (typeof opencodeGo.continuous_pct === 'number') { parts.push(`F ${opencodeGo.continuous_pct}%`); maxPct = Math.max(maxPct, opencodeGo.continuous_pct); }
-    if (typeof opencodeGo.weekly_pct === 'number') { parts.push(`W ${opencodeGo.weekly_pct}%`); maxPct = Math.max(maxPct, opencodeGo.weekly_pct); }
-    if (typeof opencodeGo.monthly_pct === 'number') { parts.push(`M ${opencodeGo.monthly_pct}%`); maxPct = Math.max(maxPct, opencodeGo.monthly_pct); }
-    opencodeEl.textContent = parts.length > 0 ? parts.join(' · ') : (opencodeGo.plan_name || 'aktiv');
-    opencodeEl.classList.toggle('warning', maxPct >= 90);
-  } else if (opencodeEl) {
-    opencodeRow.style.display = 'none';
-    opencodeEl.classList.remove('warning');
+    if (typeof og.continuous_pct === 'number') { parts.push(`F ${og.continuous_pct}%`); maxPct = Math.max(maxPct, og.continuous_pct); }
+    if (typeof og.weekly_pct === 'number') { parts.push(`W ${og.weekly_pct}%`); maxPct = Math.max(maxPct, og.weekly_pct); }
+    if (typeof og.monthly_pct === 'number') { parts.push(`M ${og.monthly_pct}%`); maxPct = Math.max(maxPct, og.monthly_pct); }
+    const text = parts.length > 0 ? parts.join(' · ') : (og.plan_name || 'aktiv');
+    showRow('opencode-row', 'opencode-go-summary', text);
+    const el = document.getElementById('opencode-go-summary');
+    if (el) el.classList.toggle('warning', maxPct >= 90);
+  } else {
+    showRow('opencode-row', 'opencode-go-summary', null);
   }
 
-  // z.ai GLM Coding Plan — show "5h% · W% · M%" when data exists
-  const zaiRow = document.getElementById('zai-row');
-  const zaiEl = document.getElementById('zai-summary');
-  if (zai && zaiEl) {
-    zaiRow.style.display = '';
+  // z.ai
+  const zai = cg?.zai;
+  if (zai) {
     const parts = [];
     let maxPct = 0;
     if (typeof zai.five_hour_pct === 'number') { parts.push(`5h ${zai.five_hour_pct}%`); maxPct = Math.max(maxPct, zai.five_hour_pct); }
     if (typeof zai.weekly_pct === 'number') { parts.push(`W ${zai.weekly_pct}%`); maxPct = Math.max(maxPct, zai.weekly_pct); }
     if (typeof zai.monthly_pct === 'number') { parts.push(`M ${zai.monthly_pct}%`); maxPct = Math.max(maxPct, zai.monthly_pct); }
-    zaiEl.textContent = parts.length > 0 ? parts.join(' · ') : (zai.plan_name || 'aktiv');
-    zaiEl.classList.toggle('warning', maxPct >= 90);
-  } else if (zaiEl) {
-    zaiRow.style.display = 'none';
+    const text = parts.length > 0 ? parts.join(' · ') : (zai.plan_name || 'aktiv');
+    showRow('zai-row', 'zai-summary', text);
+    const el = document.getElementById('zai-summary');
+    if (el) el.classList.toggle('warning', maxPct >= 90);
+  } else {
+    showRow('zai-row', 'zai-summary', null);
   }
 
-  // OpenCode API usage — show token totals and key count
-  const opencodeApi = stats?.combined?.opencode_api;
-  const opencodeApiRow = document.getElementById('opencode-api-row');
-  const opencodeApiEl = document.getElementById('opencode-api-summary');
-  if (opencodeApi && opencodeApiEl) {
-    opencodeApiRow.style.display = '';
-    const inK = Math.round((opencodeApi.total_input_tokens || 0) / 1000);
-    const outK = Math.round((opencodeApi.total_output_tokens || 0) / 1000);
-    const costStr = opencodeApi.total_cost_usd > 0
-      ? '$' + opencodeApi.total_cost_usd.toFixed(2)
-      : '' + (inK + outK) + 'K Tokens';
-    const keyCount = opencodeApi.by_key?.length || 0;
-    opencodeApiEl.textContent = keyCount > 0
-      ? costStr + ' · ' + keyCount + ' Keys'
-      : costStr;
-    opencodeApiEl.classList.remove('warning');
-  } else if (opencodeApiEl) {
-    opencodeApiRow.style.display = 'none';
+  // OpenCode API
+  const oa = cg?.opencode_api;
+  if (oa) {
+    const inK = Math.round((oa.total_input_tokens || 0) / 1000);
+    const outK = Math.round((oa.total_output_tokens || 0) / 1000);
+    const costStr = oa.total_cost_usd > 0 ? '$' + oa.total_cost_usd.toFixed(2) : '' + (inK + outK) + 'K Tokens';
+    const keyCount = oa.by_key?.length || 0;
+    showRow('opencode-api-row', 'opencode-api-summary',
+      keyCount > 0 ? costStr + ' · ' + keyCount + ' Keys' : costStr);
+  } else {
+    showRow('opencode-api-row', 'opencode-api-summary', null);
   }
 
-  // Codex — show remaining capacity percentages
-  const codex = stats?.combined?.codex;
-  const codexRow = document.getElementById('codex-row');
-  const codexEl = document.getElementById('codex-summary');
-  if (codex && codexEl) {
-    codexRow.style.display = '';
-    const fiveHour = Number(codex.five_hour_remaining_pct);
-    const weekly = Number(codex.weekly_remaining_pct);
+  // Codex
+  const cx = cg?.codex;
+  if (cx) {
+    const fiveHour = Number(cx.five_hour_remaining_pct);
+    const weekly = Number(cx.weekly_remaining_pct);
     const parts = [];
     if (Number.isFinite(fiveHour)) parts.push('5h ' + fiveHour + '% frei');
     if (Number.isFinite(weekly)) parts.push('Woche ' + weekly + '% frei');
-    codexEl.textContent = parts.length > 0 ? parts.join(' · ') : 'aktiv';
-    const minRemaining = Math.min(
-      Number.isFinite(fiveHour) ? fiveHour : 100,
-      Number.isFinite(weekly) ? weekly : 100
-    );
-    codexEl.classList.toggle('warning', minRemaining < 20);
-  } else if (codexEl) {
-    codexRow.style.display = 'none';
-    codexEl.classList.remove('warning');
+    const text = parts.length > 0 ? parts.join(' · ') : 'aktiv';
+    showRow('codex-row', 'codex-summary', text);
+    const el = document.getElementById('codex-summary');
+    const minRemaining = Math.min(Number.isFinite(fiveHour) ? fiveHour : 100, Number.isFinite(weekly) ? weekly : 100);
+    if (el) el.classList.toggle('warning', minRemaining < 20);
+  } else {
+    showRow('codex-row', 'codex-summary', null);
   }
 
-  // OpenAI API — show month-to-date cost and usage
-  const openaiApi = stats?.combined?.openai_api;
-  const openaiApiRow = document.getElementById('openai-api-row');
-  const openaiApiEl = document.getElementById('openai-api-summary');
-  if (openaiApi && openaiApiEl) {
-    openaiApiRow.style.display = '';
-    const cost = Number(openaiApi.cost_usd);
-    const input = Number(openaiApi.total_input_tokens || openaiApi.input_tokens);
-    const output = Number(openaiApi.total_output_tokens || openaiApi.output_tokens);
-    const requests = Number(openaiApi.requests);
+  // OpenAI API
+  const oi = cg?.openai_api;
+  if (oi) {
+    const cost = Number(oi.cost_usd);
+    const input = Number(oi.total_input_tokens || oi.input_tokens);
+    const output = Number(oi.total_output_tokens || oi.output_tokens);
+    const requests = Number(oi.requests);
     const costPart = Number.isFinite(cost) ? '$' + cost.toFixed(2) + ' MTD' : '$0.00 MTD';
     const tokensPart = (Number.isFinite(input) || Number.isFinite(output))
       ? formatNumber((Number.isFinite(input) ? input : 0) + (Number.isFinite(output) ? output : 0)) + ' Tokens'
       : '';
     const reqPart = Number.isFinite(requests) ? requests + ' Requests' : '';
-    openaiApiEl.textContent = [costPart, tokensPart, reqPart].filter(Boolean).join(' · ');
-    openaiApiEl.classList.remove('warning');
-  } else if (openaiApiEl) {
-    openaiApiRow.style.display = 'none';
+    showRow('openai-api-row', 'openai-api-summary', [costPart, tokensPart, reqPart].filter(Boolean).join(' · '));
+  } else {
+    showRow('openai-api-row', 'openai-api-summary', null);
+  }
+
+  // Sync timestamp from backend (if available)
+  const lastSyncEl = document.getElementById('last-sync-time');
+  if (lastSyncEl && stats.last_scrape_at) {
+    lastSyncEl.textContent = new Date(stats.last_scrape_at).toLocaleString('de-DE');
+  } else if (lastSyncEl) {
+    lastSyncEl.textContent = '—';
   }
 }
 
-function showError(message, isSuccess = false) {
+function showError(message) {
   const errorContainer = document.getElementById('error-container');
-  const bgColor = isSuccess ? '#efe' : '#fee';
-  const borderColor = isSuccess ? '#4c4' : '#f44';
-  const textColor = isSuccess ? '#3a3' : '#c33';
-
-  // Build the message element via DOM APIs so that untrusted `message` text is
-  // inserted as textContent (prevents XSS via injected HTML / script).
   errorContainer.replaceChildren();
-  const messageDiv = document.createElement('div');
-  messageDiv.className = isSuccess ? 'success' : 'error';
-  messageDiv.style.background = bgColor;
-  messageDiv.style.borderLeftColor = borderColor;
-  messageDiv.style.color = textColor;
-  messageDiv.textContent = message;
-  errorContainer.appendChild(messageDiv);
+  const div = document.createElement('div');
+  div.className = 'error';
+  div.textContent = message;
+  errorContainer.appendChild(div);
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('stats-container').style.display = 'none';
+}
 
-  if (!isSuccess) {
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('stats-container').style.display = 'none';
-  }
+function formatEur(value) {
+  if (value === null || value === undefined || !isFinite(value)) return '0,00 €';
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
 function formatNumber(num) {
   if (!Number.isFinite(Number(num))) return '0';
   num = Number(num);
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
-  } else if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
   return num.toString();
 }
 
-// Fire-and-forget: orchestration lives in background.js because the popup
-// closes as soon as the first hidden tab opens (which would kill any
-// sequential await loop here). The popup just hands off, then polls
-// chrome.storage.local for progress + final result.
-async function syncAll() {
-  const syncBtn = document.getElementById('sync-btn');
-  syncBtn.disabled = true;
-  syncBtn.textContent = '⏳ Sync läuft…';
-  renderSyncStatus('Sync gestartet — Fortschritt erscheint hier.', 'info');
+/**
+ * Read cookies from Chrome and trigger a file download.
+ * The file is saved locally, then we rsync to the server.
+ */
+async function exportCookiesToServer() {
+  const btn = document.getElementById('export-cookies-btn');
+  const originalText = btn.textContent;
+  btn.textContent = '⏳ Lese Cookies…';
+  btn.disabled = true;
 
-  chrome.runtime.sendMessage({ type: 'TRIGGER_SYNC_ALL' });
+  try {
+    // Must use sendMessage to background.js — chrome.cookies.getAll is
+    // unreliable in the popup context. Background.js has the getAllCookies()
+    // function with a 10s timeout.
+    const cookies = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timeout')), 10000);
+      chrome.runtime.sendMessage({ type: 'GET_COOKIES' }, (response) => {
+        clearTimeout(timer);
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(response);
+      });
+    });
 
-  // Poll storage. The popup may close mid-sync (when a hidden tab opens);
-  // when the user re-opens it, renderLastSyncAll() picks up where we left off.
-  pollSyncAllProgress();
-}
-
-async function pollSyncAllProgress() {
-  const syncBtn = document.getElementById('sync-btn');
-  const originalText = '↻ Sync alle';
-  for (let i = 0; i < 60; i++) {  // up to ~60s
-    const { last_sync_all } = await chrome.storage.local.get('last_sync_all');
-    if (last_sync_all) {
-      const normalized = await normalizeStoredSyncAllState(last_sync_all);
-      renderLastSyncAll(normalized);
-      if (normalized.status === 'done') {
-        syncBtn.disabled = false;
-        syncBtn.textContent = originalText;
-        setTimeout(loadStats, 800);
-        renderSyncInfo();
-        return;
-      }
+    if (!cookies || cookies.length === 0) {
+      btn.textContent = '❌ Keine Cookies — SW-Console prüfen';
+      // Also try to get debug info from background
+      chrome.runtime.sendMessage({ type: 'DEBUG_COOKIES' });
+      setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 3000);
+      return;
     }
-    await new Promise((r) => setTimeout(r, 1000));
+
+    const json = JSON.stringify(cookies, null, 2);
+
+    // Trigger download
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `playwright-cookies-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    btn.textContent = `✅ ${cookies.length} Cookies → Download gestartet`;
+    setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 3000);
+  } catch (err) {
+    btn.textContent = `❌ ${err.message}`;
+    setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 3000);
   }
-  syncBtn.disabled = false;
-  syncBtn.textContent = originalText;
-}
-
-async function normalizeStoredSyncAllState(state) {
-  if (typeof normalizeSyncAllState !== 'function') return state;
-  const normalized = normalizeSyncAllState(state);
-  if (normalized !== state) {
-    await chrome.storage.local.set({ last_sync_all: normalized });
-  }
-  return normalized;
-}
-
-// Format a relative timespan in German, picking the largest reasonable unit.
-function formatRelativeDe(deltaMs) {
-  const sec = Math.max(0, Math.round(deltaMs / 1000));
-  if (sec < 60) return 'gerade eben';
-  const min = Math.round(sec / 60);
-  if (min < 60) return `vor ${min} Min`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `vor ${hr} Std`;
-  const day = Math.round(hr / 24);
-  return `vor ${day} Tag${day === 1 ? '' : 'en'}`;
-}
-
-// Format an absolute timestamp: time-only if today, date+time otherwise.
-function formatAbsoluteDe(ts) {
-  const d = new Date(ts);
-  const sameDay = d.toDateString() === new Date().toDateString();
-  if (sameDay) {
-    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-  }
-  return d.toLocaleString('de-DE', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-  });
-}
-
-// Two-line readout: when the auto-sync last fired, and when its scraped
-// values last actually changed. Helps the user notice silent staleness
-// (sync keeps succeeding, but the numbers haven't moved in hours).
-async function renderSyncInfo() {
-  const el = document.getElementById('sync-info');
-  if (!el) return;
-
-  const {
-    last_auto_sync,
-    last_auto_sync_change_at
-  } = await chrome.storage.local.get(['last_auto_sync', 'last_auto_sync_change_at']);
-
-  if (!last_auto_sync) {
-    el.style.display = 'none';
-    return;
-  }
-
-  const now = Date.now();
-  const syncAgo = formatRelativeDe(now - last_auto_sync);
-  const syncAt = formatAbsoluteDe(last_auto_sync);
-
-  el.replaceChildren();
-
-  const row1 = document.createElement('div');
-  row1.className = 'sync-info-row';
-  const lbl1 = document.createElement('span');
-  lbl1.className = 'sync-info-label';
-  lbl1.textContent = 'Letzter Sync';
-  const val1 = document.createElement('span');
-  val1.className = 'sync-info-value';
-  val1.textContent = `${syncAt} (${syncAgo})`;
-  row1.append(lbl1, val1);
-  el.appendChild(row1);
-
-  if (last_auto_sync_change_at) {
-    const sinceChange = now - last_auto_sync_change_at;
-    const changedNow = sinceChange < 60_000;  // within last minute → "soeben"
-    const row2 = document.createElement('div');
-    row2.className = 'sync-info-row';
-    const lbl2 = document.createElement('span');
-    lbl2.className = 'sync-info-label';
-    lbl2.textContent = changedNow ? 'Werte aktualisiert' : 'Werte unverändert seit';
-    const val2 = document.createElement('span');
-    val2.className = 'sync-info-value';
-    // Mark stale (orange) if values haven't moved in over an hour.
-    if (sinceChange > 60 * 60_000) val2.classList.add('stale');
-    val2.textContent = changedNow
-      ? 'soeben'
-      : `${formatAbsoluteDe(last_auto_sync_change_at)} (${formatRelativeDe(sinceChange)})`;
-    row2.append(lbl2, val2);
-    el.appendChild(row2);
-  }
-
-  el.style.display = 'block';
-}
-
-function renderLastSyncAll(state) {
-  if (!state) return;
-  const parts = (state.steps || []).map((s) => {
-    if (s.status === 'ok') return `✅ ${s.label}`;
-    if (s.status === 'skipped') {
-      let m = s.message || 'nichts zu syncen';
-      if (s.url) m += ` · ${s.url}`;
-      if (s.preview) m += ` · "${s.preview.substring(0, 400)}"`;
-      return `⚠️ ${s.label}: ${m}`;
-    }
-    return `❌ ${s.label}: ${s.message || 'Fehler'}`;
-  });
-  if (state.status === 'running') parts.push('⏳ läuft…');
-  if (parts.length === 0) return;
-  const allOk = state.status === 'done' && (state.steps || []).every((s) => s.status === 'ok');
-  const hasError = (state.steps || []).some((s) => s.status === 'error');
-  const tone = state.status === 'done'
-    ? (allOk ? 'success' : (hasError ? 'error' : 'warn'))
-    : 'info';
-  renderSyncStatus(parts.join(' · '), tone);
-}
-
-// Renders into the dedicated #sync-status container so it survives the
-// loadStats() refresh (which clears #error-container).
-function renderSyncStatus(message, tone) {
-  const el = document.getElementById('sync-status');
-  if (!el) return;
-  const palette = {
-    success: { bg: '#efe', border: '#4c4', color: '#3a3' },
-    info:    { bg: '#eef',  border: '#88f', color: '#447' },
-    warn:    { bg: '#ffd',  border: '#dc4', color: '#864' },
-    error:   { bg: '#fee',  border: '#f44', color: '#c33' },
-  };
-  const c = palette[tone] || palette.info;
-  el.replaceChildren();
-  const div = document.createElement('div');
-  div.style.background = c.bg;
-  div.style.borderLeft = `4px solid ${c.border}`;
-  div.style.color = c.color;
-  div.style.padding = '10px 12px';
-  div.style.borderRadius = '4px';
-  div.style.fontSize = '11px';
-  div.style.marginBottom = '12px';
-  div.style.lineHeight = '1.4';
-  div.textContent = message;
-  el.appendChild(div);
 }

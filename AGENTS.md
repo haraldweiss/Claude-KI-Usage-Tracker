@@ -778,3 +778,69 @@ const steps = [
 2. Popup öffnen → `Sync alle`
 3. Erwartung: Claude.ai und Anthropic Console werden übersprungen; OpenCode Go, z.ai, Codex, OpenAI API etc. laufen weiter.
 4. Wenn wieder ein Hänger auftritt: `chrome.storage.local.get('last_sync_all')` aus dem Service-Worker-DevTools posten; die neuen `steps` zeigen dann die konkrete Quelle.
+
+### 2026-06-24 — Architektur-Wechsel: Server-seitiges Scraping via Playwright (Pi/Claude Code)
+
+**Kontext:** Chrome MV3 Extension Scraping war dauerhaft unzuverlässig (Cloudflare blockt hidden Tabs, Cross-Domain-Navigation triggert Challenges, Service Worker wird terminiert, Chrome OS 27 Beta 2 instabil). Lösung: Scraping läuft jetzt auf der Oracle-VM via Playwright, die Extension ist reiner Viewer.
+
+**Erstellt (uncommitted — alles lokal + auf oracle-vm):**
+
+| Bereich | Was |
+|---|---|
+| `server-scraper/` | 15 Dateien — Playwright-TypeScript-Scraper (4 Quellen: claude-ai, anthropic-console, codex, openai-api) |
+| Oracle VM | Node 20 installiert (via nodesource), Playwright + Chromium, systemd Timer `ki-usage-scraper.timer` alle 15 Min → `ki-usage-scraper.service` |
+| `extension/background.js` | Viewer-only (kein Scraping, keine Alarms, kein importScripts). Nur `GET_COOKIES` message handler + `exportCookiesToServer()` |
+| `extension/manifest.json` | v3.0.0, permissions: `storage` + `cookies`, minimale host_permissions |
+| `extension/popup.html` | Vereinfacht — Cookies-Button immer sichtbar, API-Token-Eingabe |
+| `extension/popup.js` | Render-Funktionen, fetch von `/api/usage/summary?period=month`, Cookie-Export |
+| Backend API-Token | `ck_live_b333fda15624bd1b089ff185ac5153c193924a954c05adcc` (rotierbar im Dashboard) |
+
+**Alte Extension-Scraper:** nach `extension-scrapers-bak/` verschoben (Backup, falls Server-Scraper nicht startet).
+
+**Blocker beim Session-Ende — Cookie-Export:**
+
+macOS TCC blockiert ALLE Methoden, um Chrome-Cookies auszulesen:
+- `sqlite3 ~/Library/.../Chrome/Default/Cookies` → `authorization denied`
+- `cp`, `ditto`, Playwright auf das Profil → `Operation not permitted`
+- `python3 -m browser_cookie3` → hängt in Endlosschleife
+- Chrome mit `--remote-debugging-port=9222` startbar, aber CDP-Endpoint antwortet nicht
+
+**Fix:** Terminal in Systemeinstellungen → Datenschutz & Sicherheit → Dateien und Ordner → **Vollzugriff auf das Dateisystem (Full Disk Access)** aktivieren. Danach kann `server-scraper/src/export-cookies-system.ts` starten (oder manuell sqlite3).
+
+**Alternative:** `exportCookiesToServer()` in der Extension (via `chrome.cookies.getAll`) — funktioniert im Popup-Kontext unzuverlässig. Background-Service-Worker hat die Permission, aber Message-Roundtrip scheitert oft.
+
+**Deploy-Status oracle-vm:**
+```
+/opt/claudetracker/server-scraper/  (rsync completed)
+→ npm ci ✅
+→ systemctl enable --now ki-usage-scraper.timer ✅ (Timer aktiv, alle 15 Min)
+```
+**Scraper laufen noch nicht** — Cookies fehlen. Nach Cookie-Export:
+```
+ssh oracle-vm 'cd /opt/claudetracker/server-scraper && npx tsx src/index.ts'
+```
+
+**Quick-Reference für nächstes Mal:**
+```bash
+# Git-Status (alles uncommitted)
+cd "/Library/WebServer/Documents/KI Usage tracker"
+git status
+
+# Extension reloaden (nach Code-Änderungen)
+chrome://extensions → KI Usage Tracker → Toggle AUS/AN
+
+# Cookie-Export via Extension (nach Full Disk Access für Terminal)
+# Oder: Chrome-Cookies manuell exportieren:
+cp ~/Library/Application\ Support/Google/Chrome/Default/Cookies /tmp/chrome-cookies.db
+sqlite3 /tmp/chrome-cookies.db "SELECT host_key, name, value, path, secure, httponly FROM cookies WHERE host_key LIKE '%claude%' OR host_key LIKE '%opencode%' OR host_key LIKE '%z.ai%' OR host_key LIKE '%chatgpt%' OR host_key LIKE '%openai%';"
+
+# Auf oracle-vm deployen
+rsync -avz --delete server-scraper/ oracle-vm:/opt/claudetracker/server-scraper/
+ssh oracle-vm 'cd /opt/claudetracker/server-scraper && npm ci'
+
+# Scraper manuell starten (nach Cookie-Import)
+ssh oracle-vm 'cd /opt/claudetracker/server-scraper && npx tsx src/index.ts'
+
+# Timer Logs
+ssh oracle-vm 'journalctl -u ki-usage-scraper --since "10 minutes ago" --no-pager'
+```

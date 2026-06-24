@@ -21,6 +21,10 @@ function autoSyncSignature(d) {
   return AUTO_SYNC_SIGNATURE_FIELDS.map((f) => `${f}=${d?.[f] ?? ''}`).join('|');
 }
 
+function isClaudeNoPlanUrl(url) {
+  return typeof url === 'string' && /^https:\/\/claude\.ai\/upgrade(?:[/?#]|$)/i.test(url);
+}
+
 // Poll a tab's body text until common usage-page markers appear, or budget
 // runs out. Handles multi-step redirect chains (auth → target host) because
 // executeScript errors are caught silently. Budget covers whole chain +
@@ -139,6 +143,14 @@ async function autoSync(externalTabId = null) {
     // executeScript would throw the unhelpful "Cannot access contents" Chrome error.
     const tabInfo = await chrome.tabs.get(tabId);
     const tabUrl = tabInfo?.url || '';
+    if (isClaudeNoPlanUrl(tabUrl)) {
+      return {
+        skipped: true,
+        reason: 'no_plan',
+        url: tabUrl,
+        preview: 'Claude.ai usage skipped: no active Claude.ai plan in this Chrome profile.'
+      };
+    }
     const isAccessible = tabUrl.startsWith('https://claude.ai/') ||
       tabUrl.startsWith('https://platform.claude.com/') ||
       tabUrl.startsWith('https://api.claude.ai/') ||
@@ -400,6 +412,10 @@ async function autoSync(externalTabId = null) {
       try { await chrome.tabs.remove(createdTabId); } catch {}
     }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { isClaudeNoPlanUrl };
 }
 
 // ---------------------------------------------------------------------------

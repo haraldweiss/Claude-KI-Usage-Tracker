@@ -175,3 +175,11 @@ test('normalizes stale running sync-all state to done with an error step', () =>
   assert.equal(state.steps.at(-1).status, 'error');
   assert.match(state.steps.at(-1).message, /abgebrochen/);
 });
+
+test('detects Claude.ai upgrade redirect as no active plan', () => {
+  const { isClaudeNoPlanUrl } = loadScripts(['background-scraper-claude.js']);
+
+  assert.equal(isClaudeNoPlanUrl('https://claude.ai/upgrade'), true);
+  assert.equal(isClaudeNoPlanUrl('https://claude.ai/upgrade?plan=pro'), true);
+  assert.equal(isClaudeNoPlanUrl('https://claude.ai/settings/usage'), false);
+});

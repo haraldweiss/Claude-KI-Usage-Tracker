@@ -1,142 +1,118 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
-import React, { useEffect, useState } from 'react';
-import { getSummary, getPlanPricing, getAlerts } from '../../services/api';
-import {
-  CombinedSpendBreakdown,
-  PlanPricingRow,
-  AlertInfo,
-  OpenCodeGoSpend,
-  ZaiSpend,
-  CodexSpend,
-  OpenAiApiSpend,
-  OpenCodeApiSpend,
-  ClaudeAiSpend
-} from '../../types/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { getProviders, updateProvider, getPlanPricing } from '../../services/api';
+import { ProviderInfo, PlanPricingRow } from '../../types/api';
 import { formatEur, formatUsd, formatRelativeTime } from '../../utils/format';
 
 /* ------------------------------------------------------------------ */
-/*  Provider definitions                                               */
+/*  Provider definitions (icons + colors only, rest comes from API)    */
 /* ------------------------------------------------------------------ */
 
-interface ProviderConfig {
-  id: string;
-  label: string;
-  icon: string;
-  color: string;
-  source: 'server-scraper' | 'extension-sync';
-  scrapeUrl?: string;
+const PROVIDER_META: Record<string, { icon: string; color: string; scrapeUrl?: string }> = {
+  claude_ai:       { icon: '☁️', color: 'bg-orange-500', scrapeUrl: 'https://claude.ai/settings/usage' },
+  anthropic_api:   { icon: '🔑', color: 'bg-blue-600', scrapeUrl: 'https://platform.claude.com/settings/keys' },
+  claude_code:     { icon: '💻', color: 'bg-indigo-600', scrapeUrl: 'https://platform.claude.com/claude-code/usage' },
+  opencode_go:     { icon: '⚡', color: 'bg-emerald-600', scrapeUrl: 'https://opencode.ai/workspace/…/go' },
+  opencode_api:    { icon: '🔌', color: 'bg-sky-600', scrapeUrl: 'https://opencode.ai/…/usage' },
+  zai:             { icon: '🧠', color: 'bg-purple-600', scrapeUrl: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan' },
+  codex:           { icon: '💬', color: 'bg-green-600', scrapeUrl: 'https://chatgpt.com/codex/settings/usage' },
+  openai_api:      { icon: '🟢', color: 'bg-teal-600', scrapeUrl: 'https://platform.openai.com/usage' },
+};
+
+/* ------------------------------------------------------------------ */
+/*  Derived status → display helpers                                   */
+/* ------------------------------------------------------------------ */
+
+type DisplayStatus = 'active' | 'not_subscribed' | 'no_data' | 'no_plan';
+
+function displayStatus(derived: ProviderInfo['derived_status'], planName: string | null): DisplayStatus {
+  if (planName) return 'active';
+  if (derived === 'active') return 'active';
+  if (derived === 'no_plan') return 'not_subscribed';
+  return 'no_data';
 }
 
-const PROVIDERS: ProviderConfig[] = [
-  { id: 'claude_ai', label: 'Claude.ai', icon: '☁️', color: 'bg-orange-500', source: 'server-scraper', scrapeUrl: 'https://claude.ai/settings/usage' },
-  { id: 'anthropic_api', label: 'Anthropic API', icon: '🔑', color: 'bg-blue-600', source: 'extension-sync', scrapeUrl: 'https://platform.claude.com/settings/keys' },
-  { id: 'opencode_go', label: 'OpenCode Go', icon: '⚡', color: 'bg-emerald-600', source: 'extension-sync', scrapeUrl: 'https://opencode.ai/workspace/…/go' },
-  { id: 'zai', label: 'z.ai (GLM)', icon: '🧠', color: 'bg-purple-600', source: 'extension-sync', scrapeUrl: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan' },
-  { id: 'codex', label: 'Codex (ChatGPT)', icon: '💬', color: 'bg-green-600', source: 'server-scraper', scrapeUrl: 'https://chatgpt.com/codex/settings/usage' },
-  { id: 'openai_api', label: 'OpenAI API', icon: '🟢', color: 'bg-teal-600', source: 'server-scraper', scrapeUrl: 'https://platform.openai.com/usage' },
-  { id: 'opencode_api', label: 'OpenCode API', icon: '🔌', color: 'bg-sky-600', source: 'extension-sync', scrapeUrl: 'https://opencode.ai/…/usage' },
-];
+const STATUS_STYLES: Record<DisplayStatus, string> = {
+  active:          'bg-emerald-100 text-emerald-700',
+  not_subscribed:  'bg-gray-100 text-gray-500',
+  no_data:         'bg-gray-100 text-gray-400',
+  no_plan:         'bg-amber-100 text-amber-700',
+};
+const STATUS_LABELS: Record<DisplayStatus, string> = {
+  active:          'Aktiv',
+  not_subscribed:  'Nicht abonniert',
+  no_data:         'Keine Daten',
+  no_plan:         'Kein Plan',
+};
 
 /* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
+/*  Format scrape_summary into a readable detail string                */
 /* ------------------------------------------------------------------ */
 
-type ProviderStatus = 'active' | 'not_subscribed' | 'no_data' | 'no_plan' | 'login_required';
-
-interface ProviderState {
-  planName: string | null;
-  status: ProviderStatus;
-  monthlyEur: number;
-  monthlyUsd?: number;
-  lastSynced: string | null;
-  detail: string;
+function formatDetail(key: string, summary: Record<string, unknown> | null): string {
+  if (!summary) return '—';
+  const s = summary;
+  switch (key) {
+    case 'claude_ai':
+      return s.spent_eur != null
+        ? `${formatEur(s.spent_eur as number)} · Session ${s.session_pct ?? '?'}%`
+        : s.reset_date ? `Reset ${s.reset_date}` : '—';
+    case 'anthropic_api':
+      return s.total_cost_usd != null
+        ? `${formatUsd(s.total_cost_usd as number)} · ${s.workspace_count ?? 0} Workspaces`
+        : '—';
+    case 'claude_code':
+      return s.total_cost_usd != null
+        ? `${formatUsd(s.total_cost_usd as number)} · ${s.keys_count ?? 0} Keys`
+        : '—';
+    case 'opencode_go':
+      return `Cont ${s.continuous_pct ?? '?'}% · Wo ${s.weekly_pct ?? '?'}% · Mo ${s.monthly_pct ?? '?'}%`;
+    case 'opencode_api':
+      return s.total_cost_usd != null
+        ? `${formatUsd(s.total_cost_usd as number)} · ${s.total_requests ?? 0} Requests`
+        : '—';
+    case 'zai':
+      return `5h ${s.five_hour_pct ?? 0}% · Wo ${s.weekly_pct ?? 0}%`;
+    case 'codex':
+      return s.five_hour_remaining_pct != null
+        ? `5h ${100 - (s.five_hour_remaining_pct as number)}% · Wo ${100 - (s.weekly_remaining_pct as number ?? 100)}%`
+        : '—';
+    case 'openai_api':
+      return s.total_cost_usd != null
+        ? `${formatUsd(s.total_cost_usd as number)} · ${s.organization ?? '—'}`
+        : '—';
+    default:
+      return '—';
+  }
 }
 
-function providerStatus(
-  claudeAi: ClaudeAiSpend | null | undefined,
-  opencodeGo: OpenCodeGoSpend | null | undefined,
-  zai: ZaiSpend | null | undefined,
-  codex: CodexSpend | null | undefined,
-  openaiApi: OpenAiApiSpend | null | undefined,
-  opencodeApi: OpenCodeApiSpend | null | undefined,
-  alerts: AlertInfo | null | undefined
-): Record<string, ProviderState> {
-  const meta = claudeAi?.meta;
-  const claudeStatus: ProviderStatus = meta?.plan_name
-    ? 'active'
-    : claudeAi?.cost_eur != null
-      ? 'active'
-      : 'not_subscribed';
+/* ------------------------------------------------------------------ */
+/*  Cost extraction from scrape_summary + plan_pricing                 */
+/* ------------------------------------------------------------------ */
 
-  return {
-    claude_ai: {
-      planName: meta?.plan_name ?? null,
-      status: claudeStatus,
-      monthlyEur: claudeAi?.cost_eur ?? 0,
-      lastSynced: claudeAi?.last_synced ?? null,
-      detail: meta?.spent_pct != null ? `${meta.spent_pct}% genutzt`
-            : meta?.balance_eur != null ? `Guthaben ${formatEur(meta.balance_eur)}`
-            : 'Kein aktives Abo',
-    },
-    anthropic_api: {
-      planName: 'API (Pay-as-you-go)',
-      status: 'active',
-      monthlyEur: 0,
-      monthlyUsd: 0,
-      lastSynced: null,
-      detail: alerts
-        ? `Guthaben ${formatUsd(alerts.balance_usd ?? 0)} · Heute ${formatUsd(alerts.today_cost_usd)}`
-        : 'Nutzungsdaten vorhanden',
-    },
-    opencode_go: {
-      planName: opencodeGo?.plan_name && opencodeGo.plan_name !== 'Unknown' ? opencodeGo.plan_name : 'OpenCode Go',
-      status: opencodeGo ? 'active' : 'no_data',
-      monthlyEur: 0,
-      lastSynced: opencodeGo?.last_synced ?? null,
-      detail: opencodeGo
-        ? `Fortlaufend ${opencodeGo.continuous_pct ?? '?'}% · Wöchentlich ${opencodeGo.weekly_pct ?? '?'}%`
-        : 'Keine Sync-Daten',
-    },
-    zai: {
-      planName: zai?.plan_name ?? 'GLM Coding Plan',
-      status: zai ? 'active' : 'no_data',
-      monthlyEur: 0,
-      lastSynced: zai?.last_synced ?? null,
-      detail: zai
-        ? `5h ${zai.five_hour_pct ?? 0}% · Wöchentlich ${zai.weekly_pct ?? 0}%`
-        : 'Keine Sync-Daten',
-    },
-    codex: {
-      planName: codex?.plan_name && codex.plan_name !== 'Unknown' ? codex.plan_name : 'ChatGPT Plus',
-      status: codex ? 'active' : 'no_data',
-      monthlyEur: codex?.plan_cost_eur ?? 0,
-      lastSynced: codex?.last_synced ?? null,
-      detail: codex
-        ? `5h ${100 - (codex.five_hour_remaining_pct ?? 100)}% · Wöchentlich ${100 - (codex.weekly_remaining_pct ?? 100)}%`
-        : 'Keine Sync-Daten',
-    },
-    openai_api: {
-      planName: openaiApi?.organization_name || 'OpenAI',
-      status: openaiApi ? 'active' : 'no_data',
-      monthlyEur: 0,
-      monthlyUsd: openaiApi?.cost_usd,
-      lastSynced: openaiApi?.last_synced ?? null,
-      detail: openaiApi
-        ? `${(openaiApi.total_input_tokens / 1000).toFixed(0)}K In · ${(openaiApi.total_output_tokens / 1000).toFixed(0)}K Out`
-        : 'Keine Daten',
-    },
-    opencode_api: {
-      planName: 'OpenCode API',
-      status: opencodeApi ? 'active' : 'no_data',
-      monthlyEur: 0,
-      monthlyUsd: opencodeApi?.total_cost_usd,
-      lastSynced: null,
-      detail: opencodeApi
-        ? `${opencodeApi.by_key.length} Keys · ${(opencodeApi.total_input_tokens / 1000).toFixed(0)}K Tokens`
-        : 'Keine Daten',
-    },
-  };
+function formatCost(
+  summary: Record<string, unknown> | null,
+  allPlans: PlanPricingRow[],
+  configPlanName: string | null
+): string {
+  // First: try user-set plan_name → plan_pricing lookup
+  if (configPlanName) {
+    const match = allPlans.find((p) => p.plan_name === configPlanName);
+    if (match && match.monthly_eur > 0) return `${formatEur(match.monthly_eur)}/Monat`;
+  }
+
+  // Second: try scrape_summary cost fields
+  if (!summary) return '—';
+  const s = summary;
+  const usd = s.total_cost_usd as number | undefined;
+  if (usd && usd > 0) return `${formatUsd(usd)} MTD`;
+  const eur = s.spent_eur as number | undefined;
+  if (eur && eur > 0) return `${formatEur(eur)} MTD`;
+  const priceUsd = s.price_usd as number | undefined;
+  if (priceUsd && priceUsd > 0) return `${formatUsd(priceUsd)}/Monat`;
+
+  return '—';
 }
 
 /* ------------------------------------------------------------------ */
@@ -145,96 +121,107 @@ function providerStatus(
 
 function ProviderCard({
   provider,
-  state,
   allPlans,
+  onPlanChange,
+  saving,
 }: {
-  provider: ProviderConfig;
-  state: ProviderState;
+  provider: ProviderInfo;
   allPlans: PlanPricingRow[];
+  onPlanChange: (key: string, planName: string | null) => void;
+  saving: boolean;
 }): React.ReactElement {
-  const statusColors: Record<ProviderStatus, string> = {
-    active: 'bg-emerald-100 text-emerald-700',
-    not_subscribed: 'bg-gray-100 text-gray-500',
-    no_data: 'bg-gray-100 text-gray-400',
-    no_plan: 'bg-amber-100 text-amber-700',
-    login_required: 'bg-red-100 text-red-700',
-  };
-  const statusLabels: Record<ProviderStatus, string> = {
-    active: 'Aktiv',
-    not_subscribed: 'Nicht abonniert',
-    no_data: 'Keine Daten',
-    no_plan: 'Kein Plan',
-    login_required: 'Anmeldung nötig',
-  };
+  const meta = PROVIDER_META[provider.key] ?? { icon: '❓', color: 'bg-gray-500' };
+  const dStatus = displayStatus(provider.derived_status, provider.plan_name);
+  const detail = formatDetail(provider.key, provider.scrape_summary);
+  const cost = formatCost(provider.scrape_summary, allPlans, provider.plan_name);
 
-  const matchingPlan = state.planName
-    ? allPlans.find((p) => p.plan_name === state.planName)
-    : null;
-  const displayEur = state.monthlyEur > 0 ? state.monthlyEur : matchingPlan?.monthly_eur ?? 0;
+  // Remove duplicates and sort plan names for dropdown
+  const planOptions = allPlans
+    .filter((p, i, a) => a.findIndex((x) => x.plan_name === p.plan_name) === i)
+    .sort((a, b) => a.plan_name.localeCompare(b.plan_name));
+
+  const [draft, setDraft] = useState(provider.plan_name ?? '');
+  const currentPlan = draft || provider.plan_name || '';
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      <div className={`${provider.color} px-4 py-2.5 flex items-center justify-between`}>
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+      {/* Header */}
+      <div className={`${meta.color} px-4 py-2.5 flex items-center justify-between shrink-0`}>
         <div className="flex items-center gap-2 text-white min-w-0">
-          <span className="text-lg shrink-0">{provider.icon}</span>
-          <span className="font-semibold text-sm truncate">{provider.label}</span>
+          <span className="text-lg shrink-0">{meta.icon}</span>
+          <span className="font-semibold text-sm truncate">{provider.display_name}</span>
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${statusColors[state.status]}`}>
-          {statusLabels[state.status]}
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${STATUS_STYLES[dStatus]}`}>
+          {STATUS_LABELS[dStatus]}
         </span>
       </div>
 
-      <div className="p-4 space-y-2 text-sm">
-        <div className="flex justify-between gap-2">
-          <span className="text-gray-500 shrink-0">Plan</span>
-          <span className="font-medium text-gray-900 truncate text-right" title={state.planName ?? undefined}>
-            {state.planName || '—'}
-          </span>
+      {/* Body */}
+      <div className="p-4 space-y-2 text-sm flex-1 flex flex-col justify-between">
+        {/* Plan selector */}
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Plan</label>
+          <div className="flex gap-1">
+            <select
+              value={currentPlan}
+              onChange={(e) => setDraft(e.target.value)}
+              className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 bg-white truncate"
+              title={currentPlan || '—'}
+            >
+              <option value="">— Kein Plan —</option>
+              {planOptions.map((p) => (
+                <option key={p.plan_name} value={p.plan_name}>
+                  {p.plan_name} ({formatEur(p.monthly_eur)}/M)
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                const val = draft || null;
+                if (val !== provider.plan_name) onPlanChange(provider.key, val);
+              }}
+              disabled={draft === (provider.plan_name ?? '') || saving}
+              className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+              title="Speichern"
+            >
+              {saving ? '…' : '✓'}
+            </button>
+          </div>
         </div>
 
+        {/* Cost */}
         <div className="flex justify-between gap-2">
           <span className="text-gray-500 shrink-0">Kosten</span>
-          <span className="font-medium text-gray-900 text-right">
-            {displayEur > 0
-              ? `${formatEur(displayEur)}/Monat`
-              : state.monthlyUsd != null && state.monthlyUsd > 0
-                ? `${formatUsd(state.monthlyUsd)} MTD`
-                : '—'}
+          <span className="font-medium text-gray-900 text-right truncate max-w-[160px]" title={cost}>
+            {cost}
           </span>
         </div>
 
-        {state.detail && (
+        {/* Detail (scraped data) */}
+        <div className="flex justify-between gap-2">
+          <span className="text-gray-500 shrink-0">Nutzung</span>
+          <span className="text-gray-700 text-right truncate max-w-[160px]" title={detail}>
+            {detail}
+          </span>
+        </div>
+
+        {/* Last sync */}
+        {provider.last_sync && (
           <div className="flex justify-between gap-2">
-            <span className="text-gray-500 shrink-0">Status</span>
-            <span className="text-gray-700 truncate text-right max-w-[180px]" title={state.detail}>
-              {state.detail}
+            <span className="text-gray-500 shrink-0">Sync</span>
+            <span className="text-gray-600 text-xs text-right">
+              {formatRelativeTime(provider.last_sync)}
             </span>
           </div>
         )}
 
-        {state.lastSynced && (
-          <div className="flex justify-between gap-2">
-            <span className="text-gray-500 shrink-0">Letzter Sync</span>
-            <span className="text-gray-600 text-xs text-right">{formatRelativeTime(state.lastSynced)}</span>
-          </div>
-        )}
-
-        <div className="flex justify-between gap-2">
-          <span className="text-gray-500 shrink-0">Quelle</span>
-          <span className="text-xs text-gray-400 text-right">
-            {provider.source === 'server-scraper' ? '🤖 Server' : '🔐 Extension'}
-          </span>
-        </div>
-
-        {provider.scrapeUrl && (
+        {/* Scrape URL */}
+        {meta.scrapeUrl && (
           <div className="pt-1">
-            <a
-              href={provider.scrapeUrl}
-              target="_blank" rel="noopener noreferrer"
-              className="text-xs text-blue-500 hover:underline truncate block"
-              title={provider.scrapeUrl}
-            >
-              {provider.scrapeUrl}
+            <a href={meta.scrapeUrl} target="_blank" rel="noopener noreferrer"
+              className="text-[10px] text-blue-500 hover:underline truncate block"
+              title={meta.scrapeUrl}>
+              {meta.scrapeUrl}
             </a>
           </div>
         )}
@@ -248,35 +235,40 @@ function ProviderCard({
 /* ------------------------------------------------------------------ */
 
 export default function ProviderSettingsSection(): React.ReactElement {
-  const [combined, setCombined] = useState<CombinedSpendBreakdown | null>(null);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [plans, setPlans] = useState<PlanPricingRow[]>([]);
-  const [alerts, setAlerts] = useState<AlertInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null); // provider key being saved
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const [summary, planRes, alertInfo] = await Promise.all([
-          getSummary('month'),
-          getPlanPricing(),
-          getAlerts(),
-        ]);
-        if (cancelled) return;
-        setCombined(summary.combined ?? null);
-        setPlans(planRes.plans);
-        setAlerts(alertInfo);
-        setError(null);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Unknown error');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
+  const load = useCallback(async () => {
+    try {
+      const [provRes, planRes] = await Promise.all([getProviders(), getPlanPricing()]);
+      setProviders(provRes.providers);
+      setPlans(planRes.plans);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handlePlanChange = useCallback(async (key: string, planName: string | null) => {
+    setSaving(key);
+    try {
+      await updateProvider(key, { plan_name: planName });
+      // Reload to get fresh data from backend
+      await load();
+    } catch (err) {
+      // eslint-disable-next-line no-alert
+      alert('Fehler beim Speichern: ' + (err instanceof Error ? err.message : 'unbekannt'));
+    } finally {
+      setSaving(null);
+    }
+  }, [load]);
 
   if (error) {
     return (
@@ -286,27 +278,11 @@ export default function ProviderSettingsSection(): React.ReactElement {
     );
   }
 
-  const claudeAi = combined?.claude_ai ?? null;
-  const opencodeGo = combined?.opencode_go ?? null;
-  const zai = combined?.zai ?? null;
-  const codex = combined?.codex ?? null;
-  const openaiApi = combined?.openai_api ?? null;
-  const opencodeApi = combined?.opencode_api ?? null;
-  const anthropicApiCost = combined?.anthropic_api?.cost_usd ?? 0;
-
-  const states = providerStatus(claudeAi, opencodeGo, zai, codex, openaiApi, opencodeApi, alerts);
-
-  if (anthropicApiCost > 0) {
-    states.anthropic_api.monthlyUsd = anthropicApiCost;
-  }
-
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-1">Provider-Übersicht</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Status, Pläne und Konfiguration aller angebundenen KI-Dienste.
-        </p>
+        <p className="text-sm text-gray-500 mb-4">Status, Pläne und Konfiguration aller angebundenen KI-Dienste.</p>
         <div className="text-center py-8 text-gray-500">Lade Provider-Daten…</div>
       </div>
     );
@@ -317,18 +293,19 @@ export default function ProviderSettingsSection(): React.ReactElement {
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Provider-Übersicht</h2>
         <p className="text-gray-600 text-sm mt-1">
-          Alle angebundenen KI-Dienste auf einen Blick. Status wird aus aktuell gescrapten
-          Daten ermittelt. Pläne können unten in den Plan-Preisen konfiguriert werden.
+          Pro Provider den gebuchten Plan auswählen. Der Status wird aus den aktuell gescrapten
+          Daten ermittelt. Die Preise kommen aus der Plan-Tabelle weiter unten.
         </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {PROVIDERS.map((provider) => (
+        {providers.map((provider) => (
           <ProviderCard
-            key={provider.id}
+            key={provider.key}
             provider={provider}
-            state={states[provider.id]}
             allPlans={plans}
+            onPlanChange={handlePlanChange}
+            saving={saving === provider.key}
           />
         ))}
       </div>
@@ -338,8 +315,9 @@ export default function ProviderSettingsSection(): React.ReactElement {
           Datenquellen-Legende
         </summary>
         <div className="mt-2 space-y-1 text-xs text-gray-500">
-          <p>🤖 <strong>Server (Playwright)</strong> — Läuft auf der Oracle-VM, nutzt exportierte Cookies. Taktrate: alle 2h via systemd-Timer.</p>
-          <p>🔐 <strong>Extension (Tab)</strong> — Läuft im Chrome-Browser, öffnet kurz ein Tab, scraped via executeScript. Per Klick auf "Sync geschützte Quellen" im Popup.</p>
+          <p><strong>Status</strong> — Grün = aktiv (Plan zugewiesen oder Kosten vorhanden). Grau "Nicht abonniert" = kein aktiver Plan. Grau "Keine Daten" = noch nie gesynct.</p>
+          <p><strong>Plan</strong> — Dropdown mit allen bekannten Abos. Auswahl wird in der Datenbank gespeichert und beim nächsten Dashboard-Besuch verwendet.</p>
+          <p><strong>Nutzung</strong> — Live-Daten aus dem letzten Scrape. "—" bedeutet keine Nutzungsdaten in der aktuellen Abrechnungsperiode.</p>
         </div>
       </details>
     </div>

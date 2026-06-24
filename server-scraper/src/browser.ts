@@ -23,6 +23,7 @@ export async function getBrowser(): Promise<Browser> {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
       ],
     });
   }
@@ -40,7 +41,25 @@ export async function getContext(cookieKey?: string): Promise<BrowserContext> {
     context = await b.newContext({
       viewport: { width: 1280, height: 720 },
       userAgent:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+      locale: 'de-DE',
+      timezoneId: 'Europe/Berlin',
+    });
+
+    // Hide Playwright/webdriver automation indicators
+    await context.addInitScript(() => {
+      // @ts-expect-error override
+      delete navigator.__proto__.webdriver;
+      // Override chrome.runtime (headless detection)
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      // Override plugins length (headless has 0)
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+      });
+      // Override languages (headless is empty)
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['de-DE', 'de', 'en-US', 'en'],
+      });
     });
 
     // Load saved cookies. First try individual cookieKey file (login.ts format),
@@ -143,7 +162,7 @@ export async function newPage(url?: string): Promise<Page> {
   const ctx = await getContext();
   const page = await ctx.newPage();
   if (url) {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   }
   return page;
 }
@@ -166,5 +185,5 @@ export async function closeBrowser(): Promise<void> {
  * Navigate to a URL and wait for the page to be fully loaded.
  */
 export async function navigateAndWait(page: Page, url: string, timeoutMs = 30000): Promise<void> {
-  await page.goto(url, { waitUntil: 'networkidle', timeout: timeoutMs });
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 }

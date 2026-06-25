@@ -161,6 +161,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
   }
+  if (message.type === 'GET_NEXT_AUTO_SYNC') {
+    chrome.alarms.get('AUTO_HARD_SYNC', (alarm) => {
+      sendResponse({
+        exists: !!alarm,
+        scheduled_at: alarm?.scheduledTime ?? null,
+        period_in_minutes: alarm?.periodInMinutes ?? null,
+      });
+    });
+    return true;
+  }
   return false;
 });
 
@@ -211,6 +221,49 @@ setTimeout(() => {
 
 // Periodic re-export
 setInterval(exportCookiesToServer, AUTO_EXPORT_INTERVAL_MS);
+
+// ---- Auto-Sync: Hard Sources via chrome.alarms ----
+let _autoSyncInProgress = false;
+
+// Create alarm only if it doesn't exist yet (avoids reset on SW restart)
+chrome.alarms.get('AUTO_HARD_SYNC', (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create('AUTO_HARD_SYNC', {
+      delayInMinutes: 1,    // first sync 1 min after SW start
+      periodInMinutes: 15   // every 15 minutes thereafter
+    });
+    console.log('[auto-sync] alarm created: every 120min');
+  } else {
+    console.log('[auto-sync] alarm already exists, next run at',
+      new Date(alarm.scheduledTime).toLocaleString('de-DE'));
+  }
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== 'AUTO_HARD_SYNC') return;
+  if (_autoSyncInProgress) {
+    console.log('[auto-sync] skipped — sync already in progress');
+    return;
+  }
+  _autoSyncInProgress = true;
+  console.log('[auto-sync] starting...');
+  syncHardSources()
+    .then((result) => {
+      const ok = result?.results?.filter(r => r.ok).length ?? 0;
+      const fail = result?.results?.filter(r => !r.ok).length ?? 0;
+      console.log(`[auto-sync] done: ${ok} ok, ${fail} failed`);
+      if (fail > 0) {
+        const errors = result.results.filter(r => !r.ok).map(r => r.source + ': ' + (r.error || '?'));
+        console.warn('[auto-sync] failures:', errors.join(' · '));
+      }
+    })
+    .catch((err) => {
+      console.error('[auto-sync] error:', err.message);
+    })
+    .finally(() => {
+      _autoSyncInProgress = false;
+    });
+});
 
 /**
  * Sync the sources that need httponly cookies (encrypted by macOS Keychain).

@@ -76,10 +76,11 @@
   <div class="container">
     <div class="header">
       <h2>📊 Diesen Monat</h2>
-      <p>Server-seitiges Scraping alle 15 Min</p>
+      <p>Auto-Refresh 15min · Server-Scraper 1h · Hard-Sync 15min</p>
     </div>
 
     <div id="error-container"></div>
+    <div id="handoff-banner" style="display:none;background:#d32f2f;color:white;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11px;"></div>
 
     <div style="text-align:center;margin-bottom:8px;">
       <button class="btn-secondary" id="export-cookies-btn" style="font-size:11px;padding:6px 12px;width:auto;">🍪 Cookies exportieren (für Server-Scraper)</button>
@@ -131,9 +132,15 @@
 
       <div class="sync-info" id="sync-info">
         <div class="sync-info-row">
-          <span class="sync-info-label">Letzter Scrape</span>
+          <span class="sync-info-label">Letzter Scrape (gesamt)</span>
           <span class="sync-info-value" id="last-sync-time">—</span>
         </div>
+        <div id="auto-refresh-hint" style="font-size:10px;color:#999;margin-top:4px;"></div>
+        <div id="auto-sync-info" style="font-size:10px;color:#999;margin-top:2px;"></div>
+        <details id="sync-details" style="margin-top:6px;font-size:10px;">
+          <summary style="cursor:pointer;color:#888;">Pro-Quelle Details ▾</summary>
+          <div id="per-source-syncs" style="margin-top:4px;"></div>
+        </details>
       </div>
 
       <div class="actions">

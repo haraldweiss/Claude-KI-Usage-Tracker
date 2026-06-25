@@ -5,12 +5,14 @@
 
 const DEFAULT_API_BASE = 'https://claudetracker.wolfinisoftware.de/api';
 const DEFAULT_DASHBOARD_URL = 'https://claudetracker.wolfinisoftware.de';
+const AUTO_REFRESH_MS = 15 * 60 * 1000; // 15 Minuten
+let _countdownInterval = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initSettings();
   await loadStats();
 
-  document.getElementById('refresh-btn').addEventListener('click', loadStats);
+  document.getElementById('refresh-btn').addEventListener('click', refreshWithCountdown);
   document.getElementById('export-cookies-btn').addEventListener('click', exportCookiesToServer);
   document.getElementById('hard-sync-btn').addEventListener('click', syncHardSources);
   document.getElementById('open-dashboard').addEventListener('click', async () => {
@@ -23,6 +25,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const { dashboard_url } = await chrome.storage.local.get('dashboard_url');
     chrome.tabs.create({ url: (dashboard_url || DEFAULT_DASHBOARD_URL) + '/settings' });
   });
+
+  // Auto-Refresh alle 15 Minuten + Countdown-Anzeige
+  setInterval(refreshWithCountdown, AUTO_REFRESH_MS);
+  startCountdown();
+  updateAutoSyncInfo();
 });
 
 async function initSettings() {
@@ -78,6 +85,8 @@ async function loadStats() {
     const stats = await fetchMonthlyStats();
     if (stats) {
       displayStats(stats);
+      // Check for ≥90% limits
+      checkHandoffAlerts();
       loadingEl.style.display = 'none';
       statsContainer.style.display = 'block';
     } else {
@@ -97,6 +106,114 @@ async function fetchMonthlyStats() {
   const response = await fetch(`${baseUrl}/usage/summary?period=month`, { headers });
   if (!response.ok) return null;
   return response.json();
+}
+
+function startCountdown() {
+  if (_countdownInterval) clearInterval(_countdownInterval);
+  const hintEl = document.getElementById('auto-refresh-hint');
+  if (!hintEl) return;
+  let remaining = Math.round(AUTO_REFRESH_MS / 1000);
+
+  const tick = () => {
+    remaining--;
+    if (remaining <= 0) {
+      hintEl.textContent = 'Aktualisiere…';
+      return;
+    }
+    const min = Math.floor(remaining / 60);
+    const sec = remaining % 60;
+    hintEl.textContent = 'Nächste Aktualisierung in ' + min + ':' + (sec < 10 ? '0' : '') + sec;
+  };
+
+  tick();
+  _countdownInterval = setInterval(tick, 1000);
+}
+
+async function refreshWithCountdown() {
+  await loadStats();
+  startCountdown();
+}
+
+async function checkHandoffAlerts() {
+  const banner = document.getElementById('handoff-banner');
+  if (!banner) return;
+
+  try {
+    const { api_base, api_token } = await chrome.storage.local.get(['api_base', 'api_token']);
+    const baseUrl = (api_base || DEFAULT_API_BASE).replace(/\/+$/, '');
+    const headers = {};
+    if (api_token) headers['Authorization'] = 'Bearer ' + api_token;
+
+    const resp = await fetch(baseUrl + '/handoff/check', { headers });
+    if (!resp.ok) { banner.style.display = 'none'; return; }
+
+    const data = await resp.json();
+    if (!data.has_alerts || !data.alerts?.length) {
+      banner.style.display = 'none';
+      return;
+    }
+
+    // Build alert list
+    const items = data.alerts.map(a =>
+      '• ' + a.source + ' — ' + a.limit_type + ': ' + a.used_pct + '%'
+    ).join('<br>');
+
+    banner.innerHTML =
+      '<div style="font-weight:700;margin-bottom:4px;">⚠️ Limit-Warnung — Handoff empfohlen</div>' +
+      '<div style="margin-bottom:6px;">' + items + '</div>' +
+      '<div style="font-size:10px;">Führe aus im Projektverzeichnis:<br>' +
+      '<code style="background:rgba(255,255,255,0.2);padding:2px 4px;border-radius:3px;">' +
+      'KI_TRACKER_TOKEN=ck_... ./scripts/check-handoff.sh</code>' +
+      ' → erstellt AGENTS.md-Eintrag + Git-Commit</div>' +
+      '<div style="margin-top:6px;">' +
+      '<button id="handoff-copy-btn" style="background:rgba(255,255,255,0.2);color:white;' +
+      'border:1px solid rgba(255,255,255,0.4);border-radius:4px;padding:4px 8px;' +
+      'font-size:10px;cursor:pointer;">📋 Befehl kopieren</button>' +
+      '</div>';
+
+    banner.style.display = 'block';
+
+    // Copy button
+    const copyBtn = document.getElementById('handoff-copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const cmd = 'KI_TRACKER_TOKEN=$(cat ~/.config/ki-tracker-token) ./scripts/check-handoff.sh';
+        navigator.clipboard.writeText(cmd).catch(() => {});
+        copyBtn.textContent = '✅ Kopiert!';
+        setTimeout(() => { copyBtn.textContent = '📋 Befehl kopieren'; }, 3000);
+      });
+    }
+  } catch {
+    banner.style.display = 'none';
+  }
+}
+
+async function updateAutoSyncInfo() {
+  try {
+    const info = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'GET_NEXT_AUTO_SYNC' }, (response) => {
+        if (chrome.runtime.lastError) resolve(null);
+        else resolve(response);
+      });
+    });
+    const el = document.getElementById('auto-sync-info');
+    if (!el) return;
+    if (info?.exists && info.scheduled_at) {
+      const diff = Math.round((info.scheduled_at - Date.now()) / 60000);
+      if (diff <= 0) {
+        el.textContent = '⏳ Auto-Sync läuft gleich…';
+        return;
+      }
+      const hours = Math.floor(diff / 60);
+      const mins = diff % 60;
+      el.textContent = '🔐 Nächster Hard-Sync in ' +
+        (hours > 0 ? hours + 'h ' : '') + mins + 'min';
+    } else {
+      el.textContent = '🔐 Kein Auto-Sync geplant';
+    }
+  } catch {
+    // ignore
+  }
 }
 
 function displayStats(stats) {
@@ -246,13 +363,76 @@ function displayStats(stats) {
     showRow('openai-api-row', 'openai-api-summary', null);
   }
 
-  // Sync timestamp from backend (if available)
+  // Sync timestamps — compute overall last_scrape_at from per-source last_synced
   const lastSyncEl = document.getElementById('last-sync-time');
-  if (lastSyncEl && stats.last_scrape_at) {
-    lastSyncEl.textContent = new Date(stats.last_scrape_at).toLocaleString('de-DE');
-  } else if (lastSyncEl) {
-    lastSyncEl.textContent = '—';
+  const perSourceEl = document.getElementById('per-source-syncs');
+  const syncSources = [
+    { label: 'Claude.ai', key: cg?.claude_ai?.last_synced },
+    { label: 'Anthropic Console', key: cg?.anthropic_api?.last_synced },
+    { label: 'Claude Code', key: cg?.claude_code?.last_synced },
+    { label: 'OpenCode Go', key: cg?.opencode_go?.last_synced },
+    { label: 'z.ai', key: cg?.zai?.last_synced },
+    { label: 'OpenCode API', key: cg?.opencode_api?.last_synced },
+    { label: 'Codex', key: cg?.codex?.last_synced },
+    { label: 'OpenAI API', key: cg?.openai_api?.last_synced },
+  ];
+
+  // Compute global max timestamp
+  let lastScrapedAt = null;
+  for (const s of syncSources) {
+    if (s.key && (!lastScrapedAt || new Date(s.key) > new Date(lastScrapedAt))) {
+      lastScrapedAt = s.key;
+    }
   }
+
+  if (lastSyncEl) {
+    if (lastScrapedAt) {
+      const diff = Math.round((Date.now() - new Date(lastScrapedAt).getTime()) / 1000);
+      let ago = '';
+      if (diff < 60) ago = 'vor ' + diff + 's';
+      else if (diff < 3600) ago = 'vor ' + Math.round(diff / 60) + 'min';
+      else ago = 'vor ' + Math.round(diff / 3600) + 'h';
+      lastSyncEl.textContent = new Date(lastScrapedAt).toLocaleString('de-DE') + ' (' + ago + ')';
+    } else {
+      lastSyncEl.textContent = '—';
+    }
+  }
+
+  // Per-source sync detail labels
+  if (perSourceEl) {
+    const entries = syncSources.filter(s => s.key);
+    if (entries.length === 0) {
+      perSourceEl.innerHTML = '<span style="color:#999;">Keine Sync-Daten vorhanden</span>';
+    } else {
+      const labelMap = {
+        'Claude.ai': '🤖 Claude.ai',
+        'Anthropic Console': '🔑 Anthropic Console',
+        'Claude Code': '💻 Claude Code',
+        'OpenCode Go': '🚀 OpenCode Go',
+        'z.ai': '🧠 z.ai',
+        'OpenCode API': '📡 OpenCode API',
+        'Codex': '🤖 Codex',
+        'OpenAI API': '🔵 OpenAI API',
+      };
+      perSourceEl.innerHTML = entries.map(s => {
+        const d = new Date(s.key);
+        const diff = Math.round((Date.now() - d.getTime()) / 60000);
+        const ago = diff < 1 ? 'gerade' : diff < 60 ? 'vor ' + diff + 'min' : 'vor ' + Math.round(diff / 60) + 'h';
+        return '<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;">' +
+          '<span style="color:#666;">' + (labelMap[s.label] || s.label) + '</span>' +
+          '<span style="color:#333;">' + d.toLocaleString('de-DE') + ' (' + ago + ')</span>' +
+          '</div>';
+      }).join('');
+    }
+  }
+}
+
+function formatSyncAgo(isoString) {
+  if (!isoString) return '—';
+  const diff = Math.round((Date.now() - new Date(isoString).getTime()) / 1000);
+  if (diff < 60) return 'vor ' + diff + 's';
+  if (diff < 3600) return 'vor ' + Math.round(diff / 60) + 'min';
+  return 'vor ' + Math.round(diff / 3600) + 'h';
 }
 
 function showError(message) {
@@ -317,8 +497,8 @@ async function syncHardSources() {
   setTimeout(() => {
     btn.textContent = originalText;
     btn.disabled = false;
-    // Auto-refresh stats
-    loadStats();
+    // Auto-refresh stats + restart countdown
+    refreshWithCountdown();
   }, 5000);
 }
 

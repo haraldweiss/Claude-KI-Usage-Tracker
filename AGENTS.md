@@ -1017,3 +1017,55 @@ Der neue `monthly_remaining_pct`-Checker im `usage-parser-codex.js` war zu stren
 - Pre-commit-hook blockiert → `git commit --no-verify`
 - Nach Extension-Änderungen: `chrome://extensions` → Aktualisieren (Reload) nötig
 - DB leere Rows löschen: `ssh oracle-vm "sqlite3 /opt/claudetracker-data/database.sqlite 'DELETE FROM usage_records WHERE id IN (...);'"`
+
+### 2026-06-25 — Handoff-System: 90%-Limit-Warnung
+
+**Feature:** Automatische Erkennung von Limits ≥90% → AGENTS.md-Eintrag + Git-Commit.
+
+**Komponenten:**
+
+| Komponente | Beschreibung | Standort |
+|---|---|---|
+| `GET /api/handoff/check` | Backend-Endpoint: analysiert ALLE Quellen auf Limits ≥90% | `backend/src/controllers/handoffController.ts` |
+| `scripts/check-handoff.sh` | CLI-Skript: ruft API auf, hängt markdown_block an AGENTS.md, committed | `scripts/check-handoff.sh` |
+| launchd-Timer | Führt Skript stündlich aus | `~/Library/LaunchAgents/com.ki-tracker.handoff-check.plist` |
+| Popup-Banner | Rote Warnung im Extension-Popup bei ≥90% | `extension/popup.js::checkHandoffAlerts()` |
+
+**Erfasste Limits pro Quelle:**
+- OpenCode Go: Rolling/Weekly/Monthly Usage (% used)
+- z.ai: 5h Quota / Weekly Quota / Monthly Total (% used)
+- Codex (ChatGPT): 5h / Weekly / Monthly (% remaining → used invertiert)
+- Claude.ai: Session/Weekly/Monthly/Overall Spend (% used)
+
+**Handoff-Auslösung:**
+1. launchd ruft `check-handoff.sh` stündlich auf
+2. Bei Limits ≥90%: formatierten Markdown-Block an AGENTS.md anhängen
+3. Git-Commit mit `docs: ⚠️ handoff — Limit ≥90% erreicht`
+4. Popup zeigt rote Warnung mit Kopier-Button für den CLI-Befehl
+
+**Token:** liegt in `~/.config/ki-tracker-token` (chmod 600). User-ID 1 (anubclaw).
+Token zuletzt rotiert am 2026-06-25: `ck_live_9497a473a10cb5cb71c109d736bfdf2d8d1c424e89b2009a161cd1e8b9421065`
+
+**Neue Sync-Kadenzen:**
+| Quelle | Mechanismus | Intervall |
+|---|---|---|
+| Server-Scraper (Playwright) | Oracle VM systemd Timer | **1h** (vorher 2h) |
+| Extension Hard-Sync (Tabs) | chrome.alarms im Service Worker | **15min** (vorher 2h) |
+| Popup-Display | setInterval | 15min |
+| Handoff-Check | launchd | 1h |
+
+**Änderungen in diesem Commit:**
+- `extension/background.js`: Auto-Hard-Sync-Alarm alle 15min mit Mutex
+- `extension/manifest.json`: "alarms" Permission
+- `extension/popup.js`: Countdown + Per-Quelle Sync-Timestamps + Handoff-Banner
+- `extension/popup.html`: Sync-Info Abschnitt neu strukturiert
+- `backend/src/controllers/handoffController.ts`: Neu — Limit-Check + Markdown-Generator
+- `backend/src/routes/handoff.ts`: Neu — Route
+- `backend/src/app.ts`: Route registriert
+- `scripts/check-handoff.sh`: Neu — CLI-Handoff-Skript
+- `scripts/com.ki-tracker.handoff-check.plist`: Neu — launchd-Timer
+- Oracle VM: systemd Timer von 2h auf 1h geändert
+
+**Noch zu tun:**
+- [ ] Bei erstmaligem Launch: Token in `~/.config/ki-tracker-token` prüfen
+- [ ] Nach Extension-Änderungen: `chrome://extensions` → Reload

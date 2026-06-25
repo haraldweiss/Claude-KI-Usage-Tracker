@@ -992,7 +992,7 @@ Der neue `monthly_remaining_pct`-Checker im `usage-parser-codex.js` war zu stren
 - **launchd-Agent** für SSH-Reverse-Tunnel: `com.autossh.proxy-tunnel` (startet bei Login, KeepAlive, Logs nach `~/Library/Logs/`)
 - **SOCKS5-Proxy-Tunnel**: microsocks (:1080) → SSH → VM (:40000) für Cloudflare-Bypass
 - **Frische Cookies** (36 Stück, 5 Domains) auf VM verteilt: `codex.json`, `claude-ai.json`, `anthropic-console.json`, `openai-api.json`, `zai.json`
-- **systemd-Timer** `ki-usage-scraper.timer`: alle 2h, random delay 3min
+- **systemd-Timer** `ki-usage-scraper.timer`: alle **1h** (geändert 2026-06-25), random delay 3min
 - **Leere Server-Rows gelöscht**: Codex-Rows 8488, 8469, 8436 aus der Produktions-DB, weil sie gute Extension-Daten überschrieben hatten
 
 **Server-Scraper Status (2026-06-25):**
@@ -1000,7 +1000,7 @@ Der neue `monthly_remaining_pct`-Checker im `usage-parser-codex.js` war zu stren
 |---|---|---|
 | Codex | ❌ Cloudflare | ✅ |
 | OpenAI API | ✅ | — |
-| Claude.ai | ❌ Cloudflare | ✅ (via Hard-Sync) |
+| Claude.ai | ✅ via Server (kein Plan) | — |
 | Console | ❌ Cloudflare | ✅ |
 | Claude Code | ❌ Cloudflare | ✅ |
 | OpenCode Go | ❌ login_required | ✅ |

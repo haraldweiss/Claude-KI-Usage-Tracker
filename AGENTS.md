@@ -995,17 +995,16 @@ Der neue `monthly_remaining_pct`-Checker im `usage-parser-codex.js` war zu stren
 - **systemd-Timer** `ki-usage-scraper.timer`: alle 2h, random delay 3min
 - **Leere Server-Rows gelöscht**: Codex-Rows 8488, 8469, 8436 aus der Produktions-DB, weil sie gute Extension-Daten überschrieben hatten
 
-**Server-Scraper Status:**
-| Quelle | Server | Extension (Popup) |
+**Server-Scraper Status (2026-06-25):**
+| Quelle | Server | Extension (Auto-Sync 15min) |
 |---|---|---|
 | Codex | ❌ Cloudflare | ✅ |
 | OpenAI API | ✅ | — |
-| Claude.ai | ✅ (kein Plan) | — |
+| Claude.ai | ❌ Cloudflare | ✅ (via Hard-Sync) |
 | Console | ❌ Cloudflare | ✅ |
 | Claude Code | ❌ Cloudflare | ✅ |
-| OpenCode Go | ❌ login_required | ✅ (jetzt mit Struktur-Daten) |
+| OpenCode Go | ❌ login_required | ✅ |
 | z.ai | ❌ login_required | ✅ |
-
 **Commits:**
 ```
 6dc2527 fix(extension): OpenCode Go parser parses Rolling/Weekly/Monthly PCT, Codex parser makes monthly optional

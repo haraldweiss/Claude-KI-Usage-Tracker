@@ -326,22 +326,19 @@ function displayStats(stats) {
   // Codex
   const cx = cg?.codex;
   if (cx) {
-    const fiveHour = Number(cx.five_hour_remaining_pct);
-    const weekly = Number(cx.weekly_remaining_pct);
-    const monthly = Number(cx.monthly_remaining_pct);
+    const fiveHour = cx.five_hour_remaining_pct != null ? Number(cx.five_hour_remaining_pct) : null;
+    const weekly = cx.weekly_remaining_pct != null ? Number(cx.weekly_remaining_pct) : null;
+    const monthly = cx.monthly_remaining_pct != null ? Number(cx.monthly_remaining_pct) : null;
     const parts = [];
-    if (Number.isFinite(fiveHour)) parts.push('5h ' + fiveHour + '% frei');
-    if (Number.isFinite(weekly)) parts.push('Woche ' + weekly + '% frei');
-    if (Number.isFinite(monthly)) parts.push('Monat ' + monthly + '% frei');
-    const text = parts.length > 0 ? parts.join(' · ') : 'aktiv';
-    showRow('codex-row', 'codex-summary', text);
-    const el = document.getElementById('codex-summary');
-    const minRemaining = Math.min(
-      Number.isFinite(fiveHour) ? fiveHour : 100,
-      Number.isFinite(weekly) ? weekly : 100,
-      Number.isFinite(monthly) ? monthly : 100
-    );
-    if (el) el.classList.toggle('warning', minRemaining < 20);
+    if (fiveHour !== null && Number.isFinite(fiveHour)) parts.push("5h " + fiveHour + "% frei");
+    if (weekly !== null && Number.isFinite(weekly)) parts.push("Woche " + weekly + "% frei");
+    if (monthly != null && Number.isFinite(monthly) && monthly > 0) parts.push("Monat " + monthly + "% frei");
+    const text = parts.length > 0 ? parts.join(" · ") : "aktiv";
+    showRow("codex-row", "codex-summary", text);
+    const el = document.getElementById("codex-summary");
+    const remaining = [fiveHour, weekly, monthly].filter(v => v != null && Number.isFinite(v) && v > 0);
+    const minRemaining = remaining.length > 0 ? Math.min(...remaining) : 100;
+    if (el) el.classList.toggle("warning", minRemaining < 20);
   } else {
     showRow('codex-row', 'codex-summary', null);
   }

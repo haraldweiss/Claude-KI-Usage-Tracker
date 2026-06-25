@@ -26,7 +26,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
   5. `z.ai/manage-apikey/coding-plan` — GLM Coding Plan subscription (added 2026-06-14)
   6. `chatgpt.com/codex/settings/usage` — ChatGPT Pro/Plus Codex usage (added 2026-06-22)
   7. `platform.openai.com/usage` — OpenAI API month-to-date spend (added 2026-06-22)
-- Three components: **backend** (Express + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3)
+- Three components: **backend** (Express + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3 + 4 Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
 - Hosted at `https://wolfinisoftware.de/claudetracker/` with magic-link auth + API tokens
 - Default branch: `main`, remote: `github.com:haraldweiss/Claude-KI-Usage-Tracker`
 - **GitHub ruleset active**: `non_fast_forward` blocks force-push. To force-push: temp disable via `gh api -X PUT repos/.../rulesets/16651604 --input <json with enforcement: disabled>`, push, re-enable.
@@ -146,6 +146,10 @@ If a sibling repo is touched in the same session (`wolfini_de_web`, `ai-provider
 | OpenCode Go scraper | `extension/background.js::opencodeGoSync()` |
 | z.ai scraper | `extension/background-scraper-zai.js::zaiSync()` |
 | claude.ai scraper | `extension/background.js` (legacy of all scrapers) |
+| Edge-Variante | `extension-edge/` (manifest + browser_specific_settings) |
+| Opera-Variante | `extension-opera/` (manifest + browser_specific_settings) |
+| Firefox-Variante | `extension-firefox/` (MV2, tabs.executeScript) |
+| Pale Moon-Variante | `extension-palemoon/` (XUL/XPCOM, install.rdf, bootstrap.js) |
 
 ---
 
@@ -1016,6 +1020,29 @@ Der neue `monthly_remaining_pct`-Checker im `usage-parser-codex.js` war zu stren
 - Pre-commit-hook blockiert → `git commit --no-verify`
 - Nach Extension-Änderungen: `chrome://extensions` → Aktualisieren (Reload) nötig
 - DB leere Rows löschen: `ssh oracle-vm "sqlite3 /opt/claudetracker-data/database.sqlite 'DELETE FROM usage_records WHERE id IN (...);'"`
+
+### 2026-06-25 — Browser-Varianten erstellt (Edge, Opera, Firefox, Pale Moon)
+
+**Feature:** 4 Browser-Varianten der Extension erstellt, dokumentiert und committed.
+
+| Variante | Basis | Änderungen | Aufwand |
+|---|---|---|---|
+| `extension-edge/` | Chromium (MV3) | manifest.json: +`browser_specific_settings.edge` | 🟢 0 Code |
+| `extension-opera/` | Chromium (MV3) | manifest.json: +`browser_specific_settings.opera` | 🟢 0 Code |
+| `extension-firefox/` | Gecko (MV2) | Neues manifest, browser-compat.js Bridge, background.js adaptiert (kein `scripting.executeScript`, kein `importScripts`). `browser_action` statt `action`. | 🟡 ~130 Zeilen |
+| `extension-palemoon/` | Goanna/UXP (XUL) | **Komplett-Neugründung**: `install.rdf` (RDF/XML), `bootstrap.js` (4 Entry Points), `chrome.manifest`, `content/popup.xul` (XUL-Fenster), `content/popup.js` (XPCOM + XMLHttpRequest) | 🔴 ~450 Zeilen |
+
+**Alle Verzeichnisse haben eigene README.md mit Browser-spezifischen Details.**
+
+**Recherche-Methodik (gelernt):**
+- Pale Moon Extension-Infos aus 6 Quellen recherchiert: developer.palemoon.org, UDN (Install_Manifests, Bootstrapped_extensions, Extension_Packaging, Components_object, Chrome_Registration), addons.palemoon.org, palemoon.org/technical.shtml
+- FTS5-Suche auf den gecrawlten Seiten funktionierte nicht immer (leere Ergebnisse trotz erfolgreichem Fetch) → Ausweichen auf `curl + ctx_execute_file` mit HTML-Parsing
+- `install.rdf` Entry Points `startup(data, reason)` etc. aus `<pre>`-Codeblöcken auf der UDN-Bootstrapped-Seite extrahiert
+
+**Nicht untersucht (offen):**
+- Pale Moon Application ID (GUID) — `{ec8030f7-c20a-464f-9b0e-13a3a9e97384}` angenommen (Firefox-kompatibel)
+- `nsICookieManager` ContractID (`@mozilla.org/cookiemanager;1`) — aus Doku bestätigt
+- `gBrowser`-Tab-Manipulation — in bootstrap.js referenziert, aber nicht getestet
 
 ### 2026-06-25 — Handoff-System: 90%-Limit-Warnung
 

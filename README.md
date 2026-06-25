@@ -356,7 +356,7 @@ Claude-KI-Usage-Tracker/
 │   ├── .env.production                     # VITE_API_URL=/claudetracker
 │   └── vite.config.ts                      # base: '/claudetracker/' in prod
 │
-├── extension/
+├── extension/                               # ⭐ Chrome MV3 (Original)
 │   ├── manifest.json                       # MV3, host permissions for all
 │   │                                       #   five sync targets
 │   ├── background.js                       # Orchestrator: syncAll(), alarms,
@@ -370,6 +370,28 @@ Claude-KI-Usage-Tracker/
 │   ├── background-scraper-zai.js           # z.ai GLM Coding Plan scraper
 │   ├── content.js                          # DOM scrape helpers (claude.ai)
 │   └── popup.html / popup.js               # Stats + connection settings
+│
+├── extension-edge/                          # ✅ Edge MV3 (Chrome fork)
+│   └── manifest.json (+ browser_specific_settings.edge)
+│
+├── extension-opera/                         # ✅ Opera MV3 (Chrome fork)
+│   └── manifest.json (+ browser_specific_settings.opera)
+│
+├── extension-firefox/                       # ✅ Firefox MV2 (WebExtensions)
+│   ├── manifest.json                       # MV2, background.scripts
+│   ├── browser-compat.js                   # tabs.executeScript Bridge
+│   ├── background.js                       # Adaptiert (kein importScripts)
+│   ├── popup.html, popup.js
+│   └── README.md
+│
+├── extension-palemoon/                      # 🔶 Pale Moon (XUL/XPCOM)
+│   ├── install.rdf                         # RDF/XML Install-Manifest
+│   ├── bootstrap.js                        # startup/shutdown/install/uninstall
+│   ├── chrome.manifest                     # chrome:// Registration
+│   ├── content/popup.xul                   # XUL-Fenster
+│   ├── content/popup.js                    # XPCOM-Logik
+│   ├── defaults/preferences/prefs.js       # Default-Preferences
+│   └── README.md
 │
 ├── docs/superpowers/specs/                 # Architecture decision records
 │   ├── 2026-04-29-data-quality-insights-design.md     # ABANDONED
@@ -452,6 +474,19 @@ All connection settings live in `chrome.storage.local` and are configured throug
 
 ---
 
+## 🧩 Browser-Kompatibilität
+
+| Browser | Codebasis | Extension-API | Verzeichnis | Änderungsaufwand |
+|---|---|---|---|---|
+| **Chrome** | Chromium | WebExt MV3 | `extension/` | ⭐ Original |
+| **Edge** | Chromium | WebExt MV3 | `extension-edge/` | 🟢 Minimal (manifest) |
+| **Opera** | Chromium | WebExt MV3 | `extension-opera/` | 🟢 Minimal (manifest) |
+| **Firefox** | Quantum Gecko | WebExt MV2 | `extension-firefox/` | 🟡 ~130 Zeilen |
+| **Waterfox/Floorp/LibreWolf** | Quantum Gecko | WebExt MV2 | `extension-firefox/` | 🟡 Selbe Variante |
+| **Pale Moon** | Goanna (UXP) | XUL/XPCOM | `extension-palemoon/` | 🔴 Neuentwicklung ~450 Z. |
+
+Siehe `extension-*/README.md` für Details.
+
 ## 🔧 Code Quality
 
 A systematic code review was performed in May 2026, fixing the following issues:
@@ -530,7 +565,7 @@ MIT — see [LICENSE](./LICENSE).
 
 ---
 
-**Last Updated**: June 2026 (Phase 6 — Hybrid server-scraper + extension sync, Playwright scrapers, proxy tunnel, macOS Keychain cookie workaround)
+**Last Updated**: June 2026 (Phase 7 — Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
 **Maintained by**: Harald Weiss
 **Repository**: [GitHub](https://github.com/haraldweiss/Claude-KI-Usage-Tracker)
 

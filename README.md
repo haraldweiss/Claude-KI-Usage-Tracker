@@ -32,10 +32,10 @@ The dashboard tells you, in one number, what your AI tools actually cost you thi
 6. **chatgpt.com/codex/settings/usage** — ChatGPT Codex limits (5h/Weekly remaining %, credits, plan name)
 7. **platform.openai.com/usage** — OpenAI API month-to-date spend, tokens, requests, organization
 5. **z.ai/manage-apikey/coding-plan** — GLM Coding Plan subscription (plan name + monthly price from `/my-plan`, 5-hour/weekly/monthly quota % + absolute reset times from `/usage`)
-6. **chatgpt.com/codex/settings/usage** — ChatGPT Pro/Plus Codex usage (5-hour/weekly limits, credits, interactions, plugin calls)
+6. **chatgpt.com/codex/settings/usage** — ChatGPT Pro/Plus Codex usage (5-hour/weekly/monthly limits, credits, interactions, plugin calls)
 7. **platform.openai.com/usage** — OpenAI API month-to-date spend (organization, total tokens, total requests, cost)
 
-The browser extension scrapes those pages on a schedule, posts the numbers to the local backend, and the backend exposes them through a typed API the React dashboard renders.
+The system uses a **hybrid scraping architecture**: a **server-side Playwright scraper** on the Oracle VM handles sources without Cloudflare (OpenAI API, Claude.ai), while the **browser extension** scrapes Cloudflare-protected sites (platform.claude.com, chatgpt.com, opencode.ai, z.ai) in the user's real Chrome session. Both post to the same backend API, and the React dashboard renders the combined data.
 
 ### Why scraping, not the Anthropic API?
 
@@ -170,9 +170,9 @@ The server-scraper runs on the VPS via systemd timer (`ki-usage-scraper.timer`, 
 
 | Source | File | Data extracted |
 |---|---|---|
-| Codex | `codex.ts` | Plan name, 5h/weekly quota %, credits |
-| OpenAI API | `openai-api.ts` | MTD spend, tokens, requests |
-| Claude.ai | `claude-ai.ts` | Session spend, weekly/monthly limits |
+| Codex | `codex.ts` | ❌ Cloudflare (use extension sync) |
+| OpenAI API | `openai-api.ts` | ✅ MTD spend, tokens, requests |
+| Claude.ai | `claude-ai.ts` | ✅ Session spend (no active plan → 0) |
 
 Cookies are auto-exported from the Chrome extension (v3.2.1+) and uploaded to `POST /api/cookies/upload`. The backend saves them to `/opt/claudetracker-data/cookies/`, symlinked to the server-scraper's cookie directory.
 
@@ -183,7 +183,10 @@ Cookies are auto-exported from the Chrome extension (v3.2.1+) and uploaded to `P
 brew install microsocks
 microsocks -i 127.0.0.1 -p 1080 &
 
-# SSH reverse tunnel:
+# SSH reverse tunnel (launchd-managed with KeepAlive):
+#   plist: ~/Library/LaunchAgents/com.autossh.proxy-tunnel.plist
+#   Logs:  ~/Library/Logs/autossh-proxy-tunnel.log
+#   Start: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.autossh.proxy-tunnel.plist
 ssh -R 40000:localhost:1080 oracle-vm
 
 # In /etc/systemd/system/ki-usage-scraper.service:

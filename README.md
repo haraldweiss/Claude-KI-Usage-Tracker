@@ -60,6 +60,7 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 - **Rate alert**: fires when today's API cost exceeds a configurable multiple of the 7-day daily average (default 3×, minimum $1 threshold). Same three channels.
 - **Configurable thresholds**: low-balance % and rate multiplier adjustable in Settings → Account.
 - **Cooldown**: at most one alert per type per 6 hours — no spam on repeated syncs.
+- **Handoff alert**: when any usage quota (hourly/weekly/monthly/rolling) reaches ≥90%, the system creates an AGENTS.md handoff entry + git commit via launchd (stündlich), so a follow-up agent can take over without data loss. Dashboard banner + Popup-Banner warnen.
 
 ### Dashboard
 - **Übersicht (Overview)**: hero number in EUR, alert banners (low-balance / rate spike) at the top, "Aktive Abos" subscription summary bar, status cards (Plan, Wochenlimits with colour-shifting progress bars, Budget, **Anthropic API card** with workspace breakdown + balance + daily burn rate, OpenCode Go and z.ai usage-quota cards, Codex limits, OpenAI/OpenCode API costs), forecast card extrapolating today's daily rate to month-end, monthly trend block (≥ 2 months), sync-status footer.
@@ -71,9 +72,9 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 ### Architecture
 - **Backend**: Node.js + Express + TypeScript (strict mode), SQLite, additive migrations.
 - **Frontend**: React + TypeScript + Vite, Tailwind CSS. Same-origin XHRs in production; dev server uses Vite proxy.
-- **Extension**: Chrome MV3 (v3.2.1), configurable Backend URL + API Token in the popup. Two sync modes: auto-export cookies to server-scraper, and **🔐 Sync geschützte Quellen** button for sources with httponly cookies.
-- **Server-Scraper**: Playwright TypeScript scrapers running on the VPS via systemd timer (every 2h). Handles 3 sources (Codex, OpenAI API, Claude.ai) using cookies auto-exported from the extension.
-- **Hybrid sync**: 3 sources scraped server-side (cookie export works) + 4 sources scraped in-extension (httponly cookies encrypted by macOS Keychain — console, claude-code, z.ai, opencode).
+- **Extension**: Chrome MV3 (v3.2.1), configurable Backend URL + API Token in the popup. Auto-sync: Hard-Sources (Tabs) alle 15min via chrome.alarms + Server-Scraper (Playwright) alle 1h via systemd timer. Manuell: **🔐 Sync geschützte Quellen** + Cookie-Export.
+- **Server-Scraper**: Playwright TypeScript scrapers running on the VPS via systemd timer (every 1h). Handles 3 sources (Codex, OpenAI API, Claude.ai) using cookies auto-exported from the extension.
+- **Hybrid sync**: 3 sources scraped server-side (1h Takt, Cookie-Export) + 4 sources scraped in-extension (httponly cookies encrypted by macOS Keychain — console, claude-code, z.ai, opencode). Sync-Kadenzen: Server-Scraper 1h · Extension Hard-Sync 15min · Popup-Refresh 15min · Handoff-Check 1h.
 - **Proxy tunnel**: SOCKS5 via SSH reverse tunnel (microsocks on Mac + ssh -R) to route Playwright traffic through the residential IP, bypassing Cloudflare challenges.
 - **VPS deployment**: Apache reverse-proxy + systemd unit + Let's Encrypt TLS + magic-link auth + automated health monitoring with email alerts.
 
@@ -132,7 +133,7 @@ The scripts auto-detect when launched from a worktree and point the backend at t
    - **Hosted instance**: set Backend-API URL to `https://your-domain/claudetracker/api`, paste the **API Token** from Settings → API Token → "Speichern". The extension sends `Authorization: Bearer <token>` on every request; no Basic-Auth credentials are needed.
 
 ### 5. Trigger your first sync
-Log into all services in regular browser tabs. The **server-scraper** (every 2h) handles Codex, OpenAI API, and Claude.ai automatically. For the 4 sources with macOS Keychain-encrypted httponly cookies (Anthropic Console, Claude Code, z.ai, OpenCode Go), open the extension popup and click **🔐 Sync geschützte Quellen** — it opens 4 tabs, scrapes data, and posts to the backend.
+Log into all services in regular browser tabs. The **server-scraper** (every 1h) handles Codex, OpenAI API, and Claude.ai automatically. For the 4 sources with macOS Keychain-encrypted httponly cookies (Anthropic Console, Claude Code, z.ai, OpenCode Go), open the extension popup and click **🔐 Sync geschützte Quellen** — it opens 4 tabs, scrapes data, and posts to the backend.
 
 > **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all seven scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
 
@@ -166,7 +167,7 @@ The frontend production build reads `frontend/.env.production` (`VITE_API_URL=/c
 
 ### Server-Scraper (Playwright)
 
-The server-scraper runs on the VPS via systemd timer (`ki-usage-scraper.timer`, every 2h). It uses Playwright with headless Chromium to scrape 3 cost sources:
+The server-scraper runs on the VPS via systemd timer (`ki-usage-scraper.timer`, every 1h). It uses Playwright with headless Chromium to scrape 3 cost sources:
 
 | Source | File | Data extracted |
 |---|---|---|

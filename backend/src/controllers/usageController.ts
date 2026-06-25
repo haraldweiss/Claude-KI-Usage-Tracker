@@ -607,6 +607,8 @@ export async function getSummary(
       five_hour_reset_at: string | null;
       weekly_remaining_pct: number | null;
       weekly_reset_at: string | null;
+      monthly_remaining_pct: number | null;
+      monthly_reset_at: string | null;
       credits_remaining: number | null;
       interactions: number;
       plugin_calls: number;
@@ -627,6 +629,8 @@ export async function getSummary(
       five_hour_reset_at: (codexData?.five_hour_reset_at as string) ?? null,
       weekly_remaining_pct: (codexData?.weekly_remaining_pct as number) ?? null,
       weekly_reset_at: (codexData?.weekly_reset_at as string) ?? null,
+      monthly_remaining_pct: (codexData?.monthly_remaining_pct as number) ?? null,
+      monthly_reset_at: (codexData?.monthly_reset_at as string) ?? null,
       credits_remaining: (codexData?.credits_remaining as number) ?? null,
       interactions: (codexData?.interactions as number) ?? 0,
       plugin_calls: (codexData?.plugin_calls as number) ?? 0,

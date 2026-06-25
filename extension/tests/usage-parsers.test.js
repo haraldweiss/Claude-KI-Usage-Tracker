@@ -34,11 +34,13 @@ test('parses German Codex percentages as remaining capacity', () => {
   const result = parseCodexUsageText(`
     5 Stunden Nutzungsgrenze 91 % verbleibend Zurücksetzungen 22.06.2026 04:36
     Wöchentliches Nutzungslimit 99 % verbleibend Zurücksetzungen 28.06.2026 23:36
+    Monatliches Nutzungslimit 88 % verbleibend Zurücksetzungen 01.07.2026 00:00
     Verbleibende Credits 12,5 Interaktionen 7 Plugins calls 2 Skills used 3
   `);
   assert.equal(result.success, true);
   assert.equal(result.data.five_hour_remaining_pct, 91);
   assert.equal(result.data.weekly_remaining_pct, 99);
+  assert.equal(result.data.monthly_remaining_pct, 88);
   assert.equal(result.data.credits_remaining, 12.5);
   assert.equal(result.data.interactions, 7);
   assert.equal(result.data.plugin_calls, 2);
@@ -50,11 +52,13 @@ test('parses English Codex labels', () => {
   const result = parseCodexUsageText(`
     5 hour usage limit 42% remaining Resets Jun 22, 2026 4:36 AM
     Weekly usage limit 73% remaining Resets Jun 28, 2026 11:36 PM
+    Monthly usage limit 64% remaining Resets Jul 1, 2026 12:00 AM
     Credits remaining 8 Interactions 4 Plugin calls 1 Skills used 2
   `);
   assert.equal(result.success, true);
   assert.equal(result.data.five_hour_remaining_pct, 42);
   assert.equal(result.data.weekly_remaining_pct, 73);
+  assert.equal(result.data.monthly_remaining_pct, 64);
   assert.equal(result.data.credits_remaining, 8);
 });
 
@@ -111,6 +115,8 @@ test('maps Codex remaining limits into one daily snapshot payload', () => {
     five_hour_reset_at: '2026-06-22T02:36:00.000Z',
     weekly_remaining_pct: 99,
     weekly_reset_at: '2026-06-28T21:36:00.000Z',
+    monthly_remaining_pct: 88,
+    monthly_reset_at: '2026-06-30T22:00:00.000Z',
     credits_remaining: 0,
     interactions: 0,
     interactions_by_model: [],
@@ -125,6 +131,7 @@ test('maps Codex remaining limits into one daily snapshot payload', () => {
   assert.equal(payload.output_tokens, 0);
   assert.equal(payload.cost_usd, 0);
   assert.equal(payload.response_metadata.five_hour_remaining_pct, 91);
+  assert.equal(payload.response_metadata.monthly_remaining_pct, 88);
   assert.equal(payload.response_metadata.scraped_at, '2026-06-22T20:00:00.000Z');
 });
 

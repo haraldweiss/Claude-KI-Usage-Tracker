@@ -73,6 +73,8 @@ export interface CodexSpend {
   five_hour_reset_at: string | null;
   weekly_remaining_pct: number | null;
   weekly_reset_at: string | null;
+  monthly_remaining_pct: number | null;
+  monthly_reset_at: string | null;
   credits_remaining: number | null;
   interactions: number;
   plugin_calls: number;

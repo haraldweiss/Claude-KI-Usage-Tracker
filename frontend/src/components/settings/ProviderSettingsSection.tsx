@@ -76,7 +76,7 @@ function formatDetail(key: string, summary: Record<string, unknown> | null): str
       return `5h ${s.five_hour_pct ?? 0}% · Wo ${s.weekly_pct ?? 0}%`;
     case 'codex':
       return s.five_hour_remaining_pct != null
-        ? `5h ${100 - (s.five_hour_remaining_pct as number)}% · Wo ${100 - (s.weekly_remaining_pct as number ?? 100)}%`
+        ? `5h ${100 - (s.five_hour_remaining_pct as number)}% · Wo ${100 - (s.weekly_remaining_pct as number ?? 100)}% · Mo ${100 - (s.monthly_remaining_pct as number ?? 100)}%`
         : '—';
     case 'openai_api':
       return s.total_cost_usd != null

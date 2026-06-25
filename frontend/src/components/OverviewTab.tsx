@@ -485,6 +485,21 @@ export default function OverviewTab(): React.ReactElement {
                   </div>
                 );
               })()}
+              {typeof codex.monthly_remaining_pct === 'number' && (() => {
+                const used = Math.max(0, Math.min(100, 100 - codex.monthly_remaining_pct!));
+                return (
+                  <div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-600">Monatlich</span>
+                      <span className="font-medium">{used}%</span>
+                    </div>
+                    <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                      <div className={`h-full rounded ${used < 50 ? 'bg-emerald-500' : used < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        style={{ width: `${Math.min(100, used)}%` }} />
+                    </div>
+                  </div>
+                );
+              })()}
               {typeof codex.credits_remaining === 'number' && (
                 <div className="mt-2 pt-1.5 border-t border-gray-100 text-xs text-gray-600">
                   Credits: {codex.credits_remaining.toFixed(1)} frei

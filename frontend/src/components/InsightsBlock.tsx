@@ -368,6 +368,7 @@ function buildInsights(
   const cx = combined?.codex;
   if (cx?.five_hour_remaining_pct != null) utilItems.push(`Codex 5h: ${100 - cx.five_hour_remaining_pct}%`);
   if (cx?.weekly_remaining_pct != null) utilItems.push(`Codex Wo: ${100 - cx.weekly_remaining_pct}%`);
+  if (cx?.monthly_remaining_pct != null) utilItems.push(`Codex Mo: ${100 - cx.monthly_remaining_pct}%`);
   if (utilItems.length > 0) {
     const highUtil = utilItems.filter(i => {
       const m = i.match(/(\d+)%/);

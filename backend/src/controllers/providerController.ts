@@ -234,6 +234,7 @@ function summarizeScrape(
         plan_name: meta.plan_name ?? null,
         five_hour_remaining_pct: meta.five_hour_remaining_pct ?? null,
         weekly_remaining_pct: meta.weekly_remaining_pct ?? null,
+        monthly_remaining_pct: meta.monthly_remaining_pct ?? null,
         credits_remaining: meta.credits_remaining ?? null,
       };
     }

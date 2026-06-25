@@ -211,13 +211,19 @@ function displayStats(stats) {
   if (cx) {
     const fiveHour = Number(cx.five_hour_remaining_pct);
     const weekly = Number(cx.weekly_remaining_pct);
+    const monthly = Number(cx.monthly_remaining_pct);
     const parts = [];
     if (Number.isFinite(fiveHour)) parts.push('5h ' + fiveHour + '% frei');
     if (Number.isFinite(weekly)) parts.push('Woche ' + weekly + '% frei');
+    if (Number.isFinite(monthly)) parts.push('Monat ' + monthly + '% frei');
     const text = parts.length > 0 ? parts.join(' · ') : 'aktiv';
     showRow('codex-row', 'codex-summary', text);
     const el = document.getElementById('codex-summary');
-    const minRemaining = Math.min(Number.isFinite(fiveHour) ? fiveHour : 100, Number.isFinite(weekly) ? weekly : 100);
+    const minRemaining = Math.min(
+      Number.isFinite(fiveHour) ? fiveHour : 100,
+      Number.isFinite(weekly) ? weekly : 100,
+      Number.isFinite(monthly) ? monthly : 100
+    );
     if (el) el.classList.toggle('warning', minRemaining < 20);
   } else {
     showRow('codex-row', 'codex-summary', null);

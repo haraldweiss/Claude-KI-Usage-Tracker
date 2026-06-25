@@ -1,6 +1,8 @@
 // © 2026 Harald Weiss
 // KI Usage Tracker — Viewer-only + cookie export.
 
+importScripts('usage-parser-codex.js');
+
 const DEFAULT_API_BASE = 'https://claudetracker.wolfinisoftware.de/api';
 
 async function getApiBase() {
@@ -211,7 +213,7 @@ setTimeout(() => {
 setInterval(exportCookiesToServer, AUTO_EXPORT_INTERVAL_MS);
 
 /**
- * Sync the 4 sources that need httponly cookies (encrypted by macOS Keychain).
+ * Sync the sources that need httponly cookies (encrypted by macOS Keychain).
  * The extension navigates to each page, scrapes data, and POSTs to the backend.
  */
 async function syncHardSources() {
@@ -306,7 +308,40 @@ async function syncHardSources() {
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'zai', ok: false, error: e.message }); }
 
-  // 3. Claude Code
+  // 3. Codex (ChatGPT usage limits)
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://chatgpt.com/codex/settings/usage',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 12000));
+    let text = '';
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const [inj] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => document.body?.innerText || ''
+      }).catch(() => []);
+      text = inj?.result || text;
+      if (/5\s*(?:Stunden|hour)\s*(?:Nutzungsgrenze|usage limit)/i.test(text) &&
+          /Wöchentliches Nutzungslimit|Weekly usage limit/i.test(text) &&
+          /Monatliches Nutzungslimit|Monthly usage limit/i.test(text)) {
+        break;
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    const parsed = parseCodexUsageText(text);
+    if (parsed.success) {
+      await postSource('codex_sync', 'OpenAI Codex', Object.assign({}, parsed.data, {
+        scraped_at: new Date().toISOString()
+      }));
+      results.push({ source: 'codex', ok: true });
+    } else {
+      results.push({ source: 'codex', ok: false, error: parsed.reason, preview: text.substring(0, 300) });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'codex', ok: false, error: e.message }); }
+
+  // 4. Claude Code
   try {
     const tab = await chrome.tabs.create({
       url: 'https://platform.claude.com/claude-code/usage',
@@ -331,7 +366,7 @@ async function syncHardSources() {
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'claude_code', ok: false, error: e.message }); }
 
-  // 4. OpenCode Go
+  // 5. OpenCode Go
   try {
     const tab = await chrome.tabs.create({
       url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go',

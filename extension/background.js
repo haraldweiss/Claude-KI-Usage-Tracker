@@ -378,9 +378,30 @@ async function syncHardSources() {
       func: () => {
         const text = document.body?.innerText || '';
         const planMatch = text.match(/(?:Du hast|You have)\s+(.+?)\s+(?:abonniert|subscribed)/i);
+        function extractPct(labels) {
+          for (const label of labels) {
+            const re = new RegExp(label + '[\\s\\S]{0,200}?(\\d+)\\s*%', 'i');
+            const m = text.match(re);
+            if (m) return parseInt(m[1], 10);
+          }
+          return null;
+        }
+        function extractReset(labels) {
+          for (const label of labels) {
+            const re = new RegExp(label + '[\\s\\S]{0,250}?(?:Resets?\\s+in|Zur\u00fccksetzung\\s+in)\\s+([^\\n]{1,60})', 'i');
+            const m = text.match(re);
+            if (m) return m[1].trim();
+          }
+          return null;
+        }
         return {
           plan_name: planMatch?.[1]?.trim(),
-          text_preview: text.substring(0, 500),
+          continuous_pct: extractPct(['Rolling Usage', 'Rolling(?![a-zA-Z])', 'Fortlaufend', 'Continuous']),
+          continuous_reset_in: extractReset(['Rolling Usage', 'Rolling(?![a-zA-Z])', 'Fortlaufend', 'Continuous']),
+          weekly_pct: extractPct(['Weekly Usage', 'Weekly(?![a-z])', 'W\u00f6chentlich']),
+          weekly_reset_in: extractReset(['Weekly Usage', 'Weekly(?![a-z])', 'W\u00f6chentlich']),
+          monthly_pct: extractPct(['Monthly Usage', 'Monthly(?![a-z])', 'Monatlich']),
+          monthly_reset_in: extractReset(['Monthly Usage', 'Monthly(?![a-z])', 'Monatlich']),
         };
       }
     }).catch(() => null);

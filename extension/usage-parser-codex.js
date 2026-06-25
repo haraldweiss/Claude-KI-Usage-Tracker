@@ -56,10 +56,9 @@ function parseCodexUsageText(rawText) {
   if (
     !Number.isFinite(fiveHour.remaining_pct) ||
     !Number.isFinite(weekly.remaining_pct) ||
-    !Number.isFinite(monthly.remaining_pct) ||
+    (Number.isFinite(monthly.remaining_pct) && (monthly.remaining_pct < 0 || monthly.remaining_pct > 100)) ||
     fiveHour.remaining_pct < 0 || fiveHour.remaining_pct > 100 ||
-    weekly.remaining_pct < 0 || weekly.remaining_pct > 100 ||
-    monthly.remaining_pct < 0 || monthly.remaining_pct > 100
+    weekly.remaining_pct < 0 || weekly.remaining_pct > 100
   ) {
     return { success: false, reason: 'usage_cards_not_found' };
   }

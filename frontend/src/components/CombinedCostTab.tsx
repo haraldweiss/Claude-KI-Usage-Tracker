@@ -77,7 +77,14 @@ export default function CombinedCostTab(): React.ReactElement {
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur;
+  const codexSpend = combined?.codex ?? null;
+  const codexEur = codexSpend?.plan_cost_eur ?? 0;
+  const usdToEur = combined?.exchange_rate?.usd_to_eur ?? 0.92;
+  const opencodeApiEur = combined?.opencode_api?.total_cost_usd
+    ? combined.opencode_api.total_cost_usd * usdToEur : 0;
+  const openaiApiEur = combined?.openai_api?.cost_usd
+    ? combined.openai_api.cost_usd * usdToEur : 0;
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur + codexEur + opencodeApiEur + openaiApiEur;
   const exchangeRate = combined?.exchange_rate;
 
   const noData = !claudeAi && apiTotal === 0;
@@ -105,6 +112,15 @@ export default function CombinedCostTab(): React.ReactElement {
           )}
           {zaiEur > 0 && (
             <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>
+          )}
+          {codexEur > 0 && (
+            <><span className="mx-1">·</span>Codex (ChatGPT) {formatEur(codexEur)}</>
+          )}
+          {opencodeApiEur > 0 && (
+            <><span className="mx-1">·</span>OpenCode API {formatEur(opencodeApiEur)}</>
+          )}
+          {openaiApiEur > 0 && (
+            <><span className="mx-1">·</span>OpenAI API {formatEur(openaiApiEur)}</>
           )}
         </p>
         {exchangeRate?.usd_to_eur && (

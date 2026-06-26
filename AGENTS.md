@@ -1095,3 +1095,48 @@ Token zuletzt rotiert am 2026-06-25: `ck_live_9497a473a10cb5cb71c109d736bfdf2d8d
 **Noch zu tun:**
 - [ ] Bei erstmaligem Launch: Token in `~/.config/ki-tracker-token` prüfen
 - [ ] Nach Extension-Änderungen: `chrome://extensions` → Reload
+
+### 2026-06-26 — Ollama Full Suite Benchmark + claudetracker-Tunnel (Pi)
+
+#### 1. launchd-Tunnel für claudetracker Backend
+
+**Problem:** Das claudetracker-Backend läuft auf der Oracle-VM (`oracle-vm:3001`), nicht auf `localhost`. Der manuell per `ssh -L 3001:localhost:3001` gestartete Tunnel überlebte keinen Neustart. Bestehende launchd-Agenten deckten nur SOCKS5-Proxy (`com.autossh.proxy-tunnel`, Port 1080→40000), Ollama-Remote-Forward (`com.wolfini.ollama-tunnel`, exit 1) und OpenCode-Push (`de.haraldweiss.opencode-push-tunnel`) ab — keiner forwardete Port 3001.
+
+**Lösung:** Neuer launchd-Agent `de.haraldweiss.claudetracker-tunnel`.
+
+**Dateien:**
+- `~/Library/LaunchAgents/de.haraldweiss.claudetracker-tunnel.plist`
+- Forward: `-L 3001:127.0.0.1:3001` → `opc@92.5.18.29`
+- Tool: `/opt/homebrew/bin/autossh`
+- `RunAtLoad`: ja (startet bei Login)
+- `KeepAlive`: ja (Neustart bei Absturz)
+- Log: `~/Library/Logs/claudetracker-tunnel.log`
+
+**Verifikation:** `launchctl list | grep claudetracker` → PID läuft, exit 0. Port 3001 lauscht auf IPv4+IPv6. `curl localhost:3001/api/benchmarks` → HTTP 401 (erreichbar, braucht Auth).
+
+#### 2. Full Suite Ollama Benchmark — alle 12 Modelle
+
+**Neues Script:** `benchmark/full-suite-test.cjs` (CommonJS wegen `"type": "module"` im benchmark-Package)
+
+**Durchführung:** Alle 12 Text-Modelle auf dem MacBook (Apple M3 Max, 36 GB) mit identischem Prompt getestet (`Explain why renewable energy is important for economic development in 2-3 sentences.`). Jedes Modell bekam 120s Timeout. Ergebnisse via SSH-Tunnel an `POST /api/benchmarks` gesendet.
+
+**Ergebnisse (8/12 bestanden):**
+
+| Rang | Modell | Zeit | Tokens | t/s | Größe |
+|---|---|---|---|---|---|
+| 🥇 | **DeepSeek-R1-Distill-Qwen-7B-GGUF** | **11,3s** | **444** | **39,5** | **4,7 GB** |
+| 2 | llama3.1:8b-instruct-q5_K_M | 33,6s | 74 | 2,2 | 5,7 GB |
+| 3 | mistral-nemo-cc:latest | 38,0s | 29 | 0,8 | 8,7 GB |
+| 4 | anubclaw/dev-coder:q5 | 43,6s | 50 | 1,1 | 10 GB |
+| 5 | mistral-nemo:12b-instruct-2407 | 49,4s | 46 | 0,9 | 8,7 GB |
+| 6 | dev-coder:latest | 53,5s | 50 | 0,9 | 10 GB |
+| 7 | qwen3-coder:latest | 68,5s | 84 | 1,2 | 18 GB |
+| 8 | qwen3-coder-cc:latest | 71,2s | 82 | 1,2 | 18 GB |
+
+**Fehlgeschlagen (HTTP 500):** soc-analyst, soc-detect (beide 23 GB — CLIP/Loading-Fehler), qwen3.6:latest (23 GB), glm-4.7-flash:latest (19 GB — bekannt langsam)
+
+**Key Insight:** DeepSeek-R1-Distill-Qwen-7B-GGUF (4,7 GB) ist **40× schneller** als der Rest (39,5 vs ⌀ 1,2 t/s) und generiert **5× mehr Tokens**. Ideal als primäres lokales Modell für schnelle Inference.
+
+**Backend:** Alle 12 Ergebnisse (8 success + 4 fail) unter `mode=full_suite` in der `benchmark_runs`-Tabelle gespeichert. Abrufbar via `GET /api/benchmarks?mode=full_suite`.
+
+**Lokales Backup:** `benchmark/results/full-suite-mquuuxbe-ywe5.json`

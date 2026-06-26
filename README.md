@@ -194,6 +194,17 @@ ssh -R 40000:localhost:1080 oracle-vm
 # Environment=PLAYWRIGHT_PROXY_URL=socks5://127.0.0.1:40000
 ```
 
+**claudetracker Backend tunnel** (for local → oracle-vm:3001): Forwards port 3001 so benchmark results can be sent to the backend from the local machine.
+
+```bash
+# launchd-managed with autossh (KeepAlive + auto-restart):
+#   plist: ~/Library/LaunchAgents/de.haraldweiss.claudetracker-tunnel.plist
+#   Logs:  ~/Library/Logs/claudetracker-tunnel.log
+#   Forward: -L 3001:127.0.0.1:3001 → opc@92.5.18.29
+#   Start: launchctl load ~/Library/LaunchAgents/de.haraldweiss.claudetracker-tunnel.plist
+#   Status: launchctl list | grep claudetracker
+```
+
 **Extension sync** (4 sources with httponly cookies): Open the popup and click **🔐 Sync geschützte Quellen**. The extension opens tabs for:
 
 | Source | URL scraper | Data |
@@ -204,6 +215,39 @@ ssh -R 40000:localhost:1080 oracle-vm
 | OpenCode Go | `opencode.ai/workspace/.../go` | Plan name, continuous/weekly/monthly usage % |
 
 Data from both pipelines flows to the same backend (`POST /api/usage/track`) and is displayed in the React dashboard.
+
+### Ollama Benchmark Suite
+
+A benchmark suite for local Ollama models lives in `benchmark/`. It tests text-generation models on a consistent prompt and sends results to the backend (`POST /api/benchmarks`).
+
+**Scripts:**
+
+| Script | Description |
+|---|---|
+| `benchmark/run.js` | Standard benchmark: coding, general, project, speed tasks. `--mode quick/standard --model NAME` |
+| `benchmark/full-suite-test.cjs` | Quick one-prompt test across all text models. Sends results to backend |
+| `benchmark/config.js` | `OLLAMA_BASE`, `BACKEND_BASE`, timeouts |
+| `benchmark/send.js` | Shared backend upload helper for benchmark results |
+
+**Quick full-suite run:**
+```bash
+cd benchmark
+node full-suite-test.cjs
+# Tests all 12 models, saves to benchmark/results/, uploads to backend
+```
+
+**Run benchmark for a single model:**
+```bash
+node run.js --model hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q4_K_M --mode quick
+```
+
+**Backend query:**
+```bash
+curl "http://localhost:3001/api/benchmarks?mode=full_suite" \
+  -H "Authorization: Bearer <token>"
+```
+
+**Local reports:** `benchmark/results/full-suite-*.json`
 
 ### Deploy a fresh build
 

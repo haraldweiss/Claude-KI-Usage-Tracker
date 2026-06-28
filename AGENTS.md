@@ -1168,3 +1168,12 @@ claude.ai + Anthropic API + OpenCode Go + z.ai. **Codex (ChatGPT), OpenCode API 
 - **npm audit:** 0 vulnerabilities nach `npm audit fix --legacy-peer-deps`.
 - **Types:** `CombinedSpendBreakdown` um `codex`-Feld, `ZaiMeta` um nested `plan`/`usage`-Strukturen.
 - **Git:** PR #16 gemergt (squashed, branch gelöscht).
+
+
+
+### 2026-06-28 — Benchmarks fix: listBenchmarks returns all individual runs
+- **Problem:** `listBenchmarks` aggregierte Runs pro Model (nur letzter Run). Frontend erwartete alle Runs mit `mode`, `category`, `tasks_total`, `tasks_passed`.
+- **Fix:** `benchmarkController.ts` komplett neu geschrieben — `listBenchmarks` gibt jetzt alle 62 Runs zurück.
+- **Merge conflicts fixed:** `types/api.ts`, `api.ts` (getProviders, updateProvider nachgerüstet).
+- **CombinedCostTab:** `chatGptEur`-Deklaration ergänzt (fehlte nach Merge).
+- **Git:** main auf `fc4318e` (Claude-KI-Usage-Tracker), wolfini_de_web PR #195 gemergt.

@@ -1177,3 +1177,10 @@ claude.ai + Anthropic API + OpenCode Go + z.ai. **Codex (ChatGPT), OpenCode API 
 - **Merge conflicts fixed:** `types/api.ts`, `api.ts` (getProviders, updateProvider nachgerüstet).
 - **CombinedCostTab:** `chatGptEur`-Deklaration ergänzt (fehlte nach Merge).
 - **Git:** main auf `fc4318e` (Claude-KI-Usage-Tracker), wolfini_de_web PR #195 gemergt.
+
+
+
+### 2026-06-28 — Extension URLs updated for all browsers
+- **Edge, Firefox, Opera, Pale Moon:** Alle `claudetracker.wolfinisoftware.de` URLs auf `ki-usage-tracker.wolfinisoftware.de` umgestellt.
+- **12 Dateien** in 4 Extension-Verzeichnissen aktualisiert (background.js, popup.js, popup.html, bootstrap.js, prefs.js).
+- **Git:** `main` auf `0d9475e` (Claude-KI-Usage-Tracker).

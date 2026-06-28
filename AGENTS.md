@@ -1153,7 +1153,41 @@ claude.ai + Anthropic API + OpenCode Go + z.ai. **Codex (ChatGPT), OpenCode API 
 
 **Status:** `npx tsc --noEmit` zeigt keine neuen Fehler (95 pre-existing Test-Fehler). Commit mit `--no-verify` (pre-commit-Hook blockiert wegen Test-Fehlern).
 
+### 2026-06-26 — Pi-Modelle: qwen3.6 korrupt + z.ai/GLM reaktiviert (Pi)
 
+**Scope:** Zwei unabhängige Probleme in Pi's Modell-Versorgung.
+
+#### 1. qwen3.6:latest — GGUF korrupt (Ollama Registry)
+
+**Symptom:** `error loading model hyperparameters: key qwen35moe.rope.dimension_sections has wrong array length; expected 4, got 3`
+
+**Diagnose:**
+- `ollama pull` und `ollama rm + pull` (23 GB neu) → gleicher Blob SHA256 `f5ee307a2982` → Registry-seitig korrupt
+- `brew upgrade ollama` (0.30.10) → bereits aktuell
+- Andere Modelle (`qwen3-coder:latest`, `llama3.1:8b-instruct-q5_K_M`, `hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q4_K_M`) laufen fehlerfrei
+
+**Fix in `~/.pi/agent/settings.json`:**
+- `defaultModel: "ollama/qwen3-coder"`, `defaultProvider: "ollama"`
+- `qwen3.6` aus `scopedModels` entfernt
+
+#### 2. ai-provider-service: z.ai GLM reaktiviert
+
+**Symptom:** `Provider zai nicht erreichbar, kein Fallback/Queue konfiguriert` bei Nutzung von `ai-provider-service/zai/glm-4-flash`
+
+**Ursachen (3):**
+1. **Gating:** `UNGATED_PROVIDERS=ollama` (ohne `zai`) + `ZAI_SERVER_KEY_ALLOWED_USERS` nicht gesetzt → Pi-User `pi-agent` durfte z.ai nicht nutzen
+2. **Modell veraltet:** `glm-4-flash` existiert bei z.ai nicht mehr (HTTP 400). Aktuelle Modelle: `glm-4.5`, `glm-4.5-air`, `glm-4.6`, `glm-4.7`, `glm-5`, etc.
+3. **API-Key ohne Guthaben:** Alter Key `0038b8237ac148ad...` hatte `429 Insufficient balance`
+
+**Fixes:**
+- `UNGATED_PROVIDERS=ollama,zai` + `ZAI_SERVER_KEY_ALLOWED_USERS=pi-agent` im Docker-Container
+- Neuer API-Key `3a7ab72b76064f0c8e6ec8cfe9d88569.PICzyRjfPuUlx0gm` (User hat Coding-Plan-verknüpften Key erzeugt)
+- `zai/glm-4.5-flash` als Modell in `ZAI_MODELS` + `MODEL_META` in `api/openai_api.py` hinzugefügt (Datei per `docker cp` in Container übertragen, dann `docker restart`)
+- Pi-Extension `~/.pi/agent/extensions/ai-provider-service.ts`: `zai/glm-4.5-flash` in `knownModels` und Hardcoded-Fallback ergänzt, Duplikat bereinigt
+
+**Aktuell nutzbar:** `ai-provider-service/zai/glm-4.5-flash` — läuft über GLM Coding Plan (keine Zusatzkosten). Andere z.ai-Modelle (`glm-4.7`, `glm-5`, etc.) geben weiterhin `429 Insufficient balance` — der User möchte bewusst **kein API-Guthaben** buchen.
+
+---
 
 ### 2026-06-28 — Dashboard ChatGPT Plus Card, Backend Provider API, Benchmarks Run UI
 - **OverviewTab:** ChatGPT Plus card mit 5h/weekly progress bars aus `codex_sync`-Scraper-Daten. z.ai-Metadaten-Parsing gefixt (nested `{plan:{}, usage:{}}`).
@@ -1169,8 +1203,6 @@ claude.ai + Anthropic API + OpenCode Go + z.ai. **Codex (ChatGPT), OpenCode API 
 - **Types:** `CombinedSpendBreakdown` um `codex`-Feld, `ZaiMeta` um nested `plan`/`usage`-Strukturen.
 - **Git:** PR #16 gemergt (squashed, branch gelöscht).
 
-
-
 ### 2026-06-28 — Benchmarks fix: listBenchmarks returns all individual runs
 - **Problem:** `listBenchmarks` aggregierte Runs pro Model (nur letzter Run). Frontend erwartete alle Runs mit `mode`, `category`, `tasks_total`, `tasks_passed`.
 - **Fix:** `benchmarkController.ts` komplett neu geschrieben — `listBenchmarks` gibt jetzt alle 62 Runs zurück.
@@ -1178,9 +1210,84 @@ claude.ai + Anthropic API + OpenCode Go + z.ai. **Codex (ChatGPT), OpenCode API 
 - **CombinedCostTab:** `chatGptEur`-Deklaration ergänzt (fehlte nach Merge).
 - **Git:** main auf `fc4318e` (Claude-KI-Usage-Tracker), wolfini_de_web PR #195 gemergt.
 
-
-
 ### 2026-06-28 — Extension URLs updated for all browsers
 - **Edge, Firefox, Opera, Pale Moon:** Alle `claudetracker.wolfinisoftware.de` URLs auf `ki-usage-tracker.wolfinisoftware.de` umgestellt.
 - **12 Dateien** in 4 Extension-Verzeichnissen aktualisiert (background.js, popup.js, popup.html, bootstrap.js, prefs.js).
 - **Git:** `main` auf `0d9475e` (Claude-KI-Usage-Tracker).
+
+
+
+### 2026-06-28 — Production Deploy-Fixes: weiße Benchmark-Seite + ChatGPT Plus 0,00 € (Pi)
+
+**Scope:** Zwei Production-Bugs die auftraten, obwohl der Code in git korrekt war. Root Cause in beiden Fällen: **veraltete Production-Builds** (Frontend-dist bzw. Backend-dist im Docker-Container wurden nicht nach jedem git-Commit aktualisiert).
+
+#### 1. Benchmark-Seite bleibt weiß (BenchmarksTab fehlt im Production-Build)
+
+**Symptom:** Dashboard-Tab „Benchmarks" zeigt weißen/leeren Content-Bereich. Alle anderen Tabs funktionieren.
+
+**Diagnose:**
+- Der Production-Frontend-Build auf dem VPS (`/opt/ki-usage-tracker-frontend/dist/assets/index-D-RDWpdc.js`, 308 KB) enthielt **nicht** den BenchmarksTab-Code — `grep -c "Lade Benchmark"` = 0.
+- Der lokale Build (`index-BJekO_tf.js`, 697 KB) enthielt ihn — `grep -c "Lade Benchmark"` = 1.
+- Der Verlauf: ein früheres Deployment hatte eine ältere/minimale JS-Bundle ohne BenchmarksTab ausgerollt; nachfolgende Code-Commits landeten in git, aber der Production-Build wurde nicht erneut gebaut+deployed.
+- Der Backend-Endpoint `/api/benchmarks` funktionierte korrekt (62 Runs in der DB), das Problem war rein Frontend-seitig.
+
+**Fix:** Frischen Frontend-Build deployed:
+```bash
+cd frontend && npm run build
+rsync -avz --delete dist/ oracle-vm:/opt/ki-usage-tracker-frontend/dist/
+```
+Danach Hard Refresh (Cmd+Shift+R) im Browser nötig (alter `index.html`-Cache referenziert noch die alte JS-Datei).
+
+#### 2. ChatGPT Plus zeigt „0,00 €/Monat" statt 18,50 €
+
+**Symptom:** Dashboard zeigt „ChatGPT Plus 0,00 €/Monat".
+
+**Diagnose:**
+- `GET /api/usage/summary` lieferte `combined.codex.plan_cost_eur: None`.
+- Der Backend-Code (`usageController.ts`) hat Fallback-Logik: wenn `plan_name` fehlt → „ChatGPT Plus", dann `getPlanPrice('ChatGPT Plus')` → sollte 18.5 liefern.
+- `plan_pricing`-Tabelle hatte korrekt „ChatGPT Plus" = 18.5 EUR.
+- Root Cause: die Backend-Dist **im Docker-Container** (`ki-usage-tracker:/app/dist/`) war veraltet — der Container lief noch mit dem alten Code, der den Codex-Fallback noch nicht enthielt.
+- Verwirrend: `docker ps --filter name=claudetracker` zeigte nichts (Container heißt `ki-usage-tracker`, nicht `claudetracker`). Der Node-Prozess lief mit `cwd=/app` und `DATABASE_PATH=/app/data/database.sqlite`.
+
+**Fix:** Backend-Dist in den Container kopieren und neu starten:
+```bash
+cd backend && npm run build
+rsync -avz --delete dist/ oracle-vm:/tmp/backend-dist/
+ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && docker restart ki-usage-tracker'
+```
+Nach Restart: `GET /api/usage/summary` liefert `plan_name: "ChatGPT Plus"`, `plan_cost_eur: 18.5`. ✓
+
+#### 3. Operative Erkenntnisse — Production-Pfade & Deploy-Prozeduren
+
+**Diese Pfade sind verbindlich für alle Deploys (Stand 2026-06-28):**
+
+| Komponente | Production-Pfad auf oracle-vm | Hinweis |
+|---|---|---|
+| **Frontend dist** | `/opt/ki-usage-tracker-frontend/dist/` | Apache DocumentRoot (vHost `ki-usage-tracker.wolfinisoftware.de`) |
+| **Backend dist** | **Im Docker-Container** `ki-usage-tracker:/app/dist/` | NICHT auf dem Host-Filesystem. Muss via `docker cp` aktualisiert werden. |
+| **Datenbank** | Host: `/opt/ki-usage-tracker-data/database.sqlite` → Container-Bind: `/app/data/database.sqlite` | Volume-Mount, direkt per sqlite3 auf dem Host editierbar |
+| **Apache vHost** | `/etc/httpd/conf.d/ki-usage-tracker.wolfinisoftware.de.conf` | DocumentRoot + `/api/` → `127.0.0.1:3001` ProxyPass |
+| **Server-Scraper** | `/opt/ki-usage-tracker/server-scraper/` | Playwright, systemd-Timer `ki-usage-scraper.timer` |
+
+**Docker-Container heißt `ki-usage-tracker`** (nicht `claudetracker`!). `docker ps --filter name=claudetracker` findet ihn nicht.
+
+**Verbindliche Deploy-Prozedur nach jedem Code-Commit:**
+```bash
+# Frontend
+cd frontend && npm run build
+rsync -avz --delete dist/ oracle-vm:/opt/ki-usage-tracker-frontend/dist/
+# → Hard Refresh im Browser nötig
+
+# Backend
+cd backend && npm run build
+rsync -avz --delete dist/ oracle-vm:/tmp/backend-dist/
+ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && docker restart ki-usage-tracker'
+# → Service Worker / Popup evtl. Extension-Reload nötig
+```
+
+**⚠️ Lektion:** Ein `git push` allein updated NICHT die Production! Nach jedem Merge auf main müssen Frontend-dist (rsync) und Backend-dist (docker cp + restart) explizit deployed werden. Symptome wie „weiße Seite" oder „0,00 €" trotz korrektem Code deuten immer auf einen fehlenden Production-Deploy hin.
+
+**Verifikation nach Deploy:**
+- `curl -s http://localhost:3001/api/health` → `{"status":"ok"}`
+- `curl -s http://localhost:3001/api/usage/summary -H "Authorization: Bearer <token>"` → `combined.codex.plan_cost_eur` ≠ null
+- `grep -c "Lade Benchmark" /opt/ki-usage-tracker-frontend/dist/assets/index-*.js` → ≥1

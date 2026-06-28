@@ -151,19 +151,20 @@ The dashboard at `http://localhost:5173` will populate within a few seconds.
 
 The tracker is also deployable as a subpath of an existing Apache vhost — useful if you already host other things on a domain and don't want to spin up a separate one.
 
-**Live at:** `https://wolfinisoftware.de/claudetracker/` (magic-link auth; this is the maintainer's instance).
+**Live at:** `https://ki-usage-tracker.wolfinisoftware.de/` (magic-link auth; this is the maintainer's instance, alias `claudetracker.wolfinisoftware.de`).
 
 ### How it works
 
 | Layer | What lives where |
 |---|---|
-| Apache vhost | `/etc/httpd/conf.d/claudetracker.conf` — `Alias /claudetracker → /var/www/.../frontend/dist` plus `ProxyPass /claudetracker/api/ → http://127.0.0.1:3001/api/`. SPA fallback rewrite for client-side routing. |
-| Backend | systemd unit `claudetracker-backend.service`, listens on `127.0.0.1:3001`, env-configured via `Environment=DATABASE_PATH=...` and `Environment=CORS_ALLOWED_ORIGINS=...`. |
-| Frontend | static bundle under `/var/www/wolfinisoftware/claudetracker/frontend/dist/` (Vite build, base path `/claudetracker/`). |
-| Auth | **Application-level magic-link auth** (see Sign Up section above). The Apache `.htpasswd-claudetracker` file is kept as a legacy fallback / extra layer but is no longer the primary gate — the app handles auth itself via session cookies and Bearer API tokens. |
-| TLS | Let's Encrypt cert managed by the surrounding vhost (no separate cert for the subpath). |
+| Apache vHost | `/etc/httpd/conf.d/ki-usage-tracker.wolfinisoftware.de.conf` — `DocumentRoot /opt/ki-usage-tracker-frontend/dist` plus `ProxyPass /api/ → http://127.0.0.1:3001/api/`. SPA fallback rewrite via `.htaccess`-style `RewriteRule`. |
+| Backend | **Docker-Container** `ki-usage-tracker` (nicht podman/Quadlet), Dist im Container unter `/app/dist/`, Volume-Mount `/opt/ki-usage-tracker-data:/app/data`. Env via Dockerfile. Listens auf `0.0.0.0:3001`. |
+| Frontend | Static bundle unter `/opt/ki-usage-tracker-frontend/dist/` (Vite Build, mit `--base=/` statt Subpath). |
+| DB | Host: `/opt/ki-usage-tracker-data/database.sqlite` → Container: `/app/data/database.sqlite` |
+| Auth | **Application-level magic-link auth** (see Sign Up section above). Sessions via Cookie, API über Bearer Tokens. |
+| TLS | Let's Encrypt cert für `claudetracker.wolfinisoftware.de` (vHost-ServerAlias). |
 
-The frontend production build reads `frontend/.env.production` (`VITE_API_URL=/claudetracker`) so all fetches use a same-origin relative URL — no separate API hostname, no CORS dance.
+The frontend production build is plain same-origin (no `VITE_API_URL` prefix — API calls go to `/api/...` and Apache proxies to the backend).
 
 ### Server-Scraper (Playwright)
 
@@ -249,22 +250,40 @@ curl "http://localhost:3001/api/benchmarks?mode=full_suite" \
 
 **Local reports:** `benchmark/results/full-suite-*.json`
 
-### Deploy a fresh build
+### Deploy a fresh build (oracle-vm)
+
+**⚠️ `git push` allein updated NICHT die Production!** Nach jedem Merge auf main muss explizit deployed werden.
 
 ```bash
 # From the project root
-cd backend && npm run build
-cd ../frontend && npm run build
 
-# Sync just the runtime artifacts
-rsync -az --delete --exclude=node_modules --exclude=database.sqlite \
-  backend/dist backend/package.json backend/package-lock.json \
-  user@vps:/var/www/.../claudetracker/backend/
-rsync -az --delete frontend/dist/ \
-  user@vps:/var/www/.../claudetracker/frontend/dist/
+# 1. Frontend build + sync
+cd frontend && npm run build
+rsync -avz --delete dist/ oracle-vm:/opt/ki-usage-tracker-frontend/dist/
 
-ssh user@vps 'systemctl restart claudetracker-backend'
+# 2. Backend build + in Docker-Container kopieren
+cd ../backend && npm run build
+rsync -avz --delete dist/ oracle-vm:/tmp/backend-dist/
+ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && docker restart ki-usage-tracker'
 ```
+
+**Nach Deploy:** Hard Refresh (Cmd+Shift+R) im Browser nötig (alter `index.html`-Cache).
+
+**Verifikation:**
+```bash
+# Backend healthy?
+curl -s https://ki-usage-tracker.wolfinisoftware.de/api/health
+# → {"status":"ok"}
+
+# ChatGPT Plus-Preis korrekt?
+curl -s https://ki-usage-tracker.wolfinisoftware.de/api/usage/summary   -H "Authorization: Bearer <token>" | grep plan_cost_eur
+# → 18.5
+
+# Benchmark-Tab im Build?
+ssh oracle-vm 'grep -c "Lade Benchmark" /opt/ki-usage-tracker-frontend/dist/assets/index-*.js'
+# → ≥1
+```
+
 
 ### Monitoring (live on the maintainer's VPS)
 
@@ -297,62 +316,35 @@ Neben dem Tracker läuft auf demselben Oracle VM ein WebDAV-Endpunkt für Obsidi
 
 ## Container deployment (production)
 
-The production deploy on the IONOS VPS runs the backend as a
-podman-managed container, driven by a Quadlet at
-`/etc/containers/systemd/claudetracker.container`. The frontend
-stays statically served by Apache from `frontend/dist/`.
+Der Production-Backend läuft auf der **oracle-vm** als Docker-Container (`ki-usage-tracker`), basierend auf dem Image `localhost/ki-usage-tracker:latest`. Der Frontend-Build wird statisch via Apache aus `/opt/ki-usage-tracker-frontend/dist/` ausgeliefert.
 
-**First-time setup on the VPS:**
+**Aktuelle Production-Pfade (oracle-vm):**
 
+| Komponente | Pfad | Beschreibung |
+|---|---|---|
+| **Docker-Container** | `ki-usage-tracker` | Backend läuft im Container, Dist unter `/app/dist/` |
+| **Datenbank** | `/opt/ki-usage-tracker-data/database.sqlite` | Volume-Mount → Container `/app/data/database.sqlite` |
+| **Frontend dist** | `/opt/ki-usage-tracker-frontend/dist/` | Apache DocumentRoot |
+| **Apache vHost** | `/etc/httpd/conf.d/ki-usage-tracker.wolfinisoftware.de.conf` | ProxyPass `/api/` → `127.0.0.1:3001` |
+| **Server-Scraper** | `/opt/ki-usage-tracker/server-scraper/` | Playwright, systemd-Timer `ki-usage-scraper.timer` |
+
+**Docker-Kommandos:**
 ```bash
-# 1. Data dir (UID/GID 1000 matches the container's `app` user)
-mkdir -p /opt/claudetracker-data
-chown -R 1000:1000 /opt/claudetracker-data
-chcon -Rt container_file_t /opt/claudetracker-data
+# Container-Status
+ssh oracle-vm 'docker ps --filter name=ki-usage-tracker'
 
-# 2. Secrets file (never in git)
-mkdir -p /etc/claudetracker && chmod 700 /etc/claudetracker
-cat > /etc/claudetracker/claudetracker.env <<'EOF'
-SECRETS_KEY=...
-SMTP_USER=...
-SMTP_PASS=...
-MAIL_FROM=KI Usage Tracker <claudetracker@wolfinisoftware.de>
-EOF
-chmod 600 /etc/claudetracker/claudetracker.env
+# Logs
+ssh oracle-vm 'docker logs ki-usage-tracker --tail 50'
 
-# 3. Install the Quadlet
-cp /var/www/wolfinisoftware/claudetracker/deploy/claudetracker.container \
-   /etc/containers/systemd/
-systemctl daemon-reload
+# Restart
+ssh oracle-vm 'docker restart ki-usage-tracker'
 
-# 4. Build the image and start
-cd /var/www/wolfinisoftware/claudetracker/backend
-podman build -t localhost/claudetracker:latest .
-systemctl start claudetracker.service
+# Backend-Dist updaten
+cd backend && npm run build
+rsync -avz --delete dist/ oracle-vm:/tmp/backend-dist/
+ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && docker restart ki-usage-tracker'
 ```
 
-**Re-deploy after a code change:**
-
-```bash
-cd /var/www/wolfinisoftware/claudetracker
-git pull
-cd backend
-podman build -t localhost/claudetracker:latest .
-systemctl restart claudetracker.service
-```
-
-**Logs:** `journalctl -u claudetracker.service -f`
-
-**Health check:** The Quadlet configures a TCP-connect health check against port 3001 via the Node.js `net` module (no `curl` in the image) every 30 s. Inspect with:
-
-```bash
-podman healthcheck run claudetracker     # one-shot probe, exits 0 if healthy
-podman inspect claudetracker --format '{{.State.Health.Status}}'
-```
-
-The check lives in the Quadlet (`HealthCmd=`) rather than the Dockerfile because Podman builds the image in OCI format by default, under which Dockerfile `HEALTHCHECK` directives are silently ignored.
-
-**Backup:** `/opt/claudetracker-data/database.sqlite` is the only stateful path.
 
 ---
 

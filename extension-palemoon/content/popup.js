@@ -1,56 +1,108 @@
 // © 2026 Harald Weiss
 // KI Usage Tracker — Pale Moon XUL Popup
 // Uses XPCOM Components & XMLHttpRequest (no fetch() API)
+//
+// Storage: JSON file in profile directory (ProfD/ki-usage-tracker-settings.json).
+// Reason: nsIPrefBranch.setStringPref does not flush to disk reliably in Pale
+// Moon bootstrap extensions; reopening the popup after restart loses the token.
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
+const Cu = Components.utils;
 
-var gPrefBranch = null;
+// Settings defaults
+const SETTINGS_DEFAULTS = {
+  api_base: "https://ki-usage-tracker.wolfinisoftware.de/api",
+  api_token: ""
+};
+
+var gSettings = null; // in-memory copy, synced to file on save
+
+// ========== File-based storage in profile directory ==========
+
+function settingsFilePath() {
+  try {
+    var profD = Cc["@mozilla.org/file/directory_service;1"]
+                 .getService(Ci.nsIProperties)
+                 .get("ProfD", Ci.nsIFile);
+    var file = profD.clone();
+    file.append("ki-usage-tracker-settings.json");
+    return file;
+  } catch (ex) {
+    console.error("[KI Tracker] settingsFilePath error:", ex);
+    return null;
+  }
+}
+
+function loadSettings() {
+  try {
+    var file = settingsFilePath();
+    if (!file || !file.exists()) {
+      gSettings = {};
+      return;
+    }
+    var stream = Cc["@mozilla.org/network/file-input-stream;1"]
+                  .createInstance(Ci.nsIFileInputStream);
+    stream.init(file, -1, 0, 0);
+    var content = Cc["@mozilla.org/scriptableinputstream;1"]
+                    .createInstance(Ci.nsIScriptableInputStream);
+    content.init(stream);
+    var raw = content.read(content.available());
+    content.close();
+    stream.close();
+    gSettings = JSON.parse(raw) || {};
+  } catch (ex) {
+    console.error("[KI Tracker] loadSettings error:", ex);
+    gSettings = {};
+  }
+}
+
+function saveSettingsToFile() {
+  try {
+    var file = settingsFilePath();
+    if (!file) return;
+    var stream = Cc["@mozilla.org/network/file-output-stream;1"]
+                  .createInstance(Ci.nsIFileOutputStream);
+    // PR_WRONLY | PR_CREATE_FILE | PR_TRUNCATE = 0x02 | 0x08 | 0x20 = 0x2A
+    stream.init(file, 0x2A, 0o644, 0);
+    var data = JSON.stringify(gSettings || {}, null, 2);
+    stream.write(data, data.length);
+    stream.close();
+  } catch (ex) {
+    console.error("[KI Tracker] saveSettingsToFile error:", ex);
+  }
+}
+
+function getSetting(key, def) {
+  if (gSettings && key in gSettings) return gSettings[key];
+  return def;
+}
+
+function setSetting(key, value) {
+  if (!gSettings) gSettings = {};
+  gSettings[key] = value;
+}
+
+// ========== Initialization ==========
 
 function init() {
-  try {
-    gPrefBranch = Cc["@mozilla.org/preferences-service;1"]
-                    .getService(Ci.nsIPrefService)
-                    .getBranch("extensions.kiusagetracker.");
-  } catch (ex) {
-    console.error("[KI Tracker] prefs init error:", ex);
-  }
+  loadSettings();
 
-  // Load saved settings
-  var apiBase = getPref("api_base", "https://ki-usage-tracker.wolfinisoftware.de/api");
-  var apiToken = getPref("api_token", "");
+  // Load saved settings (with defaults fallback)
+  var apiBase = getSetting("api_base", SETTINGS_DEFAULTS.api_base);
+  var apiToken = getSetting("api_token", SETTINGS_DEFAULTS.api_token);
   document.getElementById("api-base-input").value = apiBase;
   document.getElementById("api-token-input").value = apiToken;
 
   refreshStats();
 }
 
-function getPref(name, def) {
-  try {
-    if (gPrefBranch) {
-      var type = gPrefBranch.getPrefType(name);
-      if (type === Ci.nsIPrefBranch.PREF_STRING) return gPrefBranch.getStringPref(name);
-      if (type === Ci.nsIPrefBranch.PREF_INT) return gPrefBranch.getIntPref(name);
-    }
-  } catch (ex) { /* pref not set */ }
-  return def;
-}
-
-function setPref(name, value) {
-  try {
-    if (gPrefBranch) {
-      gPrefBranch.setStringPref(name, String(value));
-    }
-  } catch (ex) {
-    console.error("[KI Tracker] setPref error:", ex);
-  }
-}
-
 function saveSettings() {
   var apiBase = document.getElementById("api-base-input").value.trim();
   var apiToken = document.getElementById("api-token-input").value.trim();
-  setPref("api_base", apiBase);
-  setPref("api_token", apiToken);
+  setSetting("api_base", apiBase);
+  setSetting("api_token", apiToken);
+  saveSettingsToFile();
   document.getElementById("status-label").value = "✅ Gespeichert.";
   refreshStats();
 }

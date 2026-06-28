@@ -11,8 +11,9 @@ Cu.import("resource://gre/modules/Services.jsm");
 
 const DEFAULT_API_BASE = "https://ki-usage-tracker.wolfinisoftware.de/api";
 
-// --- Toolbar button ---
+// --- Toolbar button + window reference ---
 let gButton = null;
+let gBrowserWindow = null;
 
 function startup(data, reason) {
   console.log("[KI Usage Tracker] startup, reason=" + reason);
@@ -40,6 +41,76 @@ function startup(data, reason) {
   if (navbar) {
     navbar.appendChild(gButton);
   }
+
+  // --- Expose KiUsageTracker on the browser window ---
+  // This is accessible from popup.xul via window.opener.KiUsageTracker
+  gBrowserWindow = browserWindow;
+  gBrowserWindow.KiUsageTracker = {
+    openPopup: function() {
+      // Open a XUL window with the KI Usage Tracker dashboard.
+      // Pass gBrowserWindow as parent so popup gets window.opener set.
+      Services.ww.openWindow(
+        gBrowserWindow,  // parent → sets window.opener for cookie export
+        "chrome://kiusagetracker/content/popup.xul",
+        "_blank",
+        "chrome,centerscreen,dialog=no,resizable=yes,width=420,height=650",
+        null
+      );
+    },
+
+    /**
+     * Export cookies from the browser to send to the server-scraper.
+     * Uses nsICookieManager for cookie enumeration.
+     */
+    exportCookies: function() {
+      try {
+        var cookies = [];
+        var cookieManager = Cc["@mozilla.org/cookiemanager;1"]
+                             .getService(Ci.nsICookieManager);
+        var enumerator = cookieManager.enumerator;
+
+        while (enumerator.hasMoreElements()) {
+          var cookie = enumerator.getNext().QueryInterface(Ci.nsICookie);
+          var domain = cookie.host;
+          // Filter only relevant domains
+          if (/claude\.ai|platform\.claude\.com|opencode\.ai|z\.ai|chatgpt\.com|platform\.openai\.com/i.test(domain)) {
+            cookies.push({
+              name: cookie.name,
+              value: cookie.value,
+              domain: domain,
+              path: cookie.path,
+              secure: cookie.isSecure,
+              httpOnly: 0 // nsICookie does not expose httponly directly in older APIs
+            });
+          }
+        }
+
+        return cookies;
+      } catch (ex) {
+        console.error("[KI Usage Tracker] cookie export error:", ex);
+        return [];
+      }
+    },
+
+    /**
+     * Fetch monthly stats from the backend API.
+     */
+    fetchStats: function(apiBase, apiToken) {
+      var url = (apiBase || DEFAULT_API_BASE) + "/usage/summary?period=month";
+      var xhr = new XMLHttpRequest();
+      xhr.open("GET", url, false); // synchronous for simplicity
+      if (apiToken) xhr.setRequestHeader("Authorization", "Bearer " + apiToken);
+      try {
+        xhr.send();
+        if (xhr.status === 200) {
+          return JSON.parse(xhr.responseText);
+        }
+      } catch (e) {
+        console.error("[KI Usage Tracker] fetchStats error:", e);
+      }
+      return null;
+    }
+  };
 }
 
 function shutdown(data, reason) {
@@ -58,69 +129,5 @@ function uninstall(data, reason) {
   console.log("[KI Usage Tracker] uninstall, reason=" + reason);
 }
 
-// --- Core functions exposed to browser window ---
-
-browserWindow.KiUsageTracker = {
-  openPopup: function() {
-    // Open a XUL window with the KI Usage Tracker dashboard
-    let win = Services.ww.openWindow(
-      null,
-      "chrome://kiusagetracker/content/popup.xul",
-      "_blank",
-      "chrome,centerscreen,dialog=no,resizable=yes,width=420,height=650",
-      null
-    );
-  },
-
-  /**
-   * Export cookies from the browser to send to the server-scraper.
-   * Uses nsICookieManager for cookie enumeration.
-   */
-  exportCookies: function() {
-    try {
-      var cookies = [];
-      var cookieManager = Cc["@mozilla.org/cookiemanager;1"]
-                           .getService(Ci.nsICookieManager);
-      var enumerator = cookieManager.enumerator;
-
-      while (enumerator.hasMoreElements()) {
-        var cookie = enumerator.getNext().QueryInterface(Ci.nsICookie);
-        var domain = cookie.host;
-        // Filter only relevant domains
-        if (/claude\.ai|platform\.claude\.com|opencode\.ai|z\.ai|chatgpt\.com|platform\.openai\.com/i.test(domain)) {
-          cookies.push({
-            name: cookie.name,
-            value: cookie.value,
-            domain: domain,
-            path: cookie.path,
-            secure: cookie.isSecure,
-            httpOnly: 0 // nsICookie does not expose httponly directly in older APIs
-          });
-        }
-      }
-
-      return cookies;
-    } catch (ex) {
-      console.error("[KI Usage Tracker] cookie export error:", ex);
-      return [];
-    }
-  },
-
-  /**
-   * Fetch monthly stats from the backend API.
-   */
-  fetchStats: function(apiBase, apiToken) {
-    var url = (apiBase || DEFAULT_API_BASE) + "/usage/summary?period=month";
-    var headers = {};
-    if (apiToken) headers["Authorization"] = "Bearer " + apiToken;
-
-    var xhr = new XMLHttpRequest();
-    xhr.open("GET", url, false); // synchronous for simplicity
-    if (apiToken) xhr.setRequestHeader("Authorization", "Bearer " + apiToken);
-    xhr.send();
-    if (xhr.status === 200) {
-      return JSON.parse(xhr.responseText);
-    }
-    return null;
-  }
-};
+// KiUsageTracker is set on the browser window in startup() above.
+// popup.js accesses it via window.opener.KiUsageTracker.

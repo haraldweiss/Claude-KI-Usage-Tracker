@@ -22,19 +22,27 @@
 | HTTP Requests | `fetch()` | `XMLHttpRequest` |
 | Backend-Kommunikation | `fetch()` → JSON | `XMLHttpRequest` → JSON |
 
-## Installation (temporär)
+## Installation
 
-1. Pale Moon öffnen
-2. `about:debugging` → Temporäre Add-ons laden
-3. `extension-palemoon/` Verzeichnis auswählen
-4. Oder: XPI packen und via `about:addons` → Zahnrad → Add-on aus Datei installieren
+**⚠️ `about:debugging` → "Temporäre Add-ons laden" funktioniert NICHT für XUL-Extensions.**
+Pale Moon behandelt über `about:debugging` geladene Add-ons als WebExtensions und zeigt:
+`Your browser configuration is not compatible with Service Workers`.
 
-## XPI packen
+### Korrekte Installationsmethode:
 
-```bash
-cd extension-palemoon
-zip -r ../ki-usage-tracker-palemoon.xpi *
-```
+1. **XPI packen:**
+   ```bash
+   cd extension-palemoon
+   zip -r ../ki-usage-tracker-palemoon.xpi *
+   ```
+2. **In Pale Moon installieren:**
+   - `about:addons` öffnen
+   - Zahnrad-Icon → "Add-on aus Datei installieren…"
+   - `ki-usage-tracker-palemoon.xpi` auswählen
+   - Installation bestätigen
+   - Pale Moon neu starten (einmalig nötig für bootstrap Aktivierung)
+
+Nach dem Neustart erscheint der "KI Tracker"-Button in der Toolbar.
 
 ## Bekannte Einschränkungen
 

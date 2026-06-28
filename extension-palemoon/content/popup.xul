@@ -30,7 +30,7 @@
       <label style="font-weight:bold;">API-Einstellungen</label>
       <hbox align="center">
         <label control="api-base-input" style="width:100px;">Backend URL:</label>
-        <textbox id="api-base-input" flex="1" value="https://claudetracker.wolfinisoftware.de/api"/>
+        <textbox id="api-base-input" flex="1" value="https://ki-usage-tracker.wolfinisoftware.de/api"/>
       </hbox>
       <hbox align="center">
         <label control="api-token-input" style="width:100px;">API Token:</label>

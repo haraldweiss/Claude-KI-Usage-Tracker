@@ -323,6 +323,17 @@ export const deletePlanSchedule = () =>
 // ---------------------------------------------------------------------------
 // Benchmark endpoints
 // ---------------------------------------------------------------------------
+<<<<<<< HEAD
+export function getBenchmarkRuns(params?: Record<string, string>): Promise<{ runs: any[] }> {
+  const q = params ? new URLSearchParams(params).toString() : '';
+  return apiCall(`/benchmarks${q ? `?${q}` : ''}`);
+}
+
+export function triggerBenchmarkRun(device?: string): Promise<{ success: boolean; message: string }> {
+  return apiCall('/benchmarks/run', {
+    method: 'POST',
+    body: device ? JSON.stringify({ device }) : undefined,
+=======
 import type { BenchmarkRunsResponse } from '../types/benchmark';
 
 export function getBenchmarkRuns(params?: Record<string, string>): Promise<BenchmarkRunsResponse> {
@@ -351,5 +362,6 @@ export async function updateProvider(
   return apiCall<{ ok: boolean }>(`/settings/providers/${encodeURIComponent(name)}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
+>>>>>>> origin/main
   });
 }

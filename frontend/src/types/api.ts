@@ -41,6 +41,8 @@ export interface ZaiSpend {
   last_synced: string;
 }
 
+<<<<<<< HEAD
+=======
 export interface OpenCodeApiSpend {
   total_input_tokens: number;
   total_output_tokens: number;
@@ -93,6 +95,7 @@ export interface OpenAiApiSpend {
   last_synced: string;
 }
 
+>>>>>>> origin/main
 export interface CombinedSpendBreakdown {
   claude_ai: ClaudeAiSpend | null;
   anthropic_api: {
@@ -102,10 +105,16 @@ export interface CombinedSpendBreakdown {
   };
   opencode_go?: OpenCodeGoSpend | null;
   zai?: ZaiSpend | null;
+<<<<<<< HEAD
+  codex?: {
+    response_metadata: string | null;
+  } | null;
+=======
   opencode_api?: OpenCodeApiSpend | null;
   codex?: CodexSpend | null;
   openai_api?: OpenAiApiSpend | null;
   console_model_breakdown?: ConsoleModelBreakdown;
+>>>>>>> origin/main
   exchange_rate?: {
     usd_to_eur: number;
     rate_date: string | null;
@@ -185,6 +194,8 @@ export interface SpendingTotal {
     monthly_eur: number;
     total_eur: number;
   };
+<<<<<<< HEAD
+=======
   opencode_api?: {
     total_usd: number;
     total_eur: number;
@@ -198,6 +209,7 @@ export interface SpendingTotal {
     monthly_eur: number;
     total_eur: number;
   };
+>>>>>>> origin/main
   grand_total_eur?: number;
   exchange_rate?: {
     usd_to_eur: number;

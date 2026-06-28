@@ -2,7 +2,7 @@
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { getBenchmarkRuns } from '../services/api';
+import { getBenchmarkRuns, triggerBenchmarkRun } from '../services/api';
 import type { BenchmarkRun, ModelSummary } from '../types/benchmark';
 
 function scoreColor(score: number | null): string {
@@ -50,6 +50,24 @@ export default function BenchmarksTab(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<keyof ModelSummary>('overall');
+  const [device, setDevice] = useState('');
+  const [running, setRunning] = useState(false);
+  const [runMsg, setRunMsg] = useState<string | null>(null);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setRunMsg(null);
+    try {
+      const res = await triggerBenchmarkRun(device || undefined);
+      setRunMsg(res.message || 'Benchmark gestartet');
+    } catch (e) {
+      setRunMsg('Fehler: ' + (e instanceof Error ? e.message : '?'));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const machines = [...new Set(runs.map(r => r.machine_name))];
 
   useEffect(() => {
     let cancelled = false;

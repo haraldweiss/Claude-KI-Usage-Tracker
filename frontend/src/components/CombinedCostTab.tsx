@@ -77,14 +77,7 @@ export default function CombinedCostTab(): React.ReactElement {
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
-  const codexSpend = combined?.codex ?? null;
-  const codexEur = codexSpend?.plan_cost_eur ?? 0;
-  const usdToEur = combined?.exchange_rate?.usd_to_eur ?? 0.92;
-  const opencodeApiEur = combined?.opencode_api?.total_cost_usd
-    ? combined.opencode_api.total_cost_usd * usdToEur : 0;
-  const openaiApiEur = combined?.openai_api?.cost_usd
-    ? combined.openai_api.cost_usd * usdToEur : 0;
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur + codexEur + opencodeApiEur + openaiApiEur;
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur;
   const exchangeRate = combined?.exchange_rate;
 
   const noData = !claudeAi && apiTotal === 0;
@@ -110,18 +103,8 @@ export default function CombinedCostTab(): React.ReactElement {
           {opencodeGoEur > 0 && (
             <><span className="mx-1">·</span>OpenCode Go {formatEur(opencodeGoEur)}</>
           )}
-          {zaiEur > 0 && (
-            <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>
-          )}
-          {codexEur > 0 && (
-            <><span className="mx-1">·</span>Codex (ChatGPT) {formatEur(codexEur)}</>
-          )}
-          {opencodeApiEur > 0 && (
-            <><span className="mx-1">·</span>OpenCode API {formatEur(opencodeApiEur)}</>
-          )}
-          {openaiApiEur > 0 && (
-            <><span className="mx-1">·</span>OpenAI API {formatEur(openaiApiEur)}</>
-          )}
+          {zaiEur > 0 && <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>}
+          {chatGptEur > 0 && <><span className="mx-1">·</span>ChatGPT Plus {formatEur(chatGptEur)}</>}
         </p>
         {exchangeRate?.usd_to_eur && (
           <p className="mt-1 text-xs text-gray-400">
@@ -320,9 +303,6 @@ export default function CombinedCostTab(): React.ReactElement {
               {opencodeGo.plan_name}-Abonnement
             </p>
           )}
-          {opencodeGoEur > 0 && (
-            <div className="mt-2 text-lg font-bold text-gray-900">{formatEur(opencodeGoEur)} / Monat</div>
-          )}
           <div className="mt-4 space-y-4">
             {opencodeGo.continuous_pct != null && (
               <div>
@@ -399,14 +379,9 @@ export default function CombinedCostTab(): React.ReactElement {
             )}
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            GLM Coding Plan
+            GLM Coding Plan{zaiEur > 0 && <> · {formatEur(zaiEur)} / Monat</>}
+            {zai.price_usd != null && <> ({formatUsd(zai.price_usd)})</>}
           </p>
-          {zaiEur > 0 && (
-            <div className="mt-2 text-lg font-bold text-gray-900">{formatEur(zaiEur)} / Monat</div>
-          )}
-          {zai.price_usd != null && (
-            <div className="text-xs text-gray-500">{formatUsd(zai.price_usd)}</div>
-          )}
           <div className="mt-4 space-y-4">
             {zai.five_hour_pct != null && (
               <div>
@@ -464,11 +439,7 @@ export default function CombinedCostTab(): React.ReactElement {
         </div>
       )}
 
-      <ApiKeysDetailTable
-        keys={keys}
-        consoleModelBreakdown={combined?.console_model_breakdown}
-        usdToEur={combined?.exchange_rate?.usd_to_eur ?? 1}
-      />
+      <ApiKeysDetailTable keys={keys} />
     </div>
   );
 }

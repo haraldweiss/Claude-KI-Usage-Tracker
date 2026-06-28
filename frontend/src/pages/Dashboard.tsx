@@ -6,10 +6,11 @@ import DashboardTabs from '../components/DashboardTabs';
 import OverviewTab from '../components/OverviewTab';
 import ModelsTab from '../components/ModelsTab';
 import CombinedCostTab from '../components/CombinedCostTab';
+import BenchmarksTab from '../components/BenchmarksTab';
 import OnboardingBanner from '../components/OnboardingBanner';
 import { ModelBreakdown } from '../types/api';
 
-type TabType = 'overview' | 'models' | 'combined';
+type TabType = 'overview' | 'models' | 'combined' | 'benchmarks';
 
 export default function Dashboard(): React.ReactElement {
   const [activeTab, setActiveTab] = useState<TabType>('overview');

@@ -50,6 +50,9 @@ export interface CombinedSpendBreakdown {
   };
   opencode_go?: OpenCodeGoSpend | null;
   zai?: ZaiSpend | null;
+  codex?: {
+    response_metadata: string | null;
+  } | null;
   exchange_rate?: {
     usd_to_eur: number;
     rate_date: string | null;

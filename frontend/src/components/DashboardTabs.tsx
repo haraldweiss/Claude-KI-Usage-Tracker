@@ -2,7 +2,7 @@
 // © 2026 Harald Weiss
 import React, { useRef } from 'react';
 
-type TabType = 'overview' | 'models' | 'combined';
+type TabType = 'overview' | 'models' | 'combined' | 'benchmarks';
 
 interface DashboardTabsProps {
   activeTab: TabType;
@@ -17,7 +17,8 @@ interface Tab {
 const tabs: Tab[] = [
   { id: 'overview', label: 'Übersicht' },
   { id: 'models', label: 'Modelle' },
-  { id: 'combined', label: 'Gesamtkosten' }
+  { id: 'combined', label: 'Gesamtkosten' },
+  { id: 'benchmarks', label: 'Benchmarks' }
 ];
 
 export default function DashboardTabs({ activeTab, onTabChange }: DashboardTabsProps): React.ReactElement {

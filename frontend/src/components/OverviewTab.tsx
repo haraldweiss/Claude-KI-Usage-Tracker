@@ -324,7 +324,16 @@ export default function OverviewTab(): React.ReactElement {
         )}
 
         {/* ChatGPT Plus */}
-        {chatGptEur > 0 && (
+        {chatGptEur > 0 && (() => {
+          const codexMeta = (() => {
+            try {
+              const raw = combined?.codex?.response_metadata;
+              return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+            } catch { return null; }
+          })();
+          const fiveHrUsed = codexMeta?.five_hour_remaining_pct != null ? 100 - codexMeta.five_hour_remaining_pct : null;
+          const weeklyUsed = codexMeta?.weekly_remaining_pct != null ? 100 - codexMeta.weekly_remaining_pct : null;
+          return (
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               ChatGPT Plus
@@ -333,8 +342,17 @@ export default function OverviewTab(): React.ReactElement {
               ChatGPT Plus
             </div>
             <div className="mt-1 text-sm text-gray-600">{formatEur(chatGptEur)} / Monat</div>
+            <div className="mt-3 space-y-2">
+              {fiveHrUsed != null && (
+                <ProgressRow label="5-Std.-Limit" pct={fiveHrUsed} />
+              )}
+              {weeklyUsed != null && (
+                <ProgressRow label="Wöchentlich" pct={weeklyUsed} hint={codexMeta?.weekly_reset_at ? formatAbsoluteResetHint(codexMeta.weekly_reset_at) : undefined} />
+              )}
+            </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* z.ai GLM Coding Plan */}
         {zai && (

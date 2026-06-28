@@ -103,9 +103,8 @@ export default function CombinedCostTab(): React.ReactElement {
           {opencodeGoEur > 0 && (
             <><span className="mx-1">·</span>OpenCode Go {formatEur(opencodeGoEur)}</>
           )}
-          {zaiEur > 0 && (
-            <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>
-          )}
+          {zaiEur > 0 && <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>}
+          {chatGptEur > 0 && <><span className="mx-1">·</span>ChatGPT Plus {formatEur(chatGptEur)}</>}
         </p>
         {exchangeRate?.usd_to_eur && (
           <p className="mt-1 text-xs text-gray-400">

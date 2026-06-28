@@ -1152,3 +1152,19 @@ claude.ai + Anthropic API + OpenCode Go + z.ai. **Codex (ChatGPT), OpenCode API 
 - Text-Aufschlüsselung unter der Gesamtsumme um die drei fehlenden Quellen ergänzt
 
 **Status:** `npx tsc --noEmit` zeigt keine neuen Fehler (95 pre-existing Test-Fehler). Commit mit `--no-verify` (pre-commit-Hook blockiert wegen Test-Fehlern).
+
+
+
+### 2026-06-28 — Dashboard ChatGPT Plus Card, Backend Provider API, Benchmarks Run UI
+- **OverviewTab:** ChatGPT Plus card mit 5h/weekly progress bars aus `codex_sync`-Scraper-Daten. z.ai-Metadaten-Parsing gefixt (nested `{plan:{}, usage:{}}`).
+- **CombinedCostTab:** ChatGPT Plus in grandTotal + Hero-Line ergänzt.
+- **Backend (`usageController.ts`):** `getSummary` gibt `codex` im `combined`-Block zurück. `getSpendingTotal`: `user_plan` + `openai_api` ergänzt.
+- **Backend (`settingsProviders.ts`):** `GET /providers` mit `derived_status`, `display_name`, `available_plans`. `PATCH /providers/:id` speichert in `provider_config`-Tabelle.
+- **Backend (`benchmarkController.ts`):** Response-Felder auf `model_name`, `category`, `created_at` umgestellt. `POST /benchmarks/run` für Benchmark-Trigger.
+- **Backend (`usage.ts`):** `GET /alerts` Endpunkt.
+- **BenchmarksTab:** Aus Git-Commit `fdce546` restauriert. Device-Input + `triggerBenchmarkRun` + Run-Button hinzugefügt.
+- **api.ts:** `getBenchmarkRuns`, `triggerBenchmarkRun` ergänzt.
+- **DashboardTabs:** `'benchmarks'`-Tab hinzugefügt.
+- **npm audit:** 0 vulnerabilities nach `npm audit fix --legacy-peer-deps`.
+- **Types:** `CombinedSpendBreakdown` um `codex`-Feld, `ZaiMeta` um nested `plan`/`usage`-Strukturen.
+- **Git:** PR #16 gemergt (squashed, branch gelöscht).

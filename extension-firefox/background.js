@@ -2,7 +2,7 @@
 // KI Usage Tracker — Viewer-only + cookie export (Firefox MV2 edition)
 // Background scripts loaded via manifest: usage-parser-codex.js, browser-compat.js
 
-var DEFAULT_API_BASE = 'https://claudetracker.wolfinisoftware.de/api';
+var DEFAULT_API_BASE = 'https://ki-usage-tracker.wolfinisoftware.de/api';
 
 async function getApiBase() {
   try {
@@ -166,7 +166,7 @@ var AUTO_EXPORT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 async function exportCookiesToServer() {
   var stored = await chrome.storage.local.get(['api_token', 'server_scraper_url']);
-  var uploadUrl = stored.server_scraper_url || 'https://claudetracker.wolfinisoftware.de/api/cookies/upload';
+  var uploadUrl = stored.server_scraper_url || 'https://ki-usage-tracker.wolfinisoftware.de/api/cookies/upload';
 
   try {
     var cookies = await getAllCookies();
@@ -271,7 +271,7 @@ chrome.alarms.onAlarm.addListener(function(alarm) {
  */
 async function syncHardSources() {
   var stored = await chrome.storage.local.get(['api_token', 'api_base']);
-  var baseUrl = (stored.api_base || 'https://claudetracker.wolfinisoftware.de/api').replace(/\/+$/, '');
+  var baseUrl = (stored.api_base || 'https://ki-usage-tracker.wolfinisoftware.de/api').replace(/\/+$/, '');
   var headers = { 'Content-Type': 'application/json' };
   if (stored.api_token) headers['Authorization'] = 'Bearer ' + stored.api_token;
 

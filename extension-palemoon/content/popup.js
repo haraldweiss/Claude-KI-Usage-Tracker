@@ -17,7 +17,7 @@ function init() {
   }
 
   // Load saved settings
-  var apiBase = getPref("api_base", "https://claudetracker.wolfinisoftware.de/api");
+  var apiBase = getPref("api_base", "https://ki-usage-tracker.wolfinisoftware.de/api");
   var apiToken = getPref("api_token", "");
   document.getElementById("api-base-input").value = apiBase;
   document.getElementById("api-token-input").value = apiToken;
@@ -57,7 +57,7 @@ function saveSettings() {
 
 function refreshStats() {
   var apiBase = document.getElementById("api-base-input").value.trim() ||
-                "https://claudetracker.wolfinisoftware.de/api";
+                "https://ki-usage-tracker.wolfinisoftware.de/api";
   var apiToken = document.getElementById("api-token-input").value.trim();
   var statusLabel = document.getElementById("status-label");
 
@@ -153,7 +153,7 @@ function exportCookiesAndUpload() {
 
     // Upload to server
     var apiBase = document.getElementById("api-base-input").value.trim() ||
-                  "https://claudetracker.wolfinisoftware.de/api";
+                  "https://ki-usage-tracker.wolfinisoftware.de/api";
     var apiToken = document.getElementById("api-token-input").value.trim();
     var uploadUrl = apiBase.replace(/\/+$/, "") + "/cookies/upload";
 

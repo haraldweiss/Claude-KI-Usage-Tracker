@@ -3,7 +3,7 @@
 
 importScripts('usage-parser-codex.js');
 
-const DEFAULT_API_BASE = 'https://claudetracker.wolfinisoftware.de/api';
+const DEFAULT_API_BASE = 'https://ki-usage-tracker.wolfinisoftware.de/api';
 
 async function getApiBase() {
   try {
@@ -181,7 +181,7 @@ async function exportCookiesToServer() {
   const { api_token, server_scraper_url } = await chrome.storage.local.get([
     'api_token', 'server_scraper_url'
   ]);
-  const uploadUrl = server_scraper_url || 'https://claudetracker.wolfinisoftware.de/api/cookies/upload';
+  const uploadUrl = server_scraper_url || 'https://ki-usage-tracker.wolfinisoftware.de/api/cookies/upload';
 
   try {
     const cookies = await getAllCookies();
@@ -271,7 +271,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
  */
 async function syncHardSources() {
   const { api_token, api_base } = await chrome.storage.local.get(['api_token', 'api_base']);
-  const baseUrl = (api_base || 'https://claudetracker.wolfinisoftware.de/api').replace(/\/+$/, '');
+  const baseUrl = (api_base || 'https://ki-usage-tracker.wolfinisoftware.de/api').replace(/\/+$/, '');
   const headers = { 'Content-Type': 'application/json' };
   if (api_token) headers['Authorization'] = 'Bearer ' + api_token;
 

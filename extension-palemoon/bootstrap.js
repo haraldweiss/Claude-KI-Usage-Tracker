@@ -9,7 +9,7 @@ const Cu = Components.utils;
 
 Cu.import("resource://gre/modules/Services.jsm");
 
-const DEFAULT_API_BASE = "https://claudetracker.wolfinisoftware.de/api";
+const DEFAULT_API_BASE = "https://ki-usage-tracker.wolfinisoftware.de/api";
 
 // --- Toolbar button ---
 let gButton = null;

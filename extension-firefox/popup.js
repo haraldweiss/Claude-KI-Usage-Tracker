@@ -3,8 +3,8 @@
 // Scraping runs server-side via Playwright (server-scraper/).
 // This popup just displays data fetched from the backend.
 
-const DEFAULT_API_BASE = 'https://claudetracker.wolfinisoftware.de/api';
-const DEFAULT_DASHBOARD_URL = 'https://claudetracker.wolfinisoftware.de';
+const DEFAULT_API_BASE = 'https://ki-usage-tracker.wolfinisoftware.de/api';
+const DEFAULT_DASHBOARD_URL = 'https://ki-usage-tracker.wolfinisoftware.de';
 const AUTO_REFRESH_MS = 15 * 60 * 1000; // 15 Minuten
 let _countdownInterval = null;
 

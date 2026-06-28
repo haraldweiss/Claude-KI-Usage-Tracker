@@ -323,7 +323,6 @@ export const deletePlanSchedule = () =>
 // ---------------------------------------------------------------------------
 // Benchmark endpoints
 // ---------------------------------------------------------------------------
-<<<<<<< HEAD
 export function getBenchmarkRuns(params?: Record<string, string>): Promise<{ runs: any[] }> {
   const q = params ? new URLSearchParams(params).toString() : '';
   return apiCall(`/benchmarks${q ? `?${q}` : ''}`);
@@ -333,35 +332,20 @@ export function triggerBenchmarkRun(device?: string): Promise<{ success: boolean
   return apiCall('/benchmarks/run', {
     method: 'POST',
     body: device ? JSON.stringify({ device }) : undefined,
-=======
-import type { BenchmarkRunsResponse } from '../types/benchmark';
-
-export function getBenchmarkRuns(params?: Record<string, string>): Promise<BenchmarkRunsResponse> {
-  const q = params ? new URLSearchParams(params).toString() : '';
-  return apiCall<BenchmarkRunsResponse>(`/benchmarks${q ? `?${q}` : ''}`);
+  });
 }
 
-// ---------------------------------------------------------------------------
 // Provider settings endpoints
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all known providers with config + latest scrape data.
- */
-export async function getProviders(): Promise<{ providers: ProviderInfo[] }> {
-  return apiCall<{ providers: ProviderInfo[] }>('/settings/providers');
+export async function getProviders(): Promise<{ providers: any[] }> {
+  return apiCall('/settings/providers');
 }
 
-/**
- * Update config for a specific provider.
- */
 export async function updateProvider(
   name: string,
-  body: ProviderConfigUpdate
+  body: Record<string, any>
 ): Promise<{ ok: boolean }> {
-  return apiCall<{ ok: boolean }>(`/settings/providers/${encodeURIComponent(name)}`, {
+  return apiCall(`/settings/providers/${encodeURIComponent(name)}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
->>>>>>> origin/main
   });
 }

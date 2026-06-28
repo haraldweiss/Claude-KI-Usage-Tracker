@@ -77,7 +77,8 @@ export default function CombinedCostTab(): React.ReactElement {
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur;
+  const chatGptEur = subscriptionEur(plans, 'ChatGPT Plus');
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur + chatGptEur;
   const exchangeRate = combined?.exchange_rate;
 
   const noData = !claudeAi && apiTotal === 0;

@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
-import { formatEur, formatRelativeTime, subscriptionEur } from '../utils/format';
-import { CombinedSpendBreakdown, OpenCodeGoSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
+import { formatEur, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
 
 /** Days remaining in the current month, including today. */
 function daysRemainingInMonth(): number {
@@ -118,12 +118,21 @@ export default function OverviewTab(): React.ReactElement {
   const claudeAi = combined?.claude_ai ?? null;
   const meta = claudeAi?.meta ?? null;
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
+  const zai: ZaiSpend | null = combined?.zai ?? null;
   const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const planEur = subscriptionEur(plans, meta?.plan_name);
   const claudeAiTotalEur = planEur + additionalEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
-  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur;
+  const zaiEur = subscriptionEur(plans, zai?.plan_name);
+  const chatGptEur = subscriptionEur(plans, 'ChatGPT Plus');
+  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + chatGptEur;
+
+  // Number of subscription side-cards shown to the right of the three core
+  // claude.ai cards — drives the responsive grid column count.
+  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (chatGptEur > 0 ? 1 : 0);
+  const statusGridCols =
+    statusCardCount >= 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
   // Forecast: extrapolate today's spend rate to month end. Plan-Abo is fixed
   // (already counted), so we only forecast the variable parts (additional
@@ -158,7 +167,7 @@ export default function OverviewTab(): React.ReactElement {
     : currentDailyRate;
 
   const forecastVariable = variableSoFar + daysLeft * dailyRate;
-  const forecastTotal = planEur + opencodeGoEur + forecastVariable;
+  const forecastTotal = planEur + opencodeGoEur + zaiEur + chatGptEur + forecastVariable;
 
   // Limit forecast: at this weekly rate, when does the user hit 100%?
   const weeklyAllPct = meta?.weekly_all_models_pct ?? null;
@@ -182,6 +191,8 @@ export default function OverviewTab(): React.ReactElement {
             <p className="mt-1 text-sm text-gray-500">
               claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
               {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
+              {zaiEur > 0 && <> · z.ai {formatEur(zaiEur)}</>}
+              {chatGptEur > 0 && <> · ChatGPT Plus {formatEur(chatGptEur)}</>}
             </p>
           </div>
           <div className="text-sm text-gray-500 sm:text-right">
@@ -191,7 +202,7 @@ export default function OverviewTab(): React.ReactElement {
       </div>
 
       {/* Status row */}
-      <div className={`grid grid-cols-1 gap-6 ${opencodeGo ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+      <div className={`grid grid-cols-1 gap-6 ${statusGridCols}`}>
         {/* Plan-Status */}
         <div className="bg-white rounded-lg shadow p-5">
           <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Claude.ai</div>
@@ -311,6 +322,86 @@ export default function OverviewTab(): React.ReactElement {
             </div>
           </div>
         )}
+
+        {/* ChatGPT Plus */}
+        {chatGptEur > 0 && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              ChatGPT Plus
+            </div>
+            <div className="mt-2 text-xl font-bold text-gray-900">
+              ChatGPT Plus
+            </div>
+            <div className="mt-1 text-sm text-gray-600">{formatEur(chatGptEur)} / Monat</div>
+          </div>
+        )}
+
+        {/* z.ai GLM Coding Plan */}
+        {zai && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              z.ai
+            </div>
+            <div className="mt-2 text-xl font-bold text-gray-900">
+              {zai.plan_name ?? 'GLM Coding Plan'}
+            </div>
+            {zaiEur > 0 && <div className="text-sm text-gray-600">{formatEur(zaiEur)} / Monat</div>}
+            <div className="mt-3 space-y-2">
+              {zai.five_hour_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">5-Std.-Limit</span>
+                    <span className="font-medium">{zai.five_hour_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${zai.five_hour_pct < 50 ? 'bg-emerald-500' : zai.five_hour_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, zai.five_hour_pct)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {zai.weekly_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Wöchentlich</span>
+                    <span className="font-medium">{zai.weekly_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${zai.weekly_pct < 50 ? 'bg-emerald-500' : zai.weekly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, zai.weekly_pct)}%` }}
+                    />
+                  </div>
+                  {zai.weekly_reset && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {formatAbsoluteResetHint(zai.weekly_reset)}
+                    </p>
+                  )}
+                </div>
+              )}
+              {zai.monthly_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Monatlich (Web/Reader)</span>
+                    <span className="font-medium">{zai.monthly_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${zai.monthly_pct < 50 ? 'bg-emerald-500' : zai.monthly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, zai.monthly_pct)}%` }}
+                    />
+                  </div>
+                  {zai.monthly_reset && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {formatAbsoluteResetHint(zai.monthly_reset)}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Forecast */}
@@ -392,6 +483,12 @@ export default function OverviewTab(): React.ReactElement {
         )}
         {opencodeGo?.last_synced && (
           <span>OpenCode Go-Sync: {formatRelativeTime(opencodeGo.last_synced)}</span>
+        )}
+        {chatGptEur > 0 && (
+          <span>ChatGPT Plus: {formatEur(chatGptEur)}/Monat</span>
+        )}
+        {zai?.last_synced && (
+          <span>z.ai-Sync: {formatRelativeTime(zai.last_synced)}</span>
         )}
       </div>
     </div>

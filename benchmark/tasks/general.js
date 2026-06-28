@@ -1,0 +1,97 @@
+export const generalTasks = [
+  {
+    id: 'g1',
+    question: 'What is the chemical symbol for gold?',
+    options: { A: 'Au', B: 'Ag', C: 'Fe', D: 'Cu' },
+    answer: 'A',
+  },
+  {
+    id: 'g2',
+    question: 'Which planet is closest to the Sun?',
+    options: { A: 'Venus', B: 'Earth', C: 'Mercury', D: 'Mars' },
+    answer: 'C',
+  },
+  {
+    id: 'g3',
+    question: 'What is 17 multiplied by 13?',
+    options: { A: '199', B: '221', C: '231', D: '211' },
+    answer: 'B',
+  },
+  {
+    id: 'g4',
+    question: 'In what year did World War II end?',
+    options: { A: '1943', B: '1944', C: '1945', D: '1946' },
+    answer: 'C',
+  },
+  {
+    id: 'g5',
+    question: 'What is the capital city of Australia?',
+    options: { A: 'Sydney', B: 'Melbourne', C: 'Brisbane', D: 'Canberra' },
+    answer: 'D',
+  },
+  {
+    id: 'g6',
+    question: 'What is the square root of 144?',
+    options: { A: '11', B: '12', C: '13', D: '14' },
+    answer: 'B',
+  },
+  {
+    id: 'g7',
+    question: 'Which of these plays was written by William Shakespeare?',
+    options: { A: 'The Cherry Orchard', B: 'Death of a Salesman', C: 'Hamlet', D: 'Waiting for Godot' },
+    answer: 'C',
+  },
+  {
+    id: 'g8',
+    question: 'Approximately how fast does light travel in a vacuum?',
+    options: { A: '300,000 km/s', B: '30,000 km/s', C: '3,000,000 km/s', D: '3,000 km/s' },
+    answer: 'A',
+  },
+  {
+    id: 'g9',
+    question: 'How many sides does a hexagon have?',
+    options: { A: '5', B: '6', C: '7', D: '8' },
+    answer: 'B',
+  },
+  {
+    id: 'g10',
+    question: 'Who created the JavaScript programming language?',
+    options: { A: 'Tim Berners-Lee', B: 'Dennis Ritchie', C: 'Brendan Eich', D: 'James Gosling' },
+    answer: 'C',
+  },
+  {
+    id: 'g11',
+    question: 'Which ocean is the largest by surface area?',
+    options: { A: 'Atlantic Ocean', B: 'Indian Ocean', C: 'Arctic Ocean', D: 'Pacific Ocean' },
+    answer: 'D',
+  },
+  {
+    id: 'g12',
+    question: 'What does CPU stand for in computing?',
+    options: { A: 'Central Processing Unit', B: 'Computer Performance Unit', C: 'Core Processing Utility', D: 'Central Program Utility' },
+    answer: 'A',
+  },
+  {
+    id: 'g13',
+    question: 'What is the atomic number of Hydrogen?',
+    options: { A: '2', B: '1', C: '3', D: '4' },
+    answer: 'B',
+  },
+  {
+    id: 'g14',
+    question: 'What is 2 raised to the power of 10 (2^10)?',
+    options: { A: '512', B: '1024', C: '2048', D: '256' },
+    answer: 'B',
+  },
+  {
+    id: 'g15',
+    question: 'If all A are B, and some B are C, which conclusion is logically valid?',
+    options: {
+      A: 'All A are C',
+      B: 'Some A may be C',
+      C: 'No A are C',
+      D: 'All C are A',
+    },
+    answer: 'B',
+  },
+];

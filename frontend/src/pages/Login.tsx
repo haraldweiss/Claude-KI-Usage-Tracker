@@ -24,7 +24,7 @@ export default function LoginPage(): React.ReactElement {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="bg-white p-8 rounded-lg shadow w-full max-w-md">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">📊 Claude Usage Tracker</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">📊 KI Usage Tracker</h1>
         {sent ? (
           <div className="mt-6">
             <p className="text-gray-700">

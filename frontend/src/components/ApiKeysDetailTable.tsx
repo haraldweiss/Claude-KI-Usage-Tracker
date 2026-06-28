@@ -2,7 +2,8 @@
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
 import { getConsoleKeys } from '../services/api';
-import { ConsoleKeyRecord } from '../types/api';
+import { ConsoleKeyRecord, ConsoleModelBreakdown as ConsoleModelBreakdownData } from '../types/api';
+import { ConsoleModelBreakdown } from './ConsoleModelBreakdown';
 
 function formatUsd(value: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -32,13 +33,15 @@ interface Props {
    * component in standalone.
    */
   keys?: ConsoleKeyRecord[];
+  consoleModelBreakdown?: ConsoleModelBreakdownData;
+  usdToEur?: number;
 }
 
 /**
  * Renders the per-key snapshot table that lives on both the Combined Cost
  * and Models tabs. Self-loading when `keys` is not supplied.
  */
-export default function ApiKeysDetailTable({ keys: keysProp }: Props): React.ReactElement {
+export default function ApiKeysDetailTable({ keys: keysProp, consoleModelBreakdown, usdToEur = 1 }: Props): React.ReactElement {
   const [fetchedKeys, setFetchedKeys] = useState<ConsoleKeyRecord[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -139,6 +142,9 @@ export default function ApiKeysDetailTable({ keys: keysProp }: Props): React.Rea
           </tbody>
         </table>
       )}
+      <div className="px-6 pb-4">
+        <ConsoleModelBreakdown data={consoleModelBreakdown} usdToEur={usdToEur} />
+      </div>
     </div>
   );
 }

@@ -1,3 +1,30 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
+
+// Anthropic Console settings/keys URL (redirects to workspace-specific page)
+const CONSOLE_KEYS_URL = 'https://platform.claude.com/settings/keys';
+
+// Workspace keys page URL prefix
+const WORKSPACE_KEYS_PREFIX = 'https://platform.claude.com/settings/workspaces/';
+
+// Helper: construct URL for a specific workspace's keys page
+function workspaceKeysUrl(workspaceId) {
+  return `${WORKSPACE_KEYS_PREFIX}${workspaceId}/keys`;
+}
+
+// Workspace discovery cache TTL (7 days)
+const WORKSPACE_DISCOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Sleep helper (from background-utils.js but keep local for independence)
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isNoWorkspaceDiscovery(errors) {
+  return Array.isArray(errors) &&
+    errors.some((err) => /no workspace links found via observer/i.test(err || ''));
+}
+
 async function discoverWorkspaces(tabId) {
   const errors = [];
 
@@ -125,11 +152,138 @@ async function discoverWorkspaces(tabId) {
 // caller decides what to do with the rows.
 async function scrapeWorkspaceKeys(tabId, workspaceId) {
   await chrome.tabs.update(tabId, { url: workspaceKeysUrl(workspaceId) });
-  const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 30000);
+  // Reduced from 15s → 5s: platform.claude.com loads in 2-5s in practice.
+  // If Cloudflare or auth blocks, the URL never matches — fail fast.
+  const settled = await waitForUrlPrefix(tabId, WORKSPACE_KEYS_PREFIX, 5000);
   if (!settled) {
     return { rows: [], reason: `keys page never loaded for ${workspaceId}` };
   }
-  return await pollForConsoleRows(tabId, 30000, 500);
+  return await pollForConsoleRows(tabId, 15000, 200);
+}
+
+// Inlined cost-table scraper — top-level so executeScript can serialize it.
+// Finds the first table with a Model column and a Cost/$-column and returns rows.
+function scrapeConsoleCostTable() {
+  const tables = document.querySelectorAll('table');
+  for (const table of tables) {
+    const headers = [...table.querySelectorAll('thead th, thead td')].map(
+      (th) => (th.textContent || '').trim().toLowerCase()
+    );
+    const modelIdx = headers.findIndex((h) => h.includes('model'));
+    const inputIdx = headers.findIndex((h) => h.includes('input'));
+    const outputIdx = headers.findIndex((h) => h.includes('output'));
+    const costIdx = headers.findIndex((h) => h.includes('cost') || h.includes('$'));
+    if (modelIdx === -1 || costIdx === -1) continue;
+
+    const rows = [];
+    for (const tr of table.querySelectorAll('tbody tr')) {
+      const cells = [...tr.querySelectorAll('td')].map((td) => (td.textContent || '').trim());
+      if (!cells[modelIdx]) continue;
+      const costRaw = cells[costIdx] || '';
+      const cost_usd = parseFloat(costRaw.replace(/[^0-9.]/g, ''));
+      if (!isFinite(cost_usd)) continue;
+      const parseTokens = (s) => {
+        if (!s) return 0;
+        s = s.replace(/,/g, '').replace(/\s/g, '');
+        const n = parseFloat(s);
+        if (s.endsWith('K') || s.endsWith('k')) return Math.round(n * 1000);
+        if (s.endsWith('M') || s.endsWith('m')) return Math.round(n * 1_000_000);
+        return isFinite(n) ? Math.round(n) : 0;
+      };
+      rows.push({
+        model: cells[modelIdx],
+        input_tokens: inputIdx !== -1 ? parseTokens(cells[inputIdx]) : 0,
+        output_tokens: outputIdx !== -1 ? parseTokens(cells[outputIdx]) : 0,
+        cost_usd
+      });
+    }
+    if (rows.length > 0) return { rows };
+  }
+  return { rows: [], reason: 'no cost table found' };
+}
+
+// Clicks the date-range picker on the cost page to select a period.
+// Best-effort: warns on failure but never throws.
+async function selectCostPeriod(tabId, period) {
+  const labels = period === 'day'
+    ? ['last 24 hours', 'last 24h', 'yesterday', 'heute', 'letzte 24']
+    : ['this month', 'current month', 'aktueller monat', 'diesen monat'];
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (targetLabels) => {
+        const triggers = [
+          ...document.querySelectorAll('button[aria-haspopup], button[aria-expanded]'),
+          ...document.querySelectorAll('[role="combobox"]'),
+          ...document.querySelectorAll('button')
+        ];
+        for (const btn of triggers) {
+          const text = (btn.textContent || '').trim().toLowerCase();
+          if (
+            text.includes('last') || text.includes('this month') ||
+            text.includes('today') || text.includes('24') ||
+            text.includes('monat') || text.includes('heute') ||
+            text.includes('range') || text.includes('period')
+          ) {
+            btn.click();
+            return;
+          }
+        }
+      },
+      args: [labels]
+    });
+    await sleep(800);
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (targetLabels) => {
+        const options = [
+          ...document.querySelectorAll('[role="option"], [role="menuitem"]'),
+          ...document.querySelectorAll('li'),
+          ...document.querySelectorAll('button')
+        ];
+        for (const opt of options) {
+          const text = (opt.textContent || '').trim().toLowerCase();
+          if (targetLabels.some((l) => text.includes(l))) {
+            opt.click();
+            return;
+          }
+        }
+      },
+      args: [labels]
+    });
+    await sleep(1500);
+  } catch (e) {
+    console.warn(`[cost-scraper] period selector failed for "${period}":`, e.message);
+  }
+}
+
+// Navigates to a workspace's cost page, optionally selects a period, then
+// polls for the cost table. Returns { rows } or { rows: [], reason }.
+async function scrapeWorkspaceCost(tabId, workspaceId, period) {
+  const costUrl = `https://platform.claude.com/settings/workspaces/${workspaceId}/cost`;
+  await chrome.tabs.update(tabId, { url: costUrl });
+  await waitForTabReady(tabId, 30000);
+  await sleep(2000);
+
+  await selectCostPeriod(tabId, period);
+
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    try {
+      const [injection] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: scrapeConsoleCostTable
+      });
+      const result = injection?.result;
+      if (result && Array.isArray(result.rows) && result.rows.length > 0) {
+        return result;
+      }
+    } catch {}
+    await sleep(500);
+  }
+  return { rows: [], reason: 'timeout waiting for cost table' };
 }
 
 function formatScrapeFailure(diag) {
@@ -147,20 +301,31 @@ function formatScrapeFailure(diag) {
   return 'unbekannt';
 }
 
-async function consoleSync() {
+async function consoleSync(externalTabId = null) {
   let createdTabId = null;
 
   try {
-    const existing = await chrome.tabs.query({ url: `${WORKSPACE_KEYS_PREFIX}*` });
     let tabId;
 
-    if (existing.length > 0) {
-      tabId = existing[0].id;
+    if (externalTabId !== null) {
+      tabId = externalTabId;
+      // Navigate shared tab to console domain first — it's still on
+      // claude.ai from the previous step. Cross-domain navigation from
+      // syncAll's shared tab directly into workspace keys pages can
+      // trigger Cloudflare challenges; navigating to the main domain
+      // first avoids that.
+      await chrome.tabs.update(tabId, { url: CONSOLE_KEYS_URL });
+      await waitForTabReady(tabId, 15000);
     } else {
-      const tab = await chrome.tabs.create({ url: CONSOLE_KEYS_URL, active: false });
-      tabId = tab.id;
-      createdTabId = tab.id;
-      await waitForTabReady(tabId, 30000);
+      const existing = await chrome.tabs.query({ url: `${WORKSPACE_KEYS_PREFIX}*` });
+      if (existing.length > 0) {
+        tabId = existing[0].id;
+      } else {
+        const tab = await chrome.tabs.create({ url: CONSOLE_KEYS_URL, active: false });
+        tabId = tab.id;
+        createdTabId = tab.id;
+        await waitForTabReady(tabId, 30000);
+      }
     }
 
     // Load the cached workspace list. Re-discover via click-simulation if
@@ -190,6 +355,14 @@ async function consoleSync() {
     }
 
     if (workspaces.length === 0) {
+      if (isNoWorkspaceDiscovery(discoveryErrors)) {
+        await chrome.storage.local.set({ last_console_sync: Date.now() });
+        return {
+          skipped: true,
+          reason: 'no_workspaces',
+          preview: 'Anthropic Console sync skipped: no workspaces/API keys are available in this Chrome profile.'
+        };
+      }
       // Fallback: scrape the current page (still showing the active workspace's
       // keys table from the initial load). This gives us at least one
       // workspace's data, even without successful discovery.
@@ -282,6 +455,47 @@ async function consoleSync() {
     }
 
     await chrome.storage.local.set({ last_console_sync: Date.now() });
+
+    // Cost pages skip when running from syncAll (externalTabId provided):
+    // navigating 5 workspaces × 2 periods (day+month) takes ~8 min and
+    // risks hitting the step timeout. Keys are the primary data.
+    if (externalTabId === null) {
+      // Per-workspace model breakdown from cost page (best-effort)
+      for (const ws of workspaces) {
+      for (const period of ['day', 'month']) {
+        try {
+          const costData = await scrapeWorkspaceCost(tabId, ws.id, period);
+          if (!costData || !Array.isArray(costData.rows) || costData.rows.length === 0) {
+            console.warn(`[cost-scraper] no rows for ${ws.name} / ${period}: ${costData?.reason || 'unknown'}`);
+            continue;
+          }
+          const source = period === 'day' ? 'anthropic_console_cost_day' : 'anthropic_console_cost_month';
+          for (const row of costData.rows) {
+            try {
+              await authFetch(`${apiBase}/usage/track`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  model: row.model,
+                  input_tokens: row.input_tokens || 0,
+                  output_tokens: row.output_tokens || 0,
+                  source,
+                  workspace: ws.name,
+                  cost_usd: row.cost_usd
+                })
+              });
+            } catch (err) {
+              console.error(`[cost-scraper] row post failed (${ws.name}/${period}):`, err);
+            }
+          }
+          console.log(`[cost-scraper] ${ws.name}/${period}: ${costData.rows.length} models posted`);
+        } catch (err) {
+          console.warn(`[cost-scraper] workspace ${ws.name} / ${period} skipped:`, err.message);
+        }
+      }
+    }
+  }
+
     const extras = [];
     if (workspaceFailures.length) extras.push(`failures: ${workspaceFailures.join(' | ')}`);
     if (discoveryErrors.length) extras.push(`discovery: ${discoveryErrors.join('; ')}`);
@@ -305,6 +519,10 @@ async function consoleSync() {
       try { await chrome.tabs.remove(createdTabId); } catch {}
     }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { isNoWorkspaceDiscovery };
 }
 
 // Polls a tab for the Anthropic Console keys table. Retries the scrape

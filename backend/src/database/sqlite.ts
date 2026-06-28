@@ -224,6 +224,33 @@ export function initDatabase(): Promise<void> {
       database.run('CREATE INDEX IF NOT EXISTS idx_source ON usage_records(source)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_success_status ON usage_records(success_status)');
       database.run('CREATE INDEX IF NOT EXISTS idx_usage_task_desc ON usage_records(task_description)');
+
+      // Low-balance + rate alerts: billing snapshots + user alert config
+      database.run(`
+        CREATE TABLE IF NOT EXISTS billing_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          balance_usd REAL NOT NULL,
+          last_topup_usd REAL,
+          scraped_at DATETIME DEFAULT (datetime('now'))
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
+      database.run(`
+        CREATE TABLE IF NOT EXISTS user_alert_config (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id),
+          low_balance_threshold REAL NOT NULL DEFAULT 0.20,
+          rate_multiplier REAL NOT NULL DEFAULT 3.0,
+          alerts_enabled INTEGER NOT NULL DEFAULT 1,
+          last_low_balance_alert_at DATETIME,
+          last_rate_alert_at DATETIME
+        )
+      `, (err: Error | null) => {
+        if (err && !err.message.includes('already exists')) reject(err);
+      });
+
       database.run('CREATE INDEX IF NOT EXISTS idx_pricing_model ON pricing(model)', async (err: Error | null) => {
         if (err) return reject(err);
         // After tables and indexes exist, run additive column migrations and
@@ -498,6 +525,54 @@ export function initDatabase(): Promise<void> {
                 generated_at TEXT NOT NULL
               )`,
               (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+
+          // Benchmark results for local Ollama model benchmarking suite.
+          // run_id groups all rows from a single benchmark run; raw_results
+          // stores the full JSON payload for later re-analysis.
+          await new Promise<void>((res, rej) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS benchmark_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                machine_name TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                category TEXT NOT NULL,
+                score REAL,
+                tasks_total INTEGER,
+                tasks_passed INTEGER,
+                raw_results TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+              )`,
+              (tErr: Error | null) => (tErr ? rej(tErr) : res())
+            );
+          });
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE INDEX IF NOT EXISTS idx_benchmark_runs_run_id ON benchmark_runs (run_id)`,
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE INDEX IF NOT EXISTS idx_benchmark_runs_model_name ON benchmark_runs (model_name)`,
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
+
+          // Provider config table: per-user status/plan assignment per provider
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS provider_config (
+                user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider_name  TEXT NOT NULL,
+                status_label   TEXT,
+                plan_name      TEXT,
+                PRIMARY KEY (user_id, provider_name)
+              )`,
+              (tErr: Error | null) => (tErr ? reject(tErr) : resolve())
             );
           });
 

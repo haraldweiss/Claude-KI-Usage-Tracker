@@ -20,7 +20,19 @@ const SEED_PLANS: Array<Omit<PlanPricingRow, 'last_updated'>> = [
   { plan_name: 'Max (5x)', monthly_eur: 99, min_seats: 1, source: 'tier_default' },
   { plan_name: 'Max (20x)', monthly_eur: 199, min_seats: 1, source: 'tier_default' },
   { plan_name: 'Team', monthly_eur: 125, min_seats: 5, source: 'tier_default' },
-  { plan_name: 'OpenCode Go', monthly_eur: 0, min_seats: 1, source: 'tier_default' }
+  { plan_name: 'OpenCode Go', monthly_eur: 0, min_seats: 1, source: 'tier_default' },
+  // z.ai GLM Coding Plan. Seed reflects the "Lite" tier ($16.2/mo ≈ 14.90 €
+  // at the conservative fallback rate); the extension's zai_sync overwrites
+  // this with the live scraped price (and the actual plan name) on first run.
+  { plan_name: 'GLM Coding Lite-Monthly Plan', monthly_eur: 14.9, min_seats: 1, source: 'tier_default' },
+  // ChatGPT / Codex subscription plans. Seed at conservative USD→EUR rates
+  // (≈0.92). The extension does not yet scrape the specific plan name, so
+  // these serve as a reference until the ChatGPT plan name is extracted from
+  // the analytics page.
+  { plan_name: 'ChatGPT Go', monthly_eur: 7.5, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'ChatGPT Plus', monthly_eur: 18.5, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'ChatGPT Pro', monthly_eur: 92, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'ChatGPT Pro (20x)', monthly_eur: 185, min_seats: 1, source: 'tier_default' }
 ];
 
 /**

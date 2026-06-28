@@ -55,3 +55,49 @@ async function waitForTabReady(tabId, budgetMs = 30000, pollMs = 250) {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
+}
+
+// Stale threshold: 15 min. Console scraper with 5 workspaces needs ~9 min
+// (per-workspace keys + cost pages). The popup normalizes stale "running"
+// states when it opens; 15 min gives every step enough room to complete
+// before the display shows "abgebrochen".
+const SYNC_ALL_STALE_MS = 15 * 60 * 1000;
+
+function normalizeSyncAllState(state, now = Date.now(), staleMs = SYNC_ALL_STALE_MS) {
+  if (!state || state.status !== 'running' || typeof state.startedAt !== 'number') {
+    return state;
+  }
+  if (now - state.startedAt <= staleMs) {
+    return state;
+  }
+
+  const steps = Array.isArray(state.steps) ? [...state.steps] : [];
+  steps.push({
+    label: 'Sync',
+    status: 'error',
+    message: 'abgebrochen: Service Worker wurde beendet oder ein Schritt hing zu lange'
+  });
+
+  return {
+    ...state,
+    status: 'done',
+    finishedAt: now,
+    steps
+  };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { withTimeout, normalizeSyncAllState };
+}

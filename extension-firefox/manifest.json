@@ -1,0 +1,34 @@
+{
+  "manifest_version": 2,
+  "name": "KI Usage Tracker",
+  "version": "3.2.1",
+  "description": "Dashboard-Viewer f\u00fcr KI/LLM Kosten (Scraping l\u00e4uft server-seitig)",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ki-usage-tracker@wolfinisoftware.de",
+      "strict_min_version": "91.0"
+    }
+  },
+  "permissions": [
+    "storage",
+    "cookies",
+    "tabs",
+    "alarms",
+    "clipboardWrite",
+    "https://claude.ai/*",
+    "https://platform.claude.com/*",
+    "https://opencode.ai/*",
+    "https://z.ai/*",
+    "https://chatgpt.com/*",
+    "https://platform.openai.com/*",
+    "https://wolfinisoftware.de/*"
+  ],
+  "background": {
+    "scripts": ["usage-parser-codex.js", "browser-compat.js", "background.js"],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "KI Usage Tracker"
+  }
+}

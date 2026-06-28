@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Benchmark watcher — auto-starts on login, re-benchmarks on Ollama version/model changes.
+
+  Install:
+    cp benchmark/com.wolfinisoftware.benchmark-watcher.plist ~/Library/LaunchAgents/
+    # Edit the plist: set BENCHMARK_SESSION or BENCHMARK_TOKEN env var
+    launchctl load ~/Library/LaunchAgents/com.wolfinisoftware.benchmark-watcher.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.wolfinisoftware.benchmark-watcher.plist
+    rm ~/Library/LaunchAgents/com.wolfinisoftware.benchmark-watcher.plist
+
+  View logs:
+    tail -f /tmp/benchmark-watcher.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.wolfinisoftware.benchmark-watcher</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Library/WebServer/Documents/KI Usage tracker/benchmark/watcher.js</string>
+    <string>--machine</string>
+    <string>MacBook Pro M3 Max</string>
+    <string>--mode</string>
+    <string>quick</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Set one of these to authenticate with the backend -->
+    <key>BENCHMARK_SESSION</key>
+    <string>REPLACE_WITH_SESSION_TOKEN</string>
+    <!-- <key>BENCHMARK_TOKEN</key>
+    <string>REPLACE_WITH_API_TOKEN</string> -->
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/benchmark-watcher.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/benchmark-watcher.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Library/WebServer/Documents/KI Usage tracker</string>
+</dict>
+</plist>

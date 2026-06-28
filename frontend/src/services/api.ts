@@ -23,7 +23,10 @@ import {
   AdminUserRow,
   AdminStats,
   PlanHistoryRow,
-  PendingPlanChange
+  PendingPlanChange,
+  AlertInfo,
+  ProviderInfo,
+  ProviderConfigUpdate
 } from '../types/api';
 
 // Use relative path for API calls — works both locally and on production VPS
@@ -106,6 +109,18 @@ export async function getConsoleKeys(): Promise<{ keys: ConsoleKeyRecord[] }> {
  */
 export async function getSpendingTotal(): Promise<SpendingTotal> {
   return apiCall<SpendingTotal>('/usage/spending-total');
+}
+
+/**
+ * Fetch current billing snapshot and alert status (balance, burn rate, alerts).
+ * Returns null if no billing snapshot exists (e.g. no Anthropic plan).
+ */
+export async function getAlerts(): Promise<AlertInfo | null> {
+  try {
+    return await apiCall<AlertInfo>('/usage/alerts');
+  } catch {
+    return null; // Graceful if no billing data yet
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +323,7 @@ export const deletePlanSchedule = () =>
 // ---------------------------------------------------------------------------
 // Benchmark endpoints
 // ---------------------------------------------------------------------------
+<<<<<<< HEAD
 export function getBenchmarkRuns(params?: Record<string, string>): Promise<{ runs: any[] }> {
   const q = params ? new URLSearchParams(params).toString() : '';
   return apiCall(`/benchmarks${q ? `?${q}` : ''}`);
@@ -317,5 +333,35 @@ export function triggerBenchmarkRun(device?: string): Promise<{ success: boolean
   return apiCall('/benchmarks/run', {
     method: 'POST',
     body: device ? JSON.stringify({ device }) : undefined,
+=======
+import type { BenchmarkRunsResponse } from '../types/benchmark';
+
+export function getBenchmarkRuns(params?: Record<string, string>): Promise<BenchmarkRunsResponse> {
+  const q = params ? new URLSearchParams(params).toString() : '';
+  return apiCall<BenchmarkRunsResponse>(`/benchmarks${q ? `?${q}` : ''}`);
+}
+
+// ---------------------------------------------------------------------------
+// Provider settings endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all known providers with config + latest scrape data.
+ */
+export async function getProviders(): Promise<{ providers: ProviderInfo[] }> {
+  return apiCall<{ providers: ProviderInfo[] }>('/settings/providers');
+}
+
+/**
+ * Update config for a specific provider.
+ */
+export async function updateProvider(
+  name: string,
+  body: ProviderConfigUpdate
+): Promise<{ ok: boolean }> {
+  return apiCall<{ ok: boolean }>(`/settings/providers/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+>>>>>>> origin/main
   });
 }

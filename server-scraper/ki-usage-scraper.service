@@ -1,0 +1,15 @@
+[Unit]
+Description=KI Usage Tracker — Playwright scraper
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /opt/claudetracker/server-scraper/node_modules/.bin/tsx /opt/claudetracker/server-scraper/src/index.ts
+WorkingDirectory=/opt/claudetracker/server-scraper
+Environment=API_BASE=http://localhost:3001/api
+Environment=API_TOKEN=
+Environment=PLAYWRIGHT_HEADLESS=true
+User=root
+Group=root
+StandardOutput=journal
+StandardError=journal

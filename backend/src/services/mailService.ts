@@ -59,3 +59,22 @@ logger.error({ err: error }, `[Email] Failed to send to ${email}`)
     throw error;
   }
 }
+
+export async function sendAlertMail(
+  email: string,
+  subject: string,
+  body: string
+): Promise<void> {
+  try {
+    await transport.sendMail({
+      from: FROM_ADDRESS,
+      to: email,
+      subject,
+      text: body
+    });
+    logger.info(`[Email] Alert sent to ${email}: ${subject}`);
+  } catch (error) {
+    logger.error({ err: error }, `[Email] Alert mail failed to ${email}`);
+    // Non-fatal — caller continues regardless
+  }
+}

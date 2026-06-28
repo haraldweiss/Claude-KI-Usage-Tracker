@@ -185,7 +185,13 @@ export enum SourceType {
   ClaudeOfficialSync = 'claude_official_sync',
   AnthropicConsoleSync = 'anthropic_console_sync',
   ClaudeCodeSync = 'claude_code_sync',
-  OpenCodeGoSync = 'opencode_go_sync'
+  OpenCodeGoSync = 'opencode_go_sync',
+  ZaiSync = 'zai_sync',
+  OpenCodeApiSync = 'opencode_api_sync',
+  AnthropicConsoleCostDay = 'anthropic_console_cost_day',
+  AnthropicConsoleCostMonth = 'anthropic_console_cost_month',
+  CodexSync = 'codex_sync',
+  OpenAiApiSync = 'openai_api_sync'
 }
 
 /**

@@ -1,17 +1,33 @@
-async function claudeCodeSync() {
+async function claudeCodeSync(externalTabId = null) {
   let createdTabId = null;
 
   try {
-    const existing = await chrome.tabs.query({ url: 'https://platform.claude.com/claude-code*' });
     let tabId;
 
-    if (existing.length > 0) {
-      tabId = existing[0].id;
+    if (externalTabId !== null) {
+      tabId = externalTabId;
+      // Shared tab from syncAll — navigate to the target URL since it's
+      // currently on a different page from a previous scraper.
+      await chrome.tabs.update(tabId, { url: CLAUDE_CODE_USAGE_URL });
+      await waitForTabReady(tabId, 30000);
     } else {
-      const tab = await chrome.tabs.create({ url: CLAUDE_CODE_USAGE_URL, active: false });
-      tabId = tab.id;
-      createdTabId = tab.id;
-      await waitForTabComplete(tab.id, 30000);
+      const existing = await chrome.tabs.query({ url: 'https://platform.claude.com/claude-code*' });
+      if (existing.length > 0) {
+        tabId = existing[0].id;
+      } else {
+        const tab = await chrome.tabs.create({ url: CLAUDE_CODE_USAGE_URL, active: false });
+        tabId = tab.id;
+        createdTabId = tab.id;
+        await waitForTabComplete(tab.id, 30000);
+      }
+    }
+
+    // Check landing URL — without a Claude subscription the page redirects
+    // to claude.ai or account.anthropic.com (no longer in host_permissions).
+    const landingTab = await chrome.tabs.get(tabId);
+    const landingUrl = landingTab?.url || '';
+    if (!landingUrl.startsWith('https://platform.claude.com/')) {
+      return { skipped: true, reason: 'redirected_kein_abo', url: landingUrl };
     }
 
     // Poll for the table to finish skeleton-loading. Anthropic shows
@@ -21,18 +37,21 @@ async function claudeCodeSync() {
     let injection;
     while (attempt < 8) {
       await sleep(2000);
-      [injection] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const text = document.body.innerText || '';
-          // Quick gate: if any visible cell still says 'Loading...', the
-          // skeleton is up — bail out and let the caller retry.
-          if (/^\s*Loading\.\.\.\s*$/m.test(text)) {
-            return { still_loading: true };
+      try {
+        [injection] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const text = document.body.innerText || '';
+            if (/^\s*Loading\.\.\.\s*$/m.test(text)) {
+              return { still_loading: true };
+            }
+            return { still_loading: false };
           }
-          return { still_loading: false };
-        }
-      });
+        });
+      } catch (e) {
+        // executeScript may throw if page redirects mid-poll
+        return { skipped: true, reason: 'redirected_kein_abo', url: landingUrl };
+      }
       if (!injection?.result?.still_loading) break;
       attempt += 1;
     }

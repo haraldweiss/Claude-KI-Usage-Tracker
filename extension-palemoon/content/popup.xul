@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<!DOCTYPE window [
+  <!ENTITY % kiusagetrackerDTD SYSTEM "chrome://kiusagetracker/locale/popup.dtd">
+  %kiusagetrackerDTD;
+]>
+<window
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  id="ki-usage-tracker-popup"
+  title="KI Usage Tracker"
+  width="420"
+  height="650"
+  orient="vertical"
+  persist="width height screenX screenY"
+  onload="init();">
+
+  <script src="chrome://kiusagetracker/content/popup.js"/>
+
+  <vbox flex="1" style="padding: 12px;">
+    <!-- Header -->
+    <hbox align="center">
+      <label style="font-size:16px;font-weight:bold;">KI Usage Tracker</label>
+      <spacer flex="1"/>
+      <label id="last-update-label" style="font-size:10px;color:#888;">—</label>
+    </hbox>
+    <separator class="thin"/>
+
+    <!-- Connection settings (collapsible) -->
+    <vbox id="settings-box">
+      <label style="font-weight:bold;">API-Einstellungen</label>
+      <hbox align="center">
+        <label control="api-base-input" style="width:100px;">Backend URL:</label>
+        <textbox id="api-base-input" flex="1" value="https://claudetracker.wolfinisoftware.de/api"/>
+      </hbox>
+      <hbox align="center">
+        <label control="api-token-input" style="width:100px;">API Token:</label>
+        <textbox id="api-token-input" flex="1" type="password"/>
+      </hbox>
+      <hbox>
+        <button label="Speichern" oncommand="saveSettings();"/>
+        <button label="Cookies exportieren" oncommand="exportCookiesAndUpload();"/>
+      </hbox>
+    </vbox>
+
+    <separator class="thin"/>
+
+    <!-- Stats display -->
+    <vbox id="stats-box" flex="1">
+      <label id="grand-total-label" style="font-size:14px;font-weight:bold;">Gesamt: —</label>
+      <separator class="thin"/>
+
+      <!-- Per-source rows -->
+      <vbox id="rows-container">
+        <hbox align="center"><label style="width:130px;">Claude.ai</label><label id="row-claude-ai" value="—"/></hbox>
+        <hbox align="center"><label style="width:130px;">Anthropic API</label><label id="row-anthropic-api" value="—"/></hbox>
+        <hbox align="center"><label style="width:130px;">OpenCode Go</label><label id="row-opencode-go" value="—"/></hbox>
+        <hbox align="center"><label style="width:130px;">z.ai</label><label id="row-zai" value="—"/></hbox>
+        <hbox align="center"><label style="width:130px;">Codex</label><label id="row-codex" value="—"/></hbox>
+        <hbox align="center"><label style="width:130px;">OpenAI API</label><label id="row-openai-api" value="—"/></hbox>
+      </vbox>
+
+      <separator class="thin"/>
+      <button label="Aktualisieren" oncommand="refreshStats();"/>
+      <label id="status-label" style="font-size:10px;color:#888;margin-top:4px;"/>
+    </vbox>
+  </vbox>
+</window>

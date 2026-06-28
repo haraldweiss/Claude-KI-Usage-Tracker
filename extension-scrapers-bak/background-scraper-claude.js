@@ -1,24 +1,167 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// © 2026 Harald Weiss
+
+// Claude.ai consumer subscription usage page URL
+const USAGE_PAGE_URL = 'https://claude.ai/settings/usage';
+
+// Fields to track for change detection - these are the values that actually
+// matter for spending/usage changes. Timestamps and preview text are excluded.
+const AUTO_SYNC_SIGNATURE_FIELDS = [
+  'spent_eur',
+  'spent_pct',
+  'weekly_all_models_pct',
+  'weekly_sonnet_pct',
+  'monthly_pct',
+  'weekly_limit_pct',
+  'session_pct',
+  'balance_eur'
+];
+
 function autoSyncSignature(d) {
   return AUTO_SYNC_SIGNATURE_FIELDS.map((f) => `${f}=${d?.[f] ?? ''}`).join('|');
 }
 
-async function autoSync() {
+function isClaudeNoPlanUrl(url) {
+  return typeof url === 'string' && /^https:\/\/claude\.ai\/upgrade(?:[/?#]|$)/i.test(url);
+}
+
+// Poll a tab's body text until common usage-page markers appear, or budget
+// runs out. Handles multi-step redirect chains (auth → target host) because
+// executeScript errors are caught silently. Budget covers whole chain +
+// React hydration on the target page.
+async function waitForUsageContent(tabId, budgetMs = 60000, pollMs = 600) {
+  const deadline = Date.now() + budgetMs;
+  let lastText = '';
+  while (Date.now() < deadline) {
+    try {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => document.body?.innerText || ''
+      });
+      lastText = res?.result || '';
+      // Primary: usage markers (%, €, reset keywords)
+      if (/\d+\s*%/.test(lastText) || /€/.test(lastText) ||
+          /(?:Sitzung|session|Limit|limit|Reset|Zurücksetzung)/i.test(lastText)) {
+        return lastText;
+      }
+      // Fallback: if "Lädt"/"Loading" has disappeared AND text is long
+      // enough (>500 chars = sidebar + some main content), assume React has
+      // rendered the billing/limits page.
+      if (lastText.length > 500 && !/Lädt|Loading|Lade/i.test(lastText)) {
+        return lastText;
+      }
+    } catch {
+      // executeScript can throw on about:blank or auth host — retry
+    }
+    await sleep(pollMs);
+  }
+  return lastText;
+}
+async function autoSync(externalTabId = null) {
   let createdTabId = null;
 
-  try {
-    // Reuse an existing tab if the user already has one open
-    const existing = await chrome.tabs.query({ url: 'https://claude.ai/settings/usage*' });
-    let tabId;
+  // Helper: navigate tab to a URL, wait for it to render, scrape, return data.
+  async function tryUrl(tab, url) {
+    try { await chrome.tabs.update(tab, { url }); } catch {}
+    await waitForTabReady(tab, 30000);
+    const text = await waitForUsageContent(tab, 30000);
+    const info = await chrome.tabs.get(tab);
+    return { text, url: info?.url || url };
+  }
 
-    if (existing.length > 0) {
-      tabId = existing[0].id;
+  try {
+    // Try multiple URLs in order until one returns useful text (not just "Lädt").
+    const urlsToTry = [
+      USAGE_PAGE_URL,
+      'https://platform.claude.com/settings/billing',
+      'https://platform.claude.com/claude-code',
+    ];
+    // Add workspace-specific URLs from the console scraper's cache
+    let wsSpecific = [];
+    try {
+      const cached = await chrome.storage.local.get('workspace_ids_cache');
+      if (Array.isArray(cached.workspace_ids_cache)) {
+        wsSpecific = cached.workspace_ids_cache
+          .filter((w) => w?.id)
+          .map((w) => `https://platform.claude.com/settings/workspaces/${w.id}/limits`);
+      }
+    } catch {}
+    const allUrls = [...urlsToTry, ...wsSpecific];
+
+    // If a shared tab was provided from syncAll, use it directly
+    // without creating or reusing our own tab.
+    let tabId = externalTabId;
+    if (tabId === null) {
+      // Find an existing claude.ai tab to reuse (avoids opening a new tab).
+      for (const url of allUrls) {
+        const existing = await chrome.tabs.query({ url });
+        if (existing.length > 0) { tabId = existing[0].id; break; }
+      }
+    }
+
+    let pageUrl = '';
+    let lastText = '';
+    const isReusedTab = tabId !== null;
+
+    if (isReusedTab) {
+      const t = await chrome.tabs.get(tabId);
+      const onCorrectPage = t.url && t.url.includes('claude.ai/settings/usage') &&
+        !t.url.includes('#');
+      if (onCorrectPage) {
+        // Already on the real settings/usage page — just poll
+        lastText = await waitForUsageContent(tabId, 30000);
+      } else {
+        // Navigate directly to the usage URL (no hash trick — SPA hash navigation
+        // triggers a client-side redirect that puts the tab in a transient state
+        // where executeScript fails with "Cannot access contents").
+        try { await chrome.tabs.update(tabId, { url: USAGE_PAGE_URL }); } catch {}
+        await waitForTabReady(tabId, 30000);
+        lastText = await waitForUsageContent(tabId, 30000);
+      }
+      const info = await chrome.tabs.get(tabId);
+      pageUrl = info?.url || '';
     } else {
-      const tab = await chrome.tabs.create({ url: USAGE_PAGE_URL, active: false });
+      // Open as active so Cloudflare's bot-detection doesn't trigger on a
+      // hidden/inactive tab. The tab closes automatically in finally{}.
+      const tab = await chrome.tabs.create({ url: allUrls[0], active: true });
       tabId = tab.id;
       createdTabId = tab.id;
-      await waitForTabComplete(tab.id, 30000);
-      // Give React a moment to render the usage figures
-      await sleep(4000);
+      for (const url of allUrls) {
+        try { await chrome.tabs.update(tabId, { url }); } catch {}
+        await waitForTabReady(tabId, 30000);
+        lastText = await waitForUsageContent(tabId, 30000);
+        const info = await chrome.tabs.get(tabId);
+        pageUrl = info?.url || url;
+        if (!/Lädt|Loading|Lade/i.test(lastText) || /\d+\s*%/.test(lastText) || /€/.test(lastText)) {
+          break;
+        }
+      }
+    }
+
+    // Verify we're on an accessible URL before injecting. If claude.ai redirected
+    // to an auth domain (e.g. account.anthropic.com) that's not in host_permissions,
+    // executeScript would throw the unhelpful "Cannot access contents" Chrome error.
+    const tabInfo = await chrome.tabs.get(tabId);
+    const tabUrl = tabInfo?.url || '';
+    if (isClaudeNoPlanUrl(tabUrl)) {
+      return {
+        skipped: true,
+        reason: 'no_plan',
+        url: tabUrl,
+        preview: 'Claude.ai usage skipped: no active Claude.ai plan in this Chrome profile.'
+      };
+    }
+    const isAccessible = tabUrl.startsWith('https://claude.ai/') ||
+      tabUrl.startsWith('https://platform.claude.com/') ||
+      tabUrl.startsWith('https://api.claude.ai/') ||
+      tabUrl.startsWith('https://account.anthropic.com/');
+    if (!isAccessible) {
+      console.warn('[autoSync] Tab auf nicht-erlaubter Domain:', tabUrl);
+      throw new Error(
+        tabUrl
+          ? `claude.ai hat auf eine unbekannte Domain weitergeleitet: ${new URL(tabUrl).hostname} — bitte in claude.ai einloggen`
+          : 'claude.ai-Tab wurde nicht geladen — bitte einloggen'
+      );
     }
 
     // Inject the scrape function directly via scripting API instead of relying
@@ -26,10 +169,12 @@ async function autoSync() {
     // open before the extension was reloaded (where the content script would
     // be stale or absent and chrome.tabs.sendMessage fails with
     // "Receiving end does not exist").
-    const [injection] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const text = document.body.innerText || '';
+    let injection;
+    try {
+      [injection] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const text = document.body.innerText || '';
 
         const numAfter = (regex) => {
           const m = text.match(regex);
@@ -95,8 +240,9 @@ async function autoSync() {
         // Extract the absolute session limit (e.g. "5" from "5-Stunden-Limit" or
         // "5" from "5-hour limit"). The new layout only shows "Aktuelle Sitzung"
         // without the limit value — will be null unless Anthropic brings it back.
+        // On platform.claude.com the label might be "Session limit".
         const session_limit_hours = (() => {
-          const m = text.match(/(\d+)\s*-?(?:Stunden[- ]Limit|hour[- ]limit)/i);
+          const m = text.match(/(\d+)\s*-?(?:Stunden[- ]Limit|hour[- ]limit|Session[- ]limit)/i);
           return m ? parseInt(m[1], 10) : null;
         })();
 
@@ -187,17 +333,28 @@ async function autoSync() {
           monthly_limit_eur,
           balance_eur,
           reset_date,
-          scraped_at: new Date().toISOString()
+          scraped_at: new Date().toISOString(),
+          // Diagnostic: include a page text excerpt so we can debug
+          // scraping failures without asking the user to open DevTools.
+          _page_preview: text.slice(0, 1500)
         };
       }
-    });
+      });
+    } catch (scriptErr) {
+      const t = await chrome.tabs.get(tabId).catch(() => null);
+      const currentUrl = t?.url || 'unbekannt';
+      console.warn('[autoSync] executeScript fehlgeschlagen, Tab-URL:', currentUrl);
+      throw new Error(
+        `claude.ai nicht zugänglich — bitte in claude.ai einloggen (Tab landet auf: ${currentUrl})`
+      );
+    }
 
     const data = injection?.result;
     if (!data) {
       throw new Error('Scrape returned no result');
     }
     if (data.spent_eur == null && data.weekly_all_models_pct == null) {
-      return { skipped: true, reason: 'no_data' };
+      return { skipped: true, reason: 'no_data', url: pageUrl, preview: data._page_preview };
     }
 
     const apiBase = await getApiBase();
@@ -255,6 +412,10 @@ async function autoSync() {
       try { await chrome.tabs.remove(createdTabId); } catch {}
     }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { isClaudeNoPlanUrl };
 }
 
 // ---------------------------------------------------------------------------

@@ -62,3 +62,7 @@ coverage/
 # dist/ for prod). Keep .js test files (jest still runs them).
 backend/src/**/*.js
 !backend/src/__tests__/**/*.js
+
+# Benchmark runner artifacts (generated results + state)
+benchmark/results/
+benchmark/state.json

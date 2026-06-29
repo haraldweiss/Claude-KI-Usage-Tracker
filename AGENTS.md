@@ -1291,3 +1291,71 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 - `curl -s http://localhost:3001/api/health` → `{"status":"ok"}`
 - `curl -s http://localhost:3001/api/usage/summary -H "Authorization: Bearer <token>"` → `combined.codex.plan_cost_eur` ≠ null
 - `grep -c "Lade Benchmark" /opt/ki-usage-tracker-frontend/dist/assets/index-*.js` → ≥1
+
+### 2026-06-29 — Benchmark-Agent: Dashboard-Trigger + Automatische Ausführung auf 3 Macs
+
+**Was:** Neue `benchmark_triggers` Tabelle + 6 neue Backend-Endpunkte + Per-Maschine-Buttons im BenchmarksTab + Polling-Agent (`benchmark/agent.js`) + launchd-Integration.
+
+**Touch-Points (Backend):**
+- `backend/src/database/sqlite.ts`: `benchmark_triggers` Tabelle (`id, machine_name, mode, status, requested_by, run_id, error_message, created_at, started_at, completed_at`) + Index auf `(machine_name, status)`.
+- `backend/src/controllers/benchmarkController.ts`: 6 neue Exporte:
+  - `requestBenchmarkRun` — POST /api/benchmarks/request-run (Dashboard)
+  - `getPendingRun` — GET /api/benchmarks/pending-run?machine= (Agent)
+  - `claimBenchmarkRun` — POST /api/benchmarks/claim-run/:id (Agent)
+  - `completeBenchmarkRun` — POST /api/benchmarks/complete-run/:id (Agent)
+  - `listMachines` — GET /api/benchmarks/machines
+  - `getTriggers` — GET /api/benchmarks/triggers
+- `postBenchmarkRun` aktualisiert: bei Insert wird geprüft ob der `run_id` einem pending/running Trigger entspricht und markiert ihn als done.
+
+**Touch-Points (Frontend):**
+- `frontend/src/services/api.ts`: Neue Funktionen `getBenchmarkMachines()`, `getBenchmarkTriggers()`; `triggerBenchmarkRun` auf `/benchmarks/request-run` umgestellt.
+- `frontend/src/components/BenchmarksTab.tsx`: Komplett-Rewrite mit 3 Sub-Tabs (Modell-Scores, Maschinen, Run-Verlauf). Maschinen-Tab zeigt Karten pro Machine mit Quick Run / Standard Button, Status-Badge (pending/running/done/failed), Auto-Refresh alle 15s bei aktivem Trigger.
+- `frontend/src/pages/Dashboard.tsx`: `BenchmarksTab`-Rendering für `activeTab === 'benchmarks'` aktiviert.
+
+**Neue Dateien:**
+- `benchmark/agent.js`: Polling-Agent (30s Intervall). Lädt pending Trigger für seine Maschine, claimt sie, führt `node benchmark/run.js` aus (via spawn), reported done/failed. Env: `BENCHMARK_BACKEND`, `BENCHMARK_TOKEN`. Fallback auf `~/.config/ki-tracker-token`.
+- `scripts/com.ki-tracker.benchmark-agent.plist`: launchd plist mit PATH-Set (`/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`), node und agent.js Pfad, Token, Backend-URL.
+
+**Aktuell eingerichtete Maschinen:**
+
+| Maschine | Hostname (SSH) | IP | Agent PID |
+|---|---|---|---|
+| MacBook Pro M3 Max | `m3macbookharald.fritz.box` | (local) | 65000 |
+| Mac mini M4 Pro | `MinivonHarald2.fritz.box` (user: haraldweiss) | 192.168.178.72 | 52769 |
+| Mac Studio M2 Max | `macstudiomichael.fritz.box` (user: michaelweiss) | 192.168.178.84 | 99320 |
+
+**Token-Problem gelöst:** Alter Token `ck_live_9497...` war rotiert (sha256 prefix mismatch). Neuer Token `ck_live_cdb39683...` wurde generiert, lokal + auf oracle-vm deployt. Token-Deployment auf oracle-vm benötigt Base64-Kodierung wegen Shell-Escaping der `$`-Zeichen im bcrypt-Hash.
+
+**Bekannte Einschränkungen:**
+- Agent startet `node benchmark/run.js` via `spawn()` — braucht node im PATH (via PATH in launchd plist).
+- `run.js` lädt Modelle von lokalem Ollama (`http://localhost:11434`).
+- GLM-Modelle werden von `run.js` herausgefiltert (zu langsam auf lokaler Hardware).
+- Embedding-Modelle werden ebenfalls gefiltert.
+- Der Token im plist muss aktualisiert werden, wenn er im Dashboard rotiert wird (derzeit manuell via sed über SSH).
+
+
+### 2026-06-29 — ⚠️ Limit-Warnung: Agent-Handover erforderlich
+
+**Ausgelöst:** 2026-06-29 10:48
+
+**Kritische Limits (≥90%):**
+
+| Quelle | Limit | Verbrauch | Reset |
+|--------|-------|-----------|-------|
+| z.ai | 5h Quota | 92% | — |
+
+**Alle Limits (absteigend):**
+
+| Quelle | Limit | Verbrauch | Status |
+|--------|-------|-----------|--------|
+| z.ai | 5h Quota | 92% | 🔴 Kritisch |
+| z.ai | Weekly Quota | 19% | 🟢 OK |
+| OpenCode Go | Monthly | 7% | 🟢 OK |
+| OpenCode Go | Weekly | 1% | 🟢 OK |
+| Codex (ChatGPT) | 5h Quota | 1% | 🟢 OK |
+| OpenCode Go | Rolling Usage | 0% | 🟢 OK |
+| z.ai | Monthly (Total) | 0% | 🟢 OK |
+| Codex (ChatGPT) | Weekly | 0% | 🟢 OK |
+
+**Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
+

@@ -1413,3 +1413,30 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+
+
+### 2026-06-30 — ⚠️ Limit-Warnung: Agent-Handover erforderlich
+
+**Ausgelöst:** 2026-06-30 10:36
+
+**Kritische Limits (≥90%):**
+
+| Quelle | Limit | Verbrauch | Reset |
+|--------|-------|-----------|-------|
+| Codex (ChatGPT) | 5h Quota | 100% | — |
+
+**Alle Limits (absteigend):**
+
+| Quelle | Limit | Verbrauch | Status |
+|--------|-------|-----------|--------|
+| Codex (ChatGPT) | 5h Quota | 100% | 🔴 Kritisch |
+| z.ai | 5h Quota | 41% | 🟢 OK |
+| z.ai | Weekly Quota | 29% | 🟢 OK |
+| Codex (ChatGPT) | Weekly | 19% | 🟢 OK |
+| OpenCode Go | Monthly | 7% | 🟢 OK |
+| OpenCode Go | Weekly | 1% | 🟢 OK |
+| OpenCode Go | Rolling Usage | 0% | 🟢 OK |
+| z.ai | Monthly (Total) | 0% | 🟢 OK |
+
+**Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
+

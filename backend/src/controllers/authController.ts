@@ -11,7 +11,7 @@ import logger from '../utils/logger.js';
 // Must be the BACKEND verify endpoint (under /api/) so the email link hits the
 // intermediate "Click to log in" HTML page rendered by showVerifyPage, not the
 // SPA route which would just bounce to /login without consuming the token.
-const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://claudetracker.wolfinisoftware.de/api/auth/verify';
+const VERIFY_BASE_URL = process.env.VERIFY_BASE_URL || 'https://ki-usage-tracker.wolfinisoftware.de/api/auth/verify';
 
 // Cookie path must be '/' because frontend calls /api/* at root, not /claudetracker/api/*
 // The Apache proxy routes both paths to the same backend
@@ -143,7 +143,7 @@ export async function consumeVerify(req: Request, res: Response): Promise<void> 
     <title>Anmeldung erfolgreich</title>
     <script>window.location.href = '/';</script>
     </head><body>
-    Weitergeleitet zu <a href="/">Claude Usage Tracker</a>...
+    Weitergeleitet zu <a href="/">KI Usage Tracker</a>...
     </body></html>`);
   } catch (err) {
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(

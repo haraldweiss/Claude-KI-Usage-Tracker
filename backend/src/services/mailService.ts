@@ -7,7 +7,7 @@ const SMTP_HOST = process.env.SMTP_HOST || 'localhost';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '25', 10);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
-const FROM_ADDRESS = process.env.MAIL_FROM || 'Claude Usage Tracker <noreply@wolfinisoftware.de>';
+const FROM_ADDRESS = process.env.MAIL_FROM || 'KI Usage Tracker <noreply@wolfinisoftware.de>';
 
 // Talking to local Postfix on port 25 uses plaintext (Postfix's self-signed
 // cert would fail STARTTLS validation); the Postfix → IONOS hop still uses
@@ -42,7 +42,7 @@ export async function sendMagicLinkMail(
     'Falls du diesen Login nicht angefordert hast, ignoriere diese Mail.',
     '',
     '—',
-    'Claude Usage Tracker'
+    'KI Usage Tracker'
   ].join('\n');
 
   try {
@@ -50,7 +50,7 @@ export async function sendMagicLinkMail(
     const info = await transport.sendMail({
       from: FROM_ADDRESS,
       to: email,
-      subject: 'Dein Login-Link für Claude Usage Tracker',
+      subject: 'Dein Login-Link für KI Usage Tracker',
       text: body
     });
     logger.info(`[Email] Successfully sent to ${email}, response: ${info.response}`);

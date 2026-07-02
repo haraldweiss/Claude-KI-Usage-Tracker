@@ -1748,3 +1748,22 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 | Pale Moon | 229→298 Z. 🟢 | XUL 67→84 Z. 🟢 | 186 Z. (bootstrap) | 8 Quellen + Details |
 
 **Commit:** `783886f`
+
+### 2026-07-02 — Oracle VM als Benchmark-Maschine integriert (Pi)
+
+**Setup auf Oracle VM (oracle-wolfinisoftware, Ampere Neoverse-N1):**
+
+1. **Benchmark-Verzeichnis** rsynced nach `/opt/ki-usage-tracker/benchmark/`
+2. **systemd-Service** `ki-usage-benchmark-agent.service`:
+   - `/etc/systemd/system/ki-usage-benchmark-agent.service`
+   - Start: `sudo systemctl enable --now ki-usage-benchmark-agent`
+   - Pollt alle 30s, führt `quick`/`standard` Runs via Dashboard-Trigger aus
+   - Token aus env `BENCHMARK_TOKEN` (identisch mit Dashboard-API-Token)
+   - Backend: `http://127.0.0.1:3001` (direkt, ohne SSL)
+   - Logs: `/var/log/ki-usage-benchmark-agent.{log,err}`
+3. **Getestet:** Trigger #24 (quick) von Dashboard → Agent picked up → `run.js` läuft mit 11 Ollama-Modellen
+
+**Systemd vs launchd:** Oracle Linux verwendet systemd. Der Agent läuft als `simple` service,
+`Restart=always` mit 30s Verzögerung.
+
+**Neue Modelle auf der VM:** `ornith:latest` (9B Q4_K_M), `qwen3.6:latest` (23B), diverse andere.

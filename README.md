@@ -314,13 +314,14 @@ launchctl list | grep benchmark-agent
 tail -f /tmp/benchmark-agent.log
 ```
 
-**Aktuell eingerichtete Maschinen (Stand Juni 2026):**
+**Aktuell eingerichtete Maschinen (Stand Juli 2026):**
 
-| Maschine | Hostname | Modell | Agent |
+| Maschine | Hostname | CPU | Agent |
 |---|---|---|---|
 | **M3 Max MacBook Pro** | `m3macbookharald.fritz.box` | Apple M3 Max | ✅ launchd |
 | **Mac mini M4 Pro** | `MinivonHarald2.fritz.box` | Apple M4 Pro | ✅ launchd |
 | **Mac Studio M2 Max** | `macstudiomichael.fritz.box` | Apple M2 Max | ✅ launchd |
+| **Oracle VM** | `oracle-wolfinisoftware` | Ampere Neoverse-N1 (ARM) | ✅ systemd |
 
 ### Deploy a fresh build (oracle-vm)
 

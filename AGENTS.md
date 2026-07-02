@@ -1727,3 +1727,24 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 **Commits:** `ddca29f`
 
 **Verifiziert:** npx tsc --noEmit zeigt keine neuen Fehler (nur vorbestehende).
+
+### 2026-07-02 — Pale Moon Extension auf Stand gebracht (Pi)
+
+**Ausgangslage:** Pale Moon Extension (`extension-palemoon/`) war deutlich weniger umfangreich als die Chrome-Variante:
+- popup.js: 229 Zeilen (vs 555 in Chrome) — fehlende Quellen, hardcodierte Preise
+- popup.xul: 67 Zeilen — fehlende UI-Elemente
+
+**Geändert (2 Dateien):**
+- **`content/popup.xul`**: Neue Zeilen für Claude Code, OpenCode API. ChatGPT Plus statt generischem "Codex". Auslastungs-Sektion für Usage-%-Details. Breiter (+60px) und höher (+50px).
+- **`content/popup.js`**: `displayStats()` nutzt jetzt `cg.codex.plan_cost_eur` statt nicht-existierendem `cg.codex.total_eur` (= ChatGPT Plus Bugfix wie in Chrome). Zeigt 8 Kostenquellen (vorher 6). Usage-%-Details für OpenCode Go (Rolling/Weekly/Monthly), z.ai (5h/Weekly/Monthly) und ChatGPT Plus (5h/Weekly/Monthly).
+
+**Status aller Extension-Varianten (Stand 2026-07-02):**
+| Extension | popup.js | popup.html | background.js | Features |
+|-----------|----------|------------|---------------|----------|
+| Chrome | 555 Z. ✅ | 181 Z. ✅ | 477 Z. ✅ | Referenz |
+| Edge | ✅ identisch | ✅ identisch | ✅ identisch | = Chrome |
+| Opera | ✅ identisch | ✅ identisch | ✅ identisch | = Chrome |
+| Firefox | ✅ identisch (Inhalt) | ✅ identisch | 🔶 MV2-adaptiert (489 Z.) | Gleiche Features |
+| Pale Moon | 229→298 Z. 🟢 | XUL 67→84 Z. 🟢 | 186 Z. (bootstrap) | 8 Quellen + Details |
+
+**Commit:** `783886f`

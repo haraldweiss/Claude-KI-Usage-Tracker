@@ -1706,3 +1706,24 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+
+### 2026-07-02 — ChatGPT Plus Limits + Dashboard Link Fix (Pi)
+
+**Scope:** Zwei UI/Extension-Bugs gefixt.
+
+**Problem 1 — ChatGPT Plus Limit-Balken unsichtbar:**
+- `CombinedSpendBreakdown.codex` Typ in `frontend/src/types/api.ts` definierte `{ response_metadata: string | null }`.
+- Das Backend sendet die Codex-Metadaten aber **flach** im `codex`-Objekt (`plan_name`, `five_hour_remaining_pct`, `weekly_remaining_pct`, etc.) — nicht in einem `response_metadata`-Feld.
+- `OverviewTab.tsx` versuchte `combined?.codex?.response_metadata` → immer `null` → keine Progress-Bars.
+- **Fix:** Typ auf flache Felder korrigiert. OverviewTab greift direkt auf `combined?.codex` zu. Monatlich-Balken hinzugefügt (war vorher nur 5h + Weekly).
+
+**Problem 2 — Extension Dashboard-URL veraltet:**
+- `extension/popup.html` Placeholder zeigte `https://wolfinisoftware.de/claudetracker` (alte URL).
+- Der Code nutzt `https://ki-usage-tracker.wolfinisoftware.de` als Default.
+- **Fix:** Placeholder in `popup.html` aktualisiert.
+
+**Nebengewinn:** `opencode_api` und `openai_api` in `CombinedSpendBreakdown`-Typ ergänzt (vorbestehende TS-Fehler in InsightsBlock).
+
+**Commits:** `ddca29f`
+
+**Verifiziert:** npx tsc --noEmit zeigt keine neuen Fehler (nur vorbestehende).

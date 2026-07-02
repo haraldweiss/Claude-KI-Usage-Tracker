@@ -328,11 +328,20 @@ export function getBenchmarkRuns(params?: Record<string, string>): Promise<{ run
   return apiCall(`/benchmarks${q ? `?${q}` : ''}`);
 }
 
-export function triggerBenchmarkRun(device?: string): Promise<{ success: boolean; message: string }> {
-  return apiCall('/benchmarks/run', {
+export function triggerBenchmarkRun(machineName?: string, mode?: string): Promise<{ success: boolean; message: string; trigger_id?: number }> {
+  return apiCall('/benchmarks/request-run', {
     method: 'POST',
-    body: device ? JSON.stringify({ device }) : undefined,
+    body: JSON.stringify({ machine_name: machineName, mode: mode || 'quick' }),
   });
+}
+
+export function getBenchmarkMachines(): Promise<{ machines: string[] }> {
+  return apiCall('/benchmarks/machines');
+}
+
+export function getBenchmarkTriggers(limit?: number): Promise<{ triggers: any[] }> {
+  const q = limit ? `?limit=${limit}` : '';
+  return apiCall(`/benchmarks/triggers${q}`);
 }
 
 // Provider settings endpoints

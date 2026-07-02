@@ -67,6 +67,7 @@ export default function Dashboard(): React.ReactElement {
       {activeTab === 'overview' && <OverviewTab />}
       {activeTab === 'models' && <ModelsTab models={modelData} />}
       {activeTab === 'combined' && <CombinedCostTab />}
+      {activeTab === 'benchmarks' && <BenchmarksTab />}
     </div>
   );
 }

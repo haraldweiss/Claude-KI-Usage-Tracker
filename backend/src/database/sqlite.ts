@@ -576,6 +576,31 @@ export function initDatabase(): Promise<void> {
             );
           });
 
+          // Benchmark trigger requests — created from the dashboard, consumed by agents on each machine
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE TABLE IF NOT EXISTS benchmark_triggers (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                machine_name  TEXT NOT NULL,
+                mode          TEXT NOT NULL DEFAULT 'quick',
+                status        TEXT NOT NULL DEFAULT 'pending',
+                requested_by  INTEGER REFERENCES users(id),
+                run_id        TEXT,
+                error_message TEXT,
+                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                started_at    DATETIME,
+                completed_at  DATETIME
+              )`,
+              (tErr: Error | null) => (tErr ? reject(tErr) : resolve())
+            );
+          });
+          await new Promise<void>((resolve, reject) => {
+            database.run(
+              `CREATE INDEX IF NOT EXISTS idx_benchmark_triggers_machine_status ON benchmark_triggers (machine_name, status)`,
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
+
           resolve();
         } catch (migrationErr) {
           reject(migrationErr as Error);

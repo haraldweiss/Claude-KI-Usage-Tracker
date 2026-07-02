@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ki-tracker.benchmark-agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Library/WebServer/Documents/KI Usage tracker/benchmark/agent.js</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>ThrottleInterval</key>
+        <integer>60</integer>
+    </dict>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>BENCHMARK_TOKEN</key>
+        <string>ck_live_9497a473a10cb5cb71c109d736bfdf2d8d1c424e89b2009a161cd1e8b9421065</string>
+        <key>BENCHMARK_BACKEND</key>
+        <string>https://ki-usage-tracker.wolfinisoftware.de</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/benchmark-agent.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/benchmark-agent.err</string>
+</dict>
+</plist>

@@ -8,7 +8,7 @@ A web application + browser extension that tracks the **real cost** of using AI 
 
 ## 🔑 Sign Up (hosted instance)
 
-> This section applies to the publicly hosted instance at `https://wolfinisoftware.de/claudetracker/`. Skip it if you are running locally — local dev has no auth by default.
+> This section applies to the publicly hosted instance at `https://ki-usage-tracker.wolfinisoftware.de/`. Skip it if you are running locally — local dev has no auth by default.
 
 1. **Visit the dashboard URL** in your browser. You will be redirected to the login page.
 2. **Enter your email address** and click "Magic-Link senden". Check your inbox for a login email (valid for 15 minutes, single-use).
@@ -83,7 +83,9 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 ## 📋 Prerequisites
 
 - **Node.js**: 20 LTS or newer (22.x is what runs on the VPS).
-- **Chrome / Chromium / Brave**: for the browser extension.
+- **Chrome / Chromium / Brave / Edge / Opera**: for the browser extension (MV3).
+- **Firefox**: for the Firefox extension (MV2, `extension-firefox/`).
+- **Pale Moon**: for the Pale Moon extension (XUL/UXP, `extension-palemoon/`).
 - **SQLite**: comes with the `sqlite3` npm dependency, no system install needed.
 
 ---
@@ -122,15 +124,36 @@ The scripts auto-detect when launched from a worktree and point the backend at t
 
 ### 4. Install the extension
 
-> **Version note**: the extension is now at **v3.2.1** (MV3). It is incompatible with any v1.x install — remove the old version from `chrome://extensions` before loading this one.
+> **Version note**: the extension is at **v3.2.1** (MV3) for Chromium browsers. Incompatible with any v1.x install — remove the old version before loading this one.
 
-1. Open `chrome://extensions`.
+#### Browser variants
+
+| Variant | Directory | Engine | Popup | Scraping | Notes |
+|---------|-----------|--------|-------|----------|-------|
+| **Chrome / Edge / Opera** | `extension/` (shared) | Chromium MV3 | HTML + JS | `chrome.scripting` + `chrome.cookies` | 8 cost sources, progress bars, usage details |
+| **Firefox** | `extension-firefox/` | Gecko MV2 | HTML + JS | `browser.tabs.executeScript` | Gleiche Features wie Chrome, MV2-adaptiert |
+| **Pale Moon** | `extension-palemoon/` | Goanna/UXP | XUL + JS | XPCOM `nsICookieManager` | 8 cost sources, usage % details, XUL-nativ |
+
+#### Chrome / Edge / Opera
+1. Open `chrome://extensions` (bzw. `edge://extensions` / `opera://extensions`).
 2. Enable Developer mode (top right).
 3. Click "Load unpacked".
 4. Select the `extension/` directory.
 5. Click the Tracker icon in the toolbar → expand "⚙️ Verbindung":
    - **Local dev**: leave Backend-API URL = `http://localhost:3000/api` and the API Token field empty → "Speichern".
    - **Hosted instance**: set Backend-API URL to `https://your-domain/claudetracker/api`, paste the **API Token** from Settings → API Token → "Speichern". The extension sends `Authorization: Bearer <token>` on every request; no Basic-Auth credentials are needed.
+
+#### Firefox
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click "Load Temporary Add-on…".
+3. Select any file in `extension-firefox/` (e.g. `manifest.json`).
+4. The extension is loaded temporarily (removed after restart). For permanent install, see [MDN: Signing and distribution](https://extensionworkshop.com/documentation/publish/distribute-sideloading/).
+
+#### Pale Moon
+1. Open `about:addons` → Tools for all add-ons → "Install add-on from file…"
+2. Select `extension-palemoon/` (as a packaged .xpi or directly the unpacked directory).
+3. Confirm the install prompt.
+4. The popup opens via toolbar button or Tools → KI Usage Tracker.
 
 ### 5. Trigger your first sync
 Log into all services in regular browser tabs. The **server-scraper** (every 1h) handles Codex, OpenAI API, and Claude.ai automatically. For the 4 sources with macOS Keychain-encrypted httponly cookies (Anthropic Console, Claude Code, z.ai, OpenCode Go), open the extension popup and click **🔐 Sync geschützte Quellen** — it opens 4 tabs, scrapes data, and posts to the backend.
@@ -249,6 +272,55 @@ curl "http://localhost:3001/api/benchmarks?mode=full_suite" \
 ```
 
 **Local reports:** `benchmark/results/full-suite-*.json`
+
+### Benchmark Agent (Dashboard-Triggered Runs)
+
+The **benchmark agent** (`benchmark/agent.js`) runs as a launchd service on each machine with Ollama. It polls the backend every 30s for pending benchmark triggers and automatically executes `benchmark/run.js` when a run is requested from the dashboard.
+
+**Architecture:**
+```
+Dashboard (Frontend)
+  └─ "Quick Run" / "Standard" Button für jede Maschine
+     → POST /api/benchmarks/request-run
+
+Backend (oracle-vm)
+  ├─ benchmark_triggers Tabelle (pending → running → done/failed)
+  ├─ POST /api/benchmarks/request-run       — Trigger anlegen (Dashboard)
+  ├─ GET  /api/benchmarks/pending-run       — Polling (Agent)
+  ├─ POST /api/benchmarks/claim-run/:id     — Claim (Agent)
+  ├─ POST /api/benchmarks/complete-run/:id  — Done/Failed (Agent)
+  ├─ GET  /api/benchmarks/machines          — Maschinen-Liste
+  └─ GET  /api/benchmarks/triggers          — Trigger-Verlauf
+
+Agent (läuft auf jeder Maschine)
+  ├─ benchmark/agent.js — pollt alle 30s
+  ├─ Bei pending trigger: claim → run.js ausführen → complete
+  └─ launchd: scripts/com.ki-tracker.benchmark-agent.plist
+```
+
+**Installation auf einer Maschine:**
+```bash
+# 1. Repo auf die Maschine kopieren (per rsync oder git clone)
+# 2. Plist kopieren und Pfade anpassen
+cp scripts/com.ki-tracker.benchmark-agent.plist ~/Library/LaunchAgents/
+
+# 3. API-Token setzen (in der Plist unter EnvironmentVariables)
+#    Token aus Settings → API Token im Dashboard
+# 4. Agent laden
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ki-tracker.benchmark-agent.plist
+
+# 5. Prüfen
+launchctl list | grep benchmark-agent
+tail -f /tmp/benchmark-agent.log
+```
+
+**Aktuell eingerichtete Maschinen (Stand Juni 2026):**
+
+| Maschine | Hostname | Modell | Agent |
+|---|---|---|---|
+| **M3 Max MacBook Pro** | `m3macbookharald.fritz.box` | Apple M3 Max | ✅ launchd |
+| **Mac mini M4 Pro** | `MinivonHarald2.fritz.box` | Apple M4 Pro | ✅ launchd |
+| **Mac Studio M2 Max** | `macstudiomichael.fritz.box` | Apple M2 Max | ✅ launchd |
 
 ### Deploy a fresh build (oracle-vm)
 
@@ -434,6 +506,16 @@ Claude-KI-Usage-Tracker/
 │   ├── 2026-04-29-console-api-tracking-design.md      # Plan B (current)
 │   └── 2026-04-29-multi-user-auth-design.md           # Multi-user auth design
 │
+├── benchmark/
+│   ├── run.js                              # Ollama Benchmark Suite (coding/general/project/speed)
+│   ├── agent.js                            # Polling-Agent für Dashboard-Trigger
+│   ├── config.js                           # OLLAMA_BASE, BACKEND_BASE, Timeouts
+│   ├── send.js                             # Ergebnis-Upload Helper
+│   ├── full-suite-test.cjs                  # Quick-Test über alle Modelle
+│   ├── tasks/                              # Aufgabenkataloge (coding.js, general.js, …)
+│   └── reporters/                          # Report-Formatter (terminal, json, html, markdown)
+├── scripts/
+│   └── com.ki-tracker.benchmark-agent.plist  # launchd plist für Benchmark-Agent
 ├── start.sh / stop.sh / status.sh          # Dev lifecycle (worktree-aware)
 └── database.sqlite                         # Auto-created on first run
 ```
@@ -462,6 +544,16 @@ Claude-KI-Usage-Tracker/
 - `POST /api/recommend` — model recommendation for a free-text task description.
 - `GET /api/recommend/analysis/models?period=…` — historical model statistics.
 - `GET /api/recommend/analysis/opportunities?period=…` — legacy cost-optimization endpoint. Returns empty when no per-message data is available (the common case with the current scraping setup).
+
+### Benchmarks
+- `POST /api/benchmarks` — submit benchmark results (run.js / agent → backend).
+- `GET /api/benchmarks?model=&machine=&mode=&limit=` — list benchmark results.
+- `GET /api/benchmarks/machines` — list known machines.
+- `POST /api/benchmarks/request-run` — request a benchmark run on a machine (from dashboard).
+- `GET /api/benchmarks/pending-run?machine=` — poll for pending runs (agent).
+- `POST /api/benchmarks/claim-run/:id` — claim a trigger (agent marks as running).
+- `POST /api/benchmarks/complete-run/:id` — report completion (agent marks done/failed).
+- `GET /api/benchmarks/triggers?limit=` — list recent trigger requests.
 
 ### System
 - `GET /health` — backend liveness check (no auth required, used by the VPS health-check cron).

@@ -694,7 +694,7 @@ MIT — see [LICENSE](./LICENSE).
 
 ---
 
-**Last Updated**: June 2026 (Phase 7 — Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
+**Last Updated**: July 2026 (Phase 8 — Benchmark-Agent, Oracle VM, Pale Moon Update, URL-Migration)
 **Maintained by**: Harald Weiss
 **Repository**: [GitHub](https://github.com/haraldweiss/Claude-KI-Usage-Tracker)
 

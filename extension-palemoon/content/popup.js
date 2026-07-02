@@ -143,24 +143,75 @@ function displayStats(data) {
     return;
   }
 
-  // Grand total
-  var caTotal = Number(cg.claude_ai && (cg.claude_ai.cost_eur || cg.claude_ai.total_eur || 0));
-  var anthropicApiEur = Number(cg.anthropic_api && cg.anthropic_api.cost_eur_equivalent || 0);
-  var codexEur = Number(cg.codex && (cg.codex.total_eur || 0));
-  var openaiApiEur = Number(cg.openai_api && cg.openai_api.cost_usd || 0) * 0.92;
-  var opencodeGoEur = (cg.opencode_go && cg.opencode_go.plan_name === "OpenCode Go") ? 20 : 10;
-  var zaiEur = 15;
+  var rate = (cg.exchange_rate && cg.exchange_rate.usd_to_eur) || 0.92;
 
-  var grandTotal = caTotal + anthropicApiEur + codexEur + openaiApiEur + opencodeGoEur + zaiEur;
+  // Individual costs
+  var claudeAiEur = cg.claude_ai
+    ? Number(cg.claude_ai.cost_eur || cg.claude_ai.total_eur || 0) + Number((cg.claude_ai.meta && cg.claude_ai.meta.spending_eur) || 0)
+    : 0;
+  var anthropicApiEur = Number(cg.anthropic_api && cg.anthropic_api.cost_eur_equivalent || 0);
+  var opencodeGoEur = (cg.opencode_go && cg.opencode_go.plan_name === "OpenCode Go") ? 20 : 10;
+  var opencodeApiEur = cg.opencode_api
+    ? Number(cg.opencode_api.total_cost_usd || 0) * rate
+    : 0;
+  var zaiEur = 15;
+  var codexEur = cg.codex
+    ? Number(cg.codex.plan_cost_eur || 0)
+    : 0;
+  var openaiApiEur = cg.openai_api
+    ? Number(cg.openai_api.cost_usd || 0) * rate
+    : 0;
+
+  var grandTotal = claudeAiEur + anthropicApiEur + opencodeGoEur + opencodeApiEur + zaiEur + codexEur + openaiApiEur;
   document.getElementById("grand-total-label").value = "Gesamt: " + formatEur(grandTotal);
 
   // Per-source rows
-  setRow("row-claude-ai", formatCost(cg.claude_ai && cg.claude_ai.meta && cg.claude_ai.meta.spending_eur));
-  setRow("row-anthropic-api", formatCost(cg.anthropic_api && cg.anthropic_api.cost_eur_equivalent));
+  setRow("row-claude-ai", formatCost(claudeAiEur > 0 ? claudeAiEur : (cg.claude_ai && cg.claude_ai.meta && cg.claude_ai.meta.spending_eur)));
+  setRow("row-anthropic-api", formatCost(anthropicApiEur));
+  setRow("row-claude-code", cg.claude_code ? cg.claude_code.length + " Keys" : "—");
   setRow("row-opencode-go", cg.opencode_go ? (cg.opencode_go.plan_name || "aktiv") : "—");
+  setRow("row-opencode-api", formatCost(opencodeApiEur));
   setRow("row-zai", cg.zai ? (cg.zai.plan_name || "aktiv") : "—");
-  setRow("row-codex", formatCost(cg.codex && cg.codex.total_eur));
+  setRow("row-codex", cg.codex ? (cg.codex.plan_name || "ChatGPT Plus") + " " + formatEur(codexEur) : "—");
   setRow("row-openai-api", cg.openai_api ? "$" + Number(cg.openai_api.cost_usd || 0).toFixed(2) : "—");
+
+  // Usage details
+  var detailElOCG = document.getElementById("detail-opencode-go");
+  var detailElZai = document.getElementById("detail-zai");
+  var detailElCodex = document.getElementById("detail-codex");
+
+  // OpenCode Go usage %
+  if (cg.opencode_go && (cg.opencode_go.continuous_pct != null || cg.opencode_go.weekly_pct != null || cg.opencode_go.monthly_pct != null)) {
+    var parts = [];
+    if (cg.opencode_go.continuous_pct != null) parts.push("Rollend: " + cg.opencode_go.continuous_pct + "%");
+    if (cg.opencode_go.weekly_pct != null) parts.push("Wöchentlich: " + cg.opencode_go.weekly_pct + "%");
+    if (cg.opencode_go.monthly_pct != null) parts.push("Monatlich: " + cg.opencode_go.monthly_pct + "%");
+    detailElOCG.value = "OpenCode Go: " + parts.join(" | ");
+  } else {
+    detailElOCG.value = "";
+  }
+
+  // z.ai usage %
+  if (cg.zai && (cg.zai.five_hour_pct != null || cg.zai.weekly_pct != null || cg.zai.monthly_pct != null)) {
+    var parts = [];
+    if (cg.zai.five_hour_pct != null) parts.push("5h: " + cg.zai.five_hour_pct + "%");
+    if (cg.zai.weekly_pct != null) parts.push("Wöchentlich: " + cg.zai.weekly_pct + "%");
+    if (cg.zai.monthly_pct != null) parts.push("Monatlich: " + cg.zai.monthly_pct + "%");
+    detailElZai.value = "z.ai: " + parts.join(" | ");
+  } else {
+    detailElZai.value = "";
+  }
+
+  // ChatGPT Plus / Codex usage %
+  if (cg.codex && (cg.codex.five_hour_remaining_pct != null || cg.codex.weekly_remaining_pct != null || cg.codex.monthly_remaining_pct != null)) {
+    var parts = [];
+    if (cg.codex.five_hour_remaining_pct != null) parts.push("5h: " + (100 - cg.codex.five_hour_remaining_pct) + "% verbraucht");
+    if (cg.codex.weekly_remaining_pct != null) parts.push("Wöchentlich: " + (100 - cg.codex.weekly_remaining_pct) + "% verbraucht");
+    if (cg.codex.monthly_remaining_pct != null) parts.push("Monatlich: " + (100 - cg.codex.monthly_remaining_pct) + "% verbraucht");
+    detailElCodex.value = "ChatGPT Plus: " + parts.join(" | ");
+  } else {
+    detailElCodex.value = "";
+  }
 
   document.getElementById("last-update-label").value = new Date().toLocaleString("de-DE");
 }

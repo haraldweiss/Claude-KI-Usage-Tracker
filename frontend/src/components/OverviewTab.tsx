@@ -325,14 +325,10 @@ export default function OverviewTab(): React.ReactElement {
 
         {/* ChatGPT Plus */}
         {chatGptEur > 0 && (() => {
-          const codexMeta = (() => {
-            try {
-              const raw = combined?.codex?.response_metadata;
-              return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
-            } catch { return null; }
-          })();
+          const codexMeta = combined?.codex;
           const fiveHrUsed = codexMeta?.five_hour_remaining_pct != null ? 100 - codexMeta.five_hour_remaining_pct : null;
           const weeklyUsed = codexMeta?.weekly_remaining_pct != null ? 100 - codexMeta.weekly_remaining_pct : null;
+          const monthlyUsed = codexMeta?.monthly_remaining_pct != null ? 100 - codexMeta.monthly_remaining_pct : null;
           return (
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -348,6 +344,9 @@ export default function OverviewTab(): React.ReactElement {
               )}
               {weeklyUsed != null && (
                 <ProgressRow label="Wöchentlich" pct={weeklyUsed} hint={codexMeta?.weekly_reset_at ? formatAbsoluteResetHint(codexMeta.weekly_reset_at) : undefined} />
+              )}
+              {monthlyUsed != null && (
+                <ProgressRow label="Monatlich" pct={monthlyUsed} hint={codexMeta?.monthly_reset_at ? formatAbsoluteResetHint(codexMeta.monthly_reset_at) : undefined} />
               )}
             </div>
           </div>

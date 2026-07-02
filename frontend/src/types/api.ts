@@ -51,7 +51,42 @@ export interface CombinedSpendBreakdown {
   opencode_go?: OpenCodeGoSpend | null;
   zai?: ZaiSpend | null;
   codex?: {
-    response_metadata: string | null;
+    plan_name: string | null;
+    plan_cost_eur: number;
+    five_hour_remaining_pct: number | null;
+    five_hour_reset_at: string | null;
+    weekly_remaining_pct: number | null;
+    weekly_reset_at: string | null;
+    monthly_remaining_pct: number | null;
+    monthly_reset_at: string | null;
+    credits_remaining: number | null;
+    interactions: number;
+    plugin_calls: number;
+    skills_used: number;
+    last_synced: string | null;
+  } | null;
+  opencode_api?: {
+    total_input_tokens: number;
+    total_output_tokens: number;
+    total_cost_usd: number;
+    row_count: number;
+    by_key: Array<{
+      key_name: string;
+      input_tokens: number;
+      output_tokens: number;
+      cost_usd: number;
+    }>;
+    total_eur?: number;
+  } | null;
+  openai_api?: {
+    organization_name: string;
+    period_start: string;
+    period_end: string;
+    cost_usd: number;
+    total_input_tokens: number;
+    total_output_tokens: number;
+    requests: number;
+    last_synced: string | null;
   } | null;
   exchange_rate?: {
     usd_to_eur: number;

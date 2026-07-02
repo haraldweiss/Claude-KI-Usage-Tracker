@@ -65,6 +65,7 @@ backend/src/**/*.js
 
 # Benchmark runner artifacts (generated results + state)
 benchmark/results/
+benchmark/benchmark/results/
 benchmark/state.json
 
 # Pale Moon XPI build artifact

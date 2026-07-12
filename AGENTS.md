@@ -5747,6 +5747,21 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
 
+### 2026-07-12 — Provider Settings: Gruppen für Free/Abonnement/API + Plan-Gruppen (opencode)
+
+**Was:** Provider-Karten im Einstellungs-Dashboard sind jetzt in drei logische Gruppen sortiert:
+- **Kostenlose Anbieter** (OpenCode Go)
+- **Abonnement-Anbieter** (Claude.ai, Codex, z.ai, Cline)
+- **API-Verbrauch** (Anthropic API, Claude Code, OpenCode API, OpenAI API)
+
+Plan-Dropdowns und Plan-Preis-Tabelle gruppieren Pläne dynamisch:
+- `free` (€0/mo), `cline_pass`, `chatgpt`, `zai`, `anthropic`, `other`
+- HTML `<optgroup>` im Dropdown, dynamische Section-Tabelle in PlanPricingTable
+
+**Keine Backend-/Schema-Änderungen** — Gruppierung ist client-seitig aus Plan-Name + Preis abgeleitet.
+
+**Commit:** `41819d9`
+
 ### 2026-07-12 — Cline als 8. Kostenquelle integriert (Pi)
 
 **Scope:** Cline (KI-Coding-Assistent für VS Code) als vollwertige Kostenquelle im Dashboard und in allen Extensions. Plan-basiertes Abo ohne Scraper — der Preis wird in den Dashboard-Einstellungen konfiguriert.

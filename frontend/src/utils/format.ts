@@ -47,5 +47,6 @@ export function formatAbsoluteResetHint(raw: string | null | undefined): string 
 
 export function subscriptionEur(plans: PlanPricingRow[], planName: string | null | undefined): number {
   if (!planName) return 0;
-  return plans.find((p) => p.plan_name === planName)?.monthly_eur ?? 0;
+  const norm = planName.toLowerCase().replace(/\s+/g, '');
+  return plans.find((p) => p.plan_name.toLowerCase().replace(/\s+/g, '') === norm)?.monthly_eur ?? 0;
 }

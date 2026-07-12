@@ -41,10 +41,17 @@ export interface ZaiSpend {
   last_synced: string;
 }
 
-// Cline coding assistant — plan-only, no scraper data.
 export interface ClineSpend {
   plan_name: string | null;
+  plan_tier: string | null;
+  billing_end: string | null;
   plan_cost_eur: number;
+  five_hour_pct: number | null;
+  five_hour_reset_in: string | null;
+  weekly_pct: number | null;
+  weekly_reset_in: string | null;
+  monthly_pct: number | null;
+  monthly_reset_in: string | null;
   last_synced: string | null;
 }
 

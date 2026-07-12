@@ -424,7 +424,7 @@ export default function OverviewTab(): React.ReactElement {
         )}
 
         {/* Cline coding assistant */}
-        {clineEur > 0 && (
+        {(clineEur > 0 || cline?.five_hour_pct != null) && (
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               Cline
@@ -432,9 +432,65 @@ export default function OverviewTab(): React.ReactElement {
             <div className="mt-2 text-xl font-bold text-gray-900">
               {cline?.plan_name ?? 'Cline'}
             </div>
-            <div className="mt-1 text-sm text-gray-600">{formatEur(clineEur)} / Monat</div>
-            <div className="mt-3 text-xs text-gray-500">
-              KI-Coding-Assistent (VS Code). Plan-basiertes Abo.
+            {clineEur > 0 && <div className="text-sm text-gray-600">{formatEur(clineEur)} / Monat</div>}
+            <div className="mt-3 space-y-2">
+              {cline?.five_hour_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">5-Std.-Limit</span>
+                    <span className="font-medium">{cline.five_hour_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${cline.five_hour_pct < 50 ? 'bg-emerald-500' : cline.five_hour_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, cline.five_hour_pct)}%` }}
+                    />
+                  </div>
+                  {cline.five_hour_reset_in && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      Reset {cline.five_hour_reset_in}
+                    </p>
+                  )}
+                </div>
+              )}
+              {cline?.weekly_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Wöchentlich</span>
+                    <span className="font-medium">{cline.weekly_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${cline.weekly_pct < 50 ? 'bg-emerald-500' : cline.weekly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, cline.weekly_pct)}%` }}
+                    />
+                  </div>
+                  {cline.weekly_reset_in && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      Reset {cline.weekly_reset_in}
+                    </p>
+                  )}
+                </div>
+              )}
+              {cline?.monthly_pct != null && (
+                <div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Monatlich</span>
+                    <span className="font-medium">{cline.monthly_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 bg-gray-100 rounded overflow-hidden">
+                    <div
+                      className={`h-full rounded ${cline.monthly_pct < 50 ? 'bg-emerald-500' : cline.monthly_pct < 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, cline.monthly_pct)}%` }}
+                    />
+                  </div>
+                  {cline.monthly_reset_in && (
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      Reset {cline.monthly_reset_in}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

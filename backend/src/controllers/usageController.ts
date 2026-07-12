@@ -673,15 +673,50 @@ export async function getSummary(
       last_synced: openaiApiRow[0].timestamp
     } : null;
 
-    // -------- Cline subscription data (plan-only, no scraper yet) ---------
-    // Cline doesn't have a scraper; the user sets the plan name via Provider Settings.
-    // We load the configured plan from provider_config, then look up the price.
+    // -------- Cline subscription data (scraper from app.cline.bot) ---------
+    const clineRow = await getQuery<{
+      timestamp: string;
+      response_metadata: string | null;
+    }>(
+      `SELECT timestamp, response_metadata
+       FROM usage_records
+       WHERE source = 'cline_sync'
+         AND user_id = ?
+       ORDER BY timestamp DESC LIMIT 1`,
+      [req.user!.id]
+    );
+
+    // Also load the user's explicit plan selection from provider_config
     const clineConfig = await getQuery<{ plan_name: string | null }>(
       `SELECT plan_name FROM provider_config
        WHERE user_id = ? AND provider_name = 'cline'`,
       [req.user!.id]
     );
-    const clinePlanName = clineConfig?.plan_name ?? null;
+
+    interface ClineMeta {
+      plan_name?: string | null;
+      plan_tier?: string | null;
+      billing_end?: string | null;
+      five_hour_pct?: number | null;
+      five_hour_reset_in?: string | null;
+      weekly_pct?: number | null;
+      weekly_reset_in?: string | null;
+      monthly_pct?: number | null;
+      monthly_reset_in?: string | null;
+      scraped_at?: string;
+    }
+
+    let clineMeta: ClineMeta | null = null;
+    if (clineRow?.response_metadata) {
+      try {
+        clineMeta = JSON.parse(clineRow.response_metadata) as ClineMeta;
+      } catch {
+        clineMeta = null;
+      }
+    }
+
+    // Prefer user's explicit selection in provider_config over scraper's plan_name
+    const clinePlanName = clineConfig?.plan_name ?? clineMeta?.plan_name ?? null;
     const clinePlanCost = clinePlanName ? (await getPlanPrice(clinePlanName)) ?? 0 : 0;
 
     const consoleModelDay = await allQuery<{ model: string; input_tokens: number; output_tokens: number; cost_usd: number }>(
@@ -731,13 +766,18 @@ export async function getSummary(
         opencode_api: opencodeApi,
         codex,
         openai_api: openaiApi,
-        // Cline coding assistant — plan-only provider (no scraper yet).
-        // The user sets the price in the plan_pricing table; the card shows
-        // in the dashboard once a plan name is selected in Provider Settings.
-        cline: clinePlanName ? {
-          plan_name: clinePlanName,
+        cline: clineRow ? {
+          plan_name: clineMeta?.plan_name ?? null,
+          plan_tier: clineMeta?.plan_tier ?? null,
+          billing_end: clineMeta?.billing_end ?? null,
           plan_cost_eur: clinePlanCost,
-          last_synced: null,
+          five_hour_pct: clineMeta?.five_hour_pct ?? null,
+          five_hour_reset_in: clineMeta?.five_hour_reset_in ?? null,
+          weekly_pct: clineMeta?.weekly_pct ?? null,
+          weekly_reset_in: clineMeta?.weekly_reset_in ?? null,
+          monthly_pct: clineMeta?.monthly_pct ?? null,
+          monthly_reset_in: clineMeta?.monthly_reset_in ?? null,
+          last_synced: clineRow.timestamp,
         } : null,
         console_model_breakdown: {
           day: consoleModelDay,

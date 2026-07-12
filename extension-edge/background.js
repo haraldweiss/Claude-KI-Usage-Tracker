@@ -506,7 +506,15 @@ async function syncHardSources() {
           return match ? match[1].trim() : null;
         };
         return {
-          plan_name: m(/subscribed\s+to\s+(.+?)(?:\n|$)/i) || m(/Current\s+plan:\s*(.+?)(?:\n|$)/i),
+          plan_name: (() => {
+            const tier = m(/Current\s+plan:\s*(.+?)(?:\n|$)/i);
+            if (tier) {
+              if (/Annual|Yearly|Year/i.test(tier)) return 'Cline Pass Yearly';
+              if (/Monthly|Month/i.test(tier)) return 'Cline Pass';
+              return tier;
+            }
+            return m(/subscribed\s+to\s+(.+?)(?:\n|$)/i) || null;
+          })(),
           plan_tier: m(/Current\s+plan:\s*(.+?)(?:\n|$)/i),
           billing_end: m(/billing\s+period\s+ends\s+(.+?)(?:\n|$)/i),
           five_hour_pct: pct('5[- ]?Hour'),

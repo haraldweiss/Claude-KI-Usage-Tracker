@@ -5747,6 +5747,14 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
 
+### 2026-07-12 — Provider Card: Auto-Save beim Plan-Dropdown, kein ✓ Button mehr (opencode)
+
+**Problem:** ✓-Button im ProviderCard war initial `disabled` mit `opacity-30` → praktisch unsichtbar. User konnte Plan auswählen aber nicht speichern.
+
+**Fix:** Dropdown speichert jetzt direkt bei Änderung (`onChange` → `onPlanChange`). Kein separater Speichern-Button mehr. Während des Speicherns ist das Dropdown disabled (`disabled={saving}`).
+
+**Commit:** `8185316`
+
 ### 2026-07-12 — Provider Settings: Gruppen für Free/Abonnement/API + Plan-Gruppen (opencode)
 
 **Was:** Provider-Karten im Einstellungs-Dashboard sind jetzt in drei logische Gruppen sortiert:

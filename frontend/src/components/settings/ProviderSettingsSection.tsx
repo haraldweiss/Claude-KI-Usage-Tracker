@@ -180,8 +180,7 @@ function ProviderCard({
     groupedPlans[g].sort((a, b) => a.monthly_eur - b.monthly_eur);
   }
 
-  const [draft, setDraft] = useState(provider.plan_name ?? '');
-  const currentPlan = draft || provider.plan_name || '';
+  const currentPlan = provider.plan_name || '';
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col">
@@ -204,9 +203,13 @@ function ProviderCard({
           <div className="flex gap-1">
             <select
               value={currentPlan}
-              onChange={(e) => setDraft(e.target.value)}
-              className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 bg-white"
+              onChange={(e) => {
+                const val = e.target.value || null;
+                if (val !== provider.plan_name) onPlanChange(provider.key, val);
+              }}
+              className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 bg-white disabled:opacity-50"
               title={currentPlan || '—'}
+              disabled={saving}
             >
               <option value="">— Kein Plan —</option>
               {PLAN_GROUP_ORDER.map((g) => {
@@ -223,17 +226,6 @@ function ProviderCard({
                 );
               })}
             </select>
-            <button
-              onClick={() => {
-                const val = draft || null;
-                if (val !== provider.plan_name) onPlanChange(provider.key, val);
-              }}
-              disabled={draft === (provider.plan_name ?? '') || saving}
-              className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-              title="Speichern"
-            >
-              {saving ? '…' : '✓'}
-            </button>
           </div>
         </div>
 

@@ -6,20 +6,52 @@ import { ProviderInfo, PlanPricingRow } from '../../types/api';
 import { formatEur, formatUsd, formatRelativeTime } from '../../utils/format';
 
 /* ------------------------------------------------------------------ */
-/*  Provider definitions (icons + colors only, rest comes from API)    */
+/*  Plan grouping helpers                                              */
 /* ------------------------------------------------------------------ */
 
-const PROVIDER_META: Record<string, { icon: string; color: string; scrapeUrl?: string }> = {
-  claude_ai:       { icon: '☁️', color: 'bg-orange-500', scrapeUrl: 'https://claude.ai/settings/usage' },
-  anthropic_api:   { icon: '🔑', color: 'bg-blue-600', scrapeUrl: 'https://platform.claude.com/settings/keys' },
-  claude_code:     { icon: '💻', color: 'bg-indigo-600', scrapeUrl: 'https://platform.claude.com/claude-code/usage' },
-  opencode_go:     { icon: '⚡', color: 'bg-emerald-600', scrapeUrl: 'https://opencode.ai/workspace/…/go' },
-  opencode_api:    { icon: '🔌', color: 'bg-sky-600', scrapeUrl: 'https://opencode.ai/…/usage' },
-  zai:             { icon: '🧠', color: 'bg-purple-600', scrapeUrl: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan' },
-  codex:           { icon: '💬', color: 'bg-green-600', scrapeUrl: 'https://chatgpt.com/codex/settings/usage' },
-  openai_api:      { icon: '🟢', color: 'bg-teal-600', scrapeUrl: 'https://platform.openai.com/usage' },
-  cline:           { icon: '🤖', color: 'bg-violet-500', scrapeUrl: '' },
+function planGroupName(plan: PlanPricingRow): string {
+  if (plan.monthly_eur === 0) return 'free';
+  if (plan.plan_name.startsWith('Cline Pass')) return 'cline_pass';
+  if (plan.plan_name.startsWith('ChatGPT')) return 'chatgpt';
+  if (plan.plan_name.startsWith('GLM Coding')) return 'zai';
+  if (['Pro', 'Max (5x)', 'Max (20x)', 'Team'].includes(plan.plan_name)) return 'anthropic';
+  return 'other';
+}
+
+const PLAN_GROUP_LABELS: Record<string, string> = {
+  free: 'Kostenlos',
+  cline_pass: 'Cline Pass',
+  chatgpt: 'ChatGPT',
+  zai: 'z.ai GLM',
+  anthropic: 'Anthropic',
+  other: 'Weitere',
 };
+
+const PLAN_GROUP_ORDER = ['free', 'cline_pass', 'chatgpt', 'zai', 'anthropic', 'other'];
+
+/* ------------------------------------------------------------------ */
+/*  Provider definitions (icons + colors + group, rest comes from API) */
+/* ------------------------------------------------------------------ */
+
+const PROVIDER_META: Record<string, { icon: string; color: string; group: string; scrapeUrl?: string }> = {
+  opencode_go:     { icon: '⚡', color: 'bg-emerald-600', group: 'free', scrapeUrl: 'https://opencode.ai/workspace/…/go' },
+  claude_ai:       { icon: '☁️', color: 'bg-orange-500', group: 'subscription', scrapeUrl: 'https://claude.ai/settings/usage' },
+  codex:           { icon: '💬', color: 'bg-green-600', group: 'subscription', scrapeUrl: 'https://chatgpt.com/codex/settings/usage' },
+  zai:             { icon: '🧠', color: 'bg-purple-600', group: 'subscription', scrapeUrl: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan' },
+  cline:           { icon: '🤖', color: 'bg-violet-500', group: 'subscription', scrapeUrl: '' },
+  anthropic_api:   { icon: '🔑', color: 'bg-blue-600', group: 'api', scrapeUrl: 'https://platform.claude.com/settings/keys' },
+  claude_code:     { icon: '💻', color: 'bg-indigo-600', group: 'api', scrapeUrl: 'https://platform.claude.com/claude-code/usage' },
+  opencode_api:    { icon: '🔌', color: 'bg-sky-600', group: 'api', scrapeUrl: 'https://opencode.ai/…/usage' },
+  openai_api:      { icon: '🟢', color: 'bg-teal-600', group: 'api', scrapeUrl: 'https://platform.openai.com/usage' },
+};
+
+const PROVIDER_GROUP_LABELS: Record<string, string> = {
+  free: 'Kostenlose Anbieter',
+  subscription: 'Abonnement-Anbieter',
+  api: 'API-Verbrauch',
+};
+
+const PROVIDER_GROUP_ORDER = ['free', 'subscription', 'api'];
 
 /* ------------------------------------------------------------------ */
 /*  Derived status → display helpers                                   */
@@ -136,10 +168,17 @@ function ProviderCard({
   const detail = formatDetail(provider.key, provider.scrape_summary);
   const cost = formatCost(provider.scrape_summary, allPlans, provider.plan_name);
 
-  // Remove duplicates and sort plan names for dropdown
-  const planOptions = allPlans
-    .filter((p, i, a) => a.findIndex((x) => x.plan_name === p.plan_name) === i)
-    .sort((a, b) => a.plan_name.localeCompare(b.plan_name));
+  // Remove duplicates and group plans for dropdown
+  const uniquePlans = allPlans.filter((p, i, a) => a.findIndex((x) => x.plan_name === p.plan_name) === i);
+  const groupedPlans = uniquePlans.reduce((acc, p) => {
+    const g = planGroupName(p);
+    (acc[g] = acc[g] || []).push(p);
+    return acc;
+  }, {} as Record<string, PlanPricingRow[]>);
+  // Sort within each group by price ascending
+  for (const g of Object.keys(groupedPlans)) {
+    groupedPlans[g].sort((a, b) => a.monthly_eur - b.monthly_eur);
+  }
 
   const [draft, setDraft] = useState(provider.plan_name ?? '');
   const currentPlan = draft || provider.plan_name || '';
@@ -166,15 +205,23 @@ function ProviderCard({
             <select
               value={currentPlan}
               onChange={(e) => setDraft(e.target.value)}
-              className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 bg-white truncate"
+              className="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 bg-white"
               title={currentPlan || '—'}
             >
               <option value="">— Kein Plan —</option>
-              {planOptions.map((p) => (
-                <option key={p.plan_name} value={p.plan_name}>
-                  {p.plan_name} ({formatEur(p.monthly_eur)}/M)
-                </option>
-              ))}
+              {PLAN_GROUP_ORDER.map((g) => {
+                const plans = groupedPlans[g];
+                if (!plans || plans.length === 0) return null;
+                return (
+                  <optgroup key={g} label={PLAN_GROUP_LABELS[g] ?? g}>
+                    {plans.map((p) => (
+                      <option key={p.plan_name} value={p.plan_name}>
+                        {p.plan_name} ({formatEur(p.monthly_eur)}/M)
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
             </select>
             <button
               onClick={() => {
@@ -299,17 +346,28 @@ export default function ProviderSettingsSection(): React.ReactElement {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {providers.map((provider) => (
-          <ProviderCard
-            key={provider.key}
-            provider={provider}
-            allPlans={plans}
-            onPlanChange={handlePlanChange}
-            saving={saving === provider.key}
-          />
-        ))}
-      </div>
+      {PROVIDER_GROUP_ORDER.map((g) => {
+        const groupProviders = providers.filter((p) => (PROVIDER_META[p.key]?.group ?? 'api') === g);
+        if (groupProviders.length === 0) return null;
+        return (
+          <div key={g} className="mb-6 last:mb-0">
+            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
+              {PROVIDER_GROUP_LABELS[g] ?? g}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {groupProviders.map((provider) => (
+                <ProviderCard
+                  key={provider.key}
+                  provider={provider}
+                  allPlans={plans}
+                  onPlanChange={handlePlanChange}
+                  saving={saving === provider.key}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
 
       <details className="mt-4">
         <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">

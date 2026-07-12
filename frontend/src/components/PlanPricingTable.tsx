@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PlanPricingRow } from '../types/api';
 import { updatePlanPricing } from '../services/api';
 
@@ -9,6 +9,26 @@ interface Props {
   onUpdate: () => void;
   readOnly?: boolean;
 }
+
+function planGroupName(plan: PlanPricingRow): string {
+  if (plan.monthly_eur === 0) return 'free';
+  if (plan.plan_name.startsWith('Cline Pass')) return 'cline_pass';
+  if (plan.plan_name.startsWith('ChatGPT')) return 'chatgpt';
+  if (plan.plan_name.startsWith('GLM Coding')) return 'zai';
+  if (['Pro', 'Max (5x)', 'Max (20x)', 'Team'].includes(plan.plan_name)) return 'anthropic';
+  return 'other';
+}
+
+const PLAN_GROUP_LABELS: Record<string, string> = {
+  free: 'Kostenlos',
+  cline_pass: 'Cline Pass',
+  chatgpt: 'ChatGPT',
+  zai: 'z.ai GLM',
+  anthropic: 'Anthropic',
+  other: 'Weitere',
+};
+
+const PLAN_GROUP_ORDER = ['free', 'cline_pass', 'chatgpt', 'zai', 'anthropic', 'other'];
 
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', {
@@ -73,8 +93,17 @@ export default function PlanPricingTable({ plans, onUpdate, readOnly = false }: 
     }
   };
 
-  const claudePlans = plans.filter((p) => p.plan_name !== 'OpenCode Go');
-  const opencodePlan = plans.find((p) => p.plan_name === 'OpenCode Go');
+  const groupedPlans = useMemo(() => {
+    const groups: Record<string, PlanPricingRow[]> = {};
+    for (const plan of plans) {
+      const g = planGroupName(plan);
+      (groups[g] = groups[g] || []).push(plan);
+    }
+    for (const g of Object.keys(groups)) {
+      groups[g].sort((a, b) => a.plan_name.localeCompare(b.plan_name));
+    }
+    return groups;
+  }, [plans]);
 
   if (plans.length === 0) {
     return (
@@ -153,8 +182,11 @@ export default function PlanPricingTable({ plans, onUpdate, readOnly = false }: 
 
   return (
     <div>
-      {claudePlans.length > 0 && renderTable('Claude.ai', claudePlans)}
-      {opencodePlan && renderTable('OpenCode Go', [opencodePlan])}
+      {PLAN_GROUP_ORDER.map((g) => {
+        const items = groupedPlans[g];
+        if (!items || items.length === 0) return null;
+        return <div key={g}>{renderTable(PLAN_GROUP_LABELS[g] ?? g, items)}</div>;
+      })}
     </div>
   );
 }

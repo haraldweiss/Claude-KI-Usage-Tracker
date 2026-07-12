@@ -23,6 +23,8 @@
     "https://chatgpt.com/*",
     "https://platform.openai.com/",
     "https://platform.openai.com/*",
+    "https://app.cline.bot/",
+    "https://app.cline.bot/*",
     "https://wolfinisoftware.de/",
     "https://wolfinisoftware.de/*"
   ],

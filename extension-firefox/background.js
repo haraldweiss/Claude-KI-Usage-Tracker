@@ -476,6 +476,62 @@ async function syncHardSources() {
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'opencode_go', ok: false, error: e.message }); }
 
+  // 6. Cline (app.cline.bot subscription — plan name + usage limits)
+  try {
+    var clineTab = await chrome.tabs.create({
+      url: 'https://app.cline.bot/dashboard/subscription',
+      active: true
+    });
+    await new Promise(function(r) { setTimeout(r, 10000); });
+    var clineText = '';
+    for (var attempt = 0; attempt < 20; attempt++) {
+      try {
+        var inj = await browser.tabs.executeScript(clineTab.id, { code: 'document.body?.innerText || ""' });
+        clineText = (inj && inj[0]) || clineText;
+      } catch(e) {}
+      if (/5[- ]?Hour\s*Limit/i.test(clineText) &&
+          /Weekly\s*Limit/i.test(clineText) &&
+          /Monthly\s*Limit/i.test(clineText)) {
+        break;
+      }
+      await new Promise(function(r) { setTimeout(r, 500); });
+    }
+    var clineResult = null;
+    try {
+      var scraped = await browser.tabs.executeScript(clineTab.id, { code: '(' + function() {
+        var t = document.body?.innerText || '';
+        var m = function(re) { var match = t.match(re); return match ? match[1].trim() : null; };
+        var pct = function(lbl) {
+          var re = new RegExp(lbl + '[\\s\\S]{0,100}?(\\d+)\\s*%', 'i');
+          var match = t.match(re); return match ? parseInt(match[1], 10) : null;
+        };
+        var resetIn = function(lbl) {
+          var re = new RegExp(lbl + '[\\s\\S]{0,150}?Resets?\\s+in\\s+([^\\n]{1,60})', 'i');
+          var match = t.match(re); return match ? match[1].trim() : null;
+        };
+        return JSON.stringify({
+          plan_name: m(/subscribed\s+to\s+(.+?)(?:\n|$)/i) || m(/Current\s+plan:\s*(.+?)(?:\n|$)/i),
+          plan_tier: m(/Current\s+plan:\s*(.+?)(?:\n|$)/i),
+          billing_end: m(/billing\s+period\s+ends\s+(.+?)(?:\n|$)/i),
+          five_hour_pct: pct('5[- ]?Hour'),
+          five_hour_reset_in: resetIn('5[- ]?Hour'),
+          weekly_pct: pct('Weekly'),
+          weekly_reset_in: resetIn('Weekly'),
+          monthly_pct: pct('Monthly'),
+          monthly_reset_in: resetIn('Monthly'),
+        });
+      } + ')()' });
+      if (scraped && scraped[0]) clineResult = JSON.parse(scraped[0]);
+    } catch(e) {}
+    if (clineResult) {
+      await postSource('cline_sync', 'Cline (Extension)', clineResult);
+      results.push({ source: 'cline', ok: true });
+    } else {
+      results.push({ source: 'cline', ok: false, error: 'no_data', preview: clineText.substring(0, 300) });
+    }
+    await chrome.tabs.remove(clineTab.id);
+  } catch (e) { results.push({ source: 'cline', ok: false, error: e.message }); }
+
   console.log('[sync-hard] results:', JSON.stringify(results));
   return { success: true, results: results };
 }

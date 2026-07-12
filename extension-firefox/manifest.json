@@ -21,6 +21,7 @@
     "https://z.ai/*",
     "https://chatgpt.com/*",
     "https://platform.openai.com/*",
+    "https://app.cline.bot/*",
     "https://wolfinisoftware.de/*"
   ],
   "background": {

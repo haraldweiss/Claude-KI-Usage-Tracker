@@ -147,6 +147,87 @@ export const pricingFallback = {
       tier: "haiku",
       inputPrice: 0.15,
       outputPrice: 0.6
+    },
+
+    // ---- Cline (Subscription API via api.cline.bot) ----
+    // Discovered 2026-07-12 via live API probe. Cline Pass = $20/mo subscription.
+    // Prices reflect standard retail rates for each model.
+    {
+      api_id: "cline/anthropic/claude-sonnet-4.5",
+      displayName: "Claude Sonnet 4.5 (Cline)",
+      tier: "sonnet",
+      inputPrice: 3,
+      outputPrice: 15
+    },
+    {
+      api_id: "cline/anthropic/claude-sonnet-5",
+      displayName: "Claude Sonnet 5 (Cline)",
+      tier: "sonnet",
+      inputPrice: 2,
+      outputPrice: 10
+    },
+    {
+      api_id: "cline/anthropic/claude-opus-4",
+      displayName: "Claude Opus 4 (Cline)",
+      tier: "opus",
+      inputPrice: 5,
+      outputPrice: 25
+    },
+    {
+      api_id: "cline/anthropic/claude-opus-4.6",
+      displayName: "Claude Opus 4.6 (Cline)",
+      tier: "opus",
+      inputPrice: 5,
+      outputPrice: 25
+    },
+    {
+      api_id: "cline/anthropic/claude-opus-4.7",
+      displayName: "Claude Opus 4.7 (Cline)",
+      tier: "opus",
+      inputPrice: 15,
+      outputPrice: 75
+    },
+    {
+      api_id: "cline/anthropic/claude-haiku-4.5",
+      displayName: "Claude Haiku 4.5 (Cline)",
+      tier: "haiku",
+      inputPrice: 0.8,
+      outputPrice: 4
+    },
+    {
+      api_id: "cline/google/gemini-2.5-pro",
+      displayName: "Gemini 2.5 Pro (Cline)",
+      tier: "sonnet",
+      inputPrice: 1.25,
+      outputPrice: 10
+    },
+    {
+      api_id: "cline/google/gemini-2.5-flash",
+      displayName: "Gemini 2.5 Flash (Cline)",
+      tier: "haiku",
+      inputPrice: 0.15,
+      outputPrice: 0.6
+    },
+    {
+      api_id: "cline/deepseek/deepseek-v3",
+      displayName: "DeepSeek V3 (Cline)",
+      tier: "sonnet",
+      inputPrice: 0.27,
+      outputPrice: 1.1
+    },
+    {
+      api_id: "cline/deepseek/deepseek-r1",
+      displayName: "DeepSeek R1 (Cline)",
+      tier: "sonnet",
+      inputPrice: 0.55,
+      outputPrice: 2.19
+    },
+    {
+      api_id: "cline/openai/gpt-4",
+      displayName: "GPT-4 (Cline)",
+      tier: "sonnet",
+      inputPrice: 2.5,
+      outputPrice: 10
     }
   ]
 };

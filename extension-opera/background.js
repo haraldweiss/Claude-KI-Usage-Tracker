@@ -29,6 +29,7 @@ async function getAllCookies() {
     'platform.openai.com', 'www.platform.openai.com',
     'auth.claude.ai', 'api.claude.ai',
     'account.anthropic.com',
+    'app.cline.bot', 'www.app.cline.bot',
   ];
   const result = [];
   const seen = new Set();
@@ -464,6 +465,68 @@ async function syncHardSources() {
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'opencode_go', ok: false, error: e.message }); }
+
+  // 6. Cline (app.cline.bot subscription — plan name + usage limits)
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://app.cline.bot/dashboard/subscription',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 10000));
+    let text = '';
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const [inj] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => document.body?.innerText || ''
+      }).catch(() => []);
+      text = inj?.result || text;
+      if (/5[- ]?Hour\s*Limit/i.test(text) &&
+          /Weekly\s*Limit/i.test(text) &&
+          /Monthly\s*Limit/i.test(text)) {
+        break;
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    const [scraped] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const t = document.body?.innerText || '';
+        const m = (re) => {
+          const match = t.match(re);
+          return match ? match[1].trim() : null;
+        };
+        const pct = (lbl) => {
+          const re = new RegExp(lbl + '[\\s\\S]{0,100}?(\\d+)\\s*%', 'i');
+          const match = t.match(re);
+          return match ? parseInt(match[1], 10) : null;
+        };
+        const resetIn = (lbl) => {
+          const re = new RegExp(lbl + '[\\s\\S]{0,150}?Resets?\\s+in\\s+([^\\n]{1,60})', 'i');
+          const match = t.match(re);
+          return match ? match[1].trim() : null;
+        };
+        return {
+          plan_name: m(/subscribed\s+to\s+(.+?)(?:\n|$)/i) || m(/Current\s+plan:\s*(.+?)(?:\n|$)/i),
+          plan_tier: m(/Current\s+plan:\s*(.+?)(?:\n|$)/i),
+          billing_end: m(/billing\s+period\s+ends\s+(.+?)(?:\n|$)/i),
+          five_hour_pct: pct('5[- ]?Hour'),
+          five_hour_status: m(/5[- ]?Hour\s*Limit[\s\S]{0,30}?(Limit\s+reached|[\d]+%)/i),
+          five_hour_reset_in: resetIn('5[- ]?Hour'),
+          weekly_pct: pct('Weekly'),
+          weekly_reset_in: resetIn('Weekly'),
+          monthly_pct: pct('Monthly'),
+          monthly_reset_in: resetIn('Monthly'),
+        };
+      }
+    }).catch(() => null);
+    if (scraped?.result) {
+      await postSource('cline_sync', 'Cline (Extension)', scraped.result);
+      results.push({ source: 'cline', ok: true });
+    } else {
+      results.push({ source: 'cline', ok: false, error: 'no_data', preview: text.substring(0, 300) });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'cline', ok: false, error: e.message }); }
 
   console.log('[sync-hard] results:', JSON.stringify(results));
   return { success: true, results };

@@ -5770,6 +5770,31 @@ Plan-Dropdowns und Plan-Preis-Tabelle gruppieren Pläne dynamisch:
 
 **Commit:** `41819d9`
 
+### 2026-07-12 — Cline Extension-Scraper für Subscription-Seite (opencode)
+
+**Was:** Cline hatte bisher nur plan-basiertes Tracking (manuelle Konfiguration in den Einstellungen). Jetzt scrapt die Extension live von `app.cline.bot/dashboard/subscription`:
+- Plan-Name ("Cline Pass (Annual)")
+- 5-Hour Limit % + Reset
+- Weekly Limit % + Reset
+- Monthly Limit % + Reset
+
+**Geänderte Dateien:**
+- `extension/background.js`: Cline als Schritt 6 in `syncHardSources()` (nach OpenCode Go), `app.cline.bot` in Cookie-Domains
+- `extension/manifest.json`: `https://app.cline.bot/*` in host_permissions
+- `extension/popup.html`: Button-Label aktualisiert
+- `extension-edge/`, `extension-opera/`, `extension-firefox/`: Gleiche Änderungen in background.js, manifest.json, popup.html
+- `extension-palemoon/content/popup.xul`: Bereits vorhanden (keine Änderung nötig)
+
+**Backend/Frontend:** Bereits vollständig integriert (cline_sync, ClineSpend, Cline-Karte, Plan-Pricing). Keine Backend-Änderungen nötig.
+
+**Scraper-Details:**
+- Öffnet `https://app.cline.bot/dashboard/subscription` mit `active: true`
+- Warte-Schleife bis alle 3 Limit-Karten (5-Hour, Weekly, Monthly) sichtbar sind (max 20×500ms)
+- Extrahiert plan_name, five_hour_pct, weekly_pct, monthly_pct + reset_in
+- POST als `source: 'cline_sync'` ans Backend
+
+**Verifiziert:** node --check background.js ✅, manifest JSON ✅
+
 ### 2026-07-12 — Cline als 8. Kostenquelle integriert (Pi)
 
 **Scope:** Cline (KI-Coding-Assistent für VS Code) als vollwertige Kostenquelle im Dashboard und in allen Extensions. Plan-basiertes Abo ohne Scraper — der Preis wird in den Dashboard-Einstellungen konfiguriert.

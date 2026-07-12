@@ -31,7 +31,7 @@ The dashboard tells you, in one number, what your AI tools actually cost you thi
 5. **z.ai** — GLM Coding Plan subscription (plan name + price from `/my-plan`, 5h/weekly/monthly quota % + absolute reset times from `/usage`)
 6. **chatgpt.com/codex/settings/usage** — ChatGPT Pro/Plus Codex usage (5h/weekly/monthly limits, credits, plan name)
 7. **platform.openai.com/usage** — OpenAI API month-to-date spend (organization, tokens, requests, cost)
-8. **Cline** — KI-Coding-Assistent (VS Code). Plan-basiertes Abo; der Preis wird in den Dashboard-Einstellungen konfiguriert (kein Scraper, da reine Abo-Kosten).
+8. **Cline** — KI-Coding-Assistent (VS Code). Plan-basiertes Abo mit Live-Scraper für Subscription-Seite (5h/Weekly/Monthly Limits). Preis wird in den Dashboard-Einstellungen konfiguriert.
 
 The system uses a **hybrid scraping architecture**: a **server-side Playwright scraper** on the Oracle VM handles sources without Cloudflare (OpenAI API, Claude.ai), while the **browser extension** scrapes Cloudflare-protected sites (platform.claude.com, chatgpt.com, opencode.ai, z.ai) in the user's real Chrome session. Both post to the same backend API, and the React dashboard renders the combined data.
 
@@ -46,7 +46,7 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 ## ✨ Features
 
 ### Cost tracking
-- **Six sync sources + one plan-based**: claude.ai (every 10 min), Anthropic Console (every 24h), Claude Code (every 24h, 5 min offset), OpenCode Go (every 24h, 7 min offset), z.ai GLM Coding Plan (every 24h, 9 min offset), Billing/Credit balance (every 6h), plus **Cline** as a manual plan-based subscription (no scraper — price set in Settings). Configurable; manual triggers from the popup or the service-worker console.
+- **Seven sync sources + one plan-based**: claude.ai (every 10 min), Anthropic Console (every 24h), Claude Code (every 24h, 5 min offset), OpenCode Go (every 24h, 7 min offset), z.ai GLM Coding Plan (every 24h, 9 min offset), Billing/Credit balance (every 6h), **Cline** (live scraper from `app.cline.bot/dashboard/subscription` via hard-sync), plus **OpenCode API** as a plan-based subscription. Configurable; manual triggers from the popup or the service-worker console.
 - **Plan subscription pricing** in an editable Settings table (Pro 18 €, Max 5x 99 €, Max 20x 199 €, Team 30 €, OpenCode Go $10, GLM Coding Lite ~15 €). Anthropic plans are seeded once; OpenCode Go price is auto-fetched daily from opencode.ai/go; the z.ai plan price is scraped live from `/my-plan` per sync and converted USD→EUR (manual edits in the table are preserved).
 - **USD → EUR conversion** via [Frankfurter](https://api.frankfurter.app) (ECB-backed, free, no API key). Refreshed daily; falls back to the last persisted rate if the API is briefly unreachable.
 - **Self-maintaining model pricing**: bundled snapshot covers Claude 4.x (Opus 4.7, Sonnet 4.6, Haiku 4.5), 3.7 line, and legacy models. Daily LiteLLM sync keeps prices current as Anthropic ships new ones.

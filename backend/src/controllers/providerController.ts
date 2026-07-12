@@ -13,6 +13,7 @@ const KNOWN_PROVIDERS = [
   { key: 'zai',             display_name: 'z.ai GLM',            source: 'zai_sync',                 icon: '🧪' },
   { key: 'codex',           display_name: 'ChatGPT Codex',       source: 'codex_sync',               icon: '📝' },
   { key: 'openai_api',      display_name: 'OpenAI API',          source: 'openai_api_sync',          icon: '🟢' },
+  { key: 'cline',           display_name: 'Cline',               source: 'cline_sync',               icon: '🤖' },
 ] as const;
 
 interface ProviderConfigRow {
@@ -243,6 +244,12 @@ function summarizeScrape(
         total_cost_usd: meta.cost_usd ?? row.cost ?? null,
         organization: meta.organization_name ?? null,
         period: meta.period_start ? `${meta.period_start}–${meta.period_end}` : null,
+      };
+    }
+    case 'cline': {
+      return {
+        plan_name: meta.plan_name ?? null,
+        price_usd: meta.price_usd ?? null,
       };
     }
     default:

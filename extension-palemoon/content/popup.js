@@ -161,8 +161,11 @@ function displayStats(data) {
   var openaiApiEur = cg.openai_api
     ? Number(cg.openai_api.cost_usd || 0) * rate
     : 0;
+  var clineEur = cg.cline && cg.cline.plan_cost_eur
+    ? Number(cg.cline.plan_cost_eur)
+    : 10;
 
-  var grandTotal = claudeAiEur + anthropicApiEur + opencodeGoEur + opencodeApiEur + zaiEur + codexEur + openaiApiEur;
+  var grandTotal = claudeAiEur + anthropicApiEur + opencodeGoEur + opencodeApiEur + zaiEur + codexEur + openaiApiEur + clineEur;
   document.getElementById("grand-total-label").value = "Gesamt: " + formatEur(grandTotal);
 
   // Per-source rows
@@ -172,6 +175,7 @@ function displayStats(data) {
   setRow("row-opencode-go", cg.opencode_go ? (cg.opencode_go.plan_name || "aktiv") : "—");
   setRow("row-opencode-api", formatCost(opencodeApiEur));
   setRow("row-zai", cg.zai ? (cg.zai.plan_name || "aktiv") : "—");
+  setRow("row-cline", cg.cline && cg.cline.plan_name ? cg.cline.plan_name + " " + formatEur(clineEur) : (clineEur > 0 ? formatEur(clineEur) + "/Monat" : "—"));
   setRow("row-codex", cg.codex ? (cg.codex.plan_name || "ChatGPT Plus") + " " + formatEur(codexEur) : "—");
   setRow("row-openai-api", cg.openai_api ? "$" + Number(cg.openai_api.cost_usd || 0).toFixed(2) : "—");
 

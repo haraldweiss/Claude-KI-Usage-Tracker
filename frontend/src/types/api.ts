@@ -41,6 +41,13 @@ export interface ZaiSpend {
   last_synced: string;
 }
 
+// Cline coding assistant — plan-only, no scraper data.
+export interface ClineSpend {
+  plan_name: string | null;
+  plan_cost_eur: number;
+  last_synced: string | null;
+}
+
 export interface CombinedSpendBreakdown {
   claude_ai: ClaudeAiSpend | null;
   anthropic_api: {
@@ -88,6 +95,7 @@ export interface CombinedSpendBreakdown {
     requests: number;
     last_synced: string | null;
   } | null;
+  cline?: ClineSpend | null;
   exchange_rate?: {
     usd_to_eur: number;
     rate_date: string | null;
@@ -164,6 +172,11 @@ export interface SpendingTotal {
     total_eur: number;
   };
   zai?: {
+    monthly_eur: number;
+    total_eur: number;
+  };
+  cline?: {
+    plan_name: string | null;
     monthly_eur: number;
     total_eur: number;
   };

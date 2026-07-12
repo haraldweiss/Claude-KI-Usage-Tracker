@@ -5,7 +5,7 @@ import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
 import { formatEur, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
-import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, ClineSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
 
 /** Days remaining in the current month, including today. */
 function daysRemainingInMonth(): number {
@@ -119,6 +119,7 @@ export default function OverviewTab(): React.ReactElement {
   const meta = claudeAi?.meta ?? null;
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const zai: ZaiSpend | null = combined?.zai ?? null;
+  const cline: ClineSpend | null = combined?.cline ?? null;
   const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
   const additionalEur = claudeAi?.cost_eur ?? 0;
   const planEur = subscriptionEur(plans, meta?.plan_name);
@@ -126,11 +127,12 @@ export default function OverviewTab(): React.ReactElement {
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
   const chatGptEur = subscriptionEur(plans, 'ChatGPT Plus');
-  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + chatGptEur;
+  const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
+  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
   // Number of subscription side-cards shown to the right of the three core
   // claude.ai cards — drives the responsive grid column count.
-  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (chatGptEur > 0 ? 1 : 0);
+  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (chatGptEur > 0 ? 1 : 0) + (clineEur > 0 ? 1 : 0);
   const statusGridCols =
     statusCardCount >= 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
@@ -167,7 +169,7 @@ export default function OverviewTab(): React.ReactElement {
     : currentDailyRate;
 
   const forecastVariable = variableSoFar + daysLeft * dailyRate;
-  const forecastTotal = planEur + opencodeGoEur + zaiEur + chatGptEur + forecastVariable;
+  const forecastTotal = planEur + opencodeGoEur + zaiEur + chatGptEur + clineEur + forecastVariable;
 
   // Limit forecast: at this weekly rate, when does the user hit 100%?
   const weeklyAllPct = meta?.weekly_all_models_pct ?? null;
@@ -193,6 +195,7 @@ export default function OverviewTab(): React.ReactElement {
               {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
               {zaiEur > 0 && <> · z.ai {formatEur(zaiEur)}</>}
               {chatGptEur > 0 && <> · ChatGPT Plus {formatEur(chatGptEur)}</>}
+              {clineEur > 0 && <> · Cline {formatEur(clineEur)}</>}
             </p>
           </div>
           <div className="text-sm text-gray-500 sm:text-right">
@@ -419,6 +422,22 @@ export default function OverviewTab(): React.ReactElement {
             </div>
           </div>
         )}
+
+        {/* Cline coding assistant */}
+        {clineEur > 0 && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Cline
+            </div>
+            <div className="mt-2 text-xl font-bold text-gray-900">
+              {cline?.plan_name ?? 'Cline'}
+            </div>
+            <div className="mt-1 text-sm text-gray-600">{formatEur(clineEur)} / Monat</div>
+            <div className="mt-3 text-xs text-gray-500">
+              KI-Coding-Assistent (VS Code). Plan-basiertes Abo.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Forecast */}
@@ -442,13 +461,13 @@ export default function OverviewTab(): React.ReactElement {
               Geglättete Hochrechnung: in den ersten {SMOOTHING_DAYS} Tagen mit der Tagesrate der
               vorherigen Abrechnungsperiode ({formatEur(priorDailyRate ?? 0)}/Tag) gewichtet —
               {' '}{Math.round(weight * 100)}% aktueller Monat, {Math.round((1 - weight) * 100)}%
-              Vorperiode. Plan-Abo ({formatEur(planEur)}) + OpenCode Go ({formatEur(opencodeGoEur)}) sind
+              Vorperiode. Plan-Abo ({formatEur(planEur)}) + OpenCode Go ({formatEur(opencodeGoEur)}){clineEur > 0 && <> + Cline ({formatEur(clineEur)})</>} sind
               fix; nur Zusatznutzung + API werden hochgerechnet.
             </>
           ) : (
             <>
               Lineare Extrapolation des bisherigen Tagesverbrauchs. Plan-Abo ({formatEur(planEur)}) +
-              OpenCode Go ({formatEur(opencodeGoEur)}) sind fix; nur Zusatznutzung + API werden
+              OpenCode Go ({formatEur(opencodeGoEur)}){clineEur > 0 && <> · Cline ({formatEur(clineEur)})</>} sind fix; nur Zusatznutzung + API werden
               hochgerechnet.
             </>
           )}
@@ -506,6 +525,9 @@ export default function OverviewTab(): React.ReactElement {
         )}
         {zai?.last_synced && (
           <span>z.ai-Sync: {formatRelativeTime(zai.last_synced)}</span>
+        )}
+        {clineEur > 0 && (
+          <span>Cline: {formatEur(clineEur)}/Monat</span>
         )}
       </div>
     </div>

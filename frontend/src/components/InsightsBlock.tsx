@@ -150,12 +150,14 @@ function buildInsights(
   const zaiEur = subEur(plans, zaiSpend?.plan_name);
   const codexSpend = combined?.codex ?? null;
   const codexEur = codexSpend?.plan_cost_eur ?? subEur(plans, 'ChatGPT Plus');
+  const clineSpend = combined?.cline ?? null;
+  const clineEur = subEur(plans, clineSpend?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
   const usdToEur = combined?.exchange_rate?.usd_to_eur ?? 0.92;
   const opencodeApiEur = combined?.opencode_api?.total_cost_usd
     ? combined.opencode_api.total_cost_usd * usdToEur : 0;
   const openaiApiEur = combined?.openai_api?.cost_usd
     ? combined.openai_api.cost_usd * usdToEur : 0;
-  const grandTotalEur = claudeAiTotalEur + apiEur + opencodeGoEur + zaiEur + codexEur + opencodeApiEur + openaiApiEur;
+  const grandTotalEur = claudeAiTotalEur + apiEur + opencodeGoEur + zaiEur + codexEur + clineEur + opencodeApiEur + openaiApiEur;
   const daysTracked = daysSince(allTime?.since);
 
   // -------- Plan right-sizing --------
@@ -254,6 +256,7 @@ function buildInsights(
     if (opencodeGoEur > 0) costs.push({ label: 'OpenCode Go', eur: opencodeGoEur });
     if (zaiEur > 0) costs.push({ label: 'z.ai', eur: zaiEur });
     if (codexEur > 0) costs.push({ label: codexSpend?.plan_name && codexSpend.plan_name !== 'Unknown' ? codexSpend.plan_name : 'Codex', eur: codexEur });
+    if (clineEur > 0) costs.push({ label: 'Cline', eur: clineEur });
     if (opencodeApiEur > 0) costs.push({ label: 'OpenCode API', eur: opencodeApiEur });
     if (openaiApiEur > 0) costs.push({ label: 'OpenAI API', eur: openaiApiEur });
     costs.sort((a, b) => b.eur - a.eur);
@@ -315,7 +318,7 @@ function buildInsights(
     const claudeAiAdd = allTime.claude_ai.additional_eur ?? 0;
     const apiAllTimeEur = allTime.anthropic_api?.total_eur_equivalent ?? 0;
     // Multi-provider totals not available in allTime — use current-month as proxy
-    const otherMonthlyEur = opencodeGoEur + zaiEur + codexEur + opencodeApiEur + openaiApiEur;
+    const otherMonthlyEur = opencodeGoEur + zaiEur + codexEur + clineEur + opencodeApiEur + openaiApiEur;
     const breakdown = `Abo ${formatEur(claudeAiSub)} + Zusatznutzung ${formatEur(claudeAiAdd)}${apiAllTimeEur > 0 ? ` + API ${formatEur(apiAllTimeEur)}` : ''}`;
     const sinceLabel = allTime.since
       ? new Date(allTime.since).toLocaleDateString('de-DE')
@@ -341,7 +344,7 @@ function buildInsights(
   }
 
   // -------- Subscription vs variable split --------
-  const subTotal = planEur + opencodeGoEur + zaiEur + codexEur;
+  const subTotal = planEur + opencodeGoEur + zaiEur + codexEur + clineEur;
   const varTotal = additionalEur + apiEur + opencodeApiEur + openaiApiEur;
   if (subTotal + varTotal > 0) {
     const subShare = ((subTotal / (subTotal + varTotal)) * 100);
@@ -405,6 +408,7 @@ function buildInsights(
         opencodeGoEur > 0 ? `OpenCode Go ${formatEur(opencodeGoEur)}` : '',
         zaiEur > 0 ? `z.ai ${formatEur(zaiEur)}` : '',
         codexEur > 0 ? `${codexSpend?.plan_name && codexSpend.plan_name !== 'Unknown' ? codexSpend.plan_name : 'Codex'} ${formatEur(codexEur)}` : '',
+        clineEur > 0 ? `Cline ${formatEur(clineEur)}` : '',
         opencodeApiEur > 0 ? `OpenCode API ${formatEur(opencodeApiEur)}` : '',
         openaiApiEur > 0 ? `OpenAI API ${formatEur(openaiApiEur)}` : '',
       ].filter(Boolean).join(' · ')}.`

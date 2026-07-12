@@ -18,6 +18,7 @@ const PROVIDER_META: Record<string, { icon: string; color: string; scrapeUrl?: s
   zai:             { icon: '🧠', color: 'bg-purple-600', scrapeUrl: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan' },
   codex:           { icon: '💬', color: 'bg-green-600', scrapeUrl: 'https://chatgpt.com/codex/settings/usage' },
   openai_api:      { icon: '🟢', color: 'bg-teal-600', scrapeUrl: 'https://platform.openai.com/usage' },
+  cline:           { icon: '🤖', color: 'bg-violet-500', scrapeUrl: '' },
 };
 
 /* ------------------------------------------------------------------ */

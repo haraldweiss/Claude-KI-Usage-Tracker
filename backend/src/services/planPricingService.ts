@@ -32,7 +32,11 @@ const SEED_PLANS: Array<Omit<PlanPricingRow, 'last_updated'>> = [
   { plan_name: 'ChatGPT Go', monthly_eur: 7.5, min_seats: 1, source: 'tier_default' },
   { plan_name: 'ChatGPT Plus', monthly_eur: 18.5, min_seats: 1, source: 'tier_default' },
   { plan_name: 'ChatGPT Pro', monthly_eur: 92, min_seats: 1, source: 'tier_default' },
-  { plan_name: 'ChatGPT Pro (20x)', monthly_eur: 185, min_seats: 1, source: 'tier_default' }
+  { plan_name: 'ChatGPT Pro (20x)', monthly_eur: 185, min_seats: 1, source: 'tier_default' },
+  // Cline coding assistant subscription. User sets the actual price in settings;
+  // seeds are placeholders for the dashboard to show the card even without scraped data.
+  { plan_name: 'Cline Pass', monthly_eur: 20, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'Cline Pass Yearly', monthly_eur: 10, min_seats: 1, source: 'tier_default' }
 ];
 
 /**

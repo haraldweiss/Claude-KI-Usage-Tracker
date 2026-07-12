@@ -5746,3 +5746,21 @@ ssh oracle-vm 'docker cp /tmp/backend-dist/. ki-usage-tracker:/app/dist/ && dock
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+
+### 2026-07-12 — Cline als 8. Kostenquelle integriert (Pi)
+
+**Scope:** Cline (KI-Coding-Assistent für VS Code) als vollwertige Kostenquelle im Dashboard und in allen Extensions. Plan-basiertes Abo ohne Scraper — der Preis wird in den Dashboard-Einstellungen konfiguriert.
+
+**Touch-Points (19 Dateien, 226 Zeilen):**
+
+| Bereich | Dateien | Details |
+|---------|---------|---------|
+| **Backend** | `models.ts`, `planPricingService.ts`, `usageController.ts`, `providerController.ts` | `SourceType.ClineSync`, Seeds "Cline Pass" (€20)/"Cline Pass Yearly" (€10), `combined.cline` im Summary, `grand_total_eur`-Erweiterung |
+| **Frontend** | `types/api.ts`, `OverviewTab.tsx`, `CombinedCostTab.tsx`, `InsightsBlock.tsx`, `ProviderSettingsSection.tsx` | ClineSpend-Typ, Karten in allen Dashboard-Ansichten, Cost-Ranking, Provider-Settings |
+| **Extension (Chrome/Edge/Opera)** | `popup.html`, `popup.js` | Cline-Zeile im Popup |
+| **Extension (Firefox)** | `popup.html`, `popup.js` | Wie Chrome |
+| **Extension (Pale Moon)** | `popup.xul`, `popup.js` | Cline-Zeile im Popup |
+
+**Architektur-Entscheidung:** Cline ist **plan-only** — kein Scraper, keine Limits, kein Handoff-Check. Der User stellt Plan-Name + Preis in den Einstellungen ein (Provider-Settings → Cline → Plan-Dropdown + Plan-Preis-Tabelle).
+
+**Nach Deploy:** User → Dashboard → Einstellungen → Anbieter → Cline → Plan wählen ("Cline Pass" oder "Cline Pass Yearly"). Karte erscheint dann im Dashboard.

@@ -7,6 +7,7 @@ import {
   ConsoleKeyRecord,
   OpenCodeGoSpend,
   ZaiSpend,
+  ClineSpend,
   type PlanPricingRow,
   SpendingTotal
 } from '../types/api';
@@ -77,8 +78,10 @@ export default function CombinedCostTab(): React.ReactElement {
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
+  const cline: ClineSpend | null = combined?.cline ?? null;
   const chatGptEur = subscriptionEur(plans, 'ChatGPT Plus');
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur + chatGptEur;
+  const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur + chatGptEur + clineEur;
   const exchangeRate = combined?.exchange_rate;
 
   const noData = !claudeAi && apiTotal === 0;
@@ -106,6 +109,7 @@ export default function CombinedCostTab(): React.ReactElement {
           )}
           {zaiEur > 0 && <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>}
           {chatGptEur > 0 && <><span className="mx-1">·</span>ChatGPT Plus {formatEur(chatGptEur)}</>}
+          {clineEur > 0 && <><span className="mx-1">·</span>Cline {formatEur(clineEur)}</>}
         </p>
         {exchangeRate?.usd_to_eur && (
           <p className="mt-1 text-xs text-gray-400">
@@ -436,6 +440,27 @@ export default function CombinedCostTab(): React.ReactElement {
           <p className="mt-4 text-xs text-gray-500">
             Letzter Sync: {formatRelativeTime(zai.last_synced)}
             {zai.auto_renew_date && <> · Auto-Renew: {zai.auto_renew_date}</>}
+          </p>
+        </div>
+      )}
+
+      {/* Cline coding assistant */}
+      {clineEur > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Cline</h3>
+            {cline?.plan_name && (
+              <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded font-medium">
+                {cline.plan_name}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            KI-Coding-Assistent (VS Code)
+            {clineEur > 0 && <> · {formatEur(clineEur)} / Monat</>}
+          </p>
+          <p className="mt-4 text-xs text-gray-500">
+            Plan-basiertes Abo. Der Preis kann in den Einstellungen angepasst werden.
           </p>
         </div>
       )}

@@ -228,8 +228,15 @@ function displayStats(stats) {
   const openaiApiEur = Number(cg?.openai_api?.cost_usd ?? 0) * 0.92;
   const opencodeGoEur = (cg?.opencode_go?.plan_name === 'OpenCode Go') ? 20 : 10;
   const zaiEur = 15;
+  // Cline — plan-based subscription. Resolve the plan price from the plan_pricing
+  // table via the backend combined.ccline.plan_name, or fall back to a reasonable
+  // default (€10/month ≈ $120/year pass). The user edits the actual price in Settings.
+  const clineCfg = cg?.cline ?? null;
+  const clineEur = clineCfg?.plan_cost_eur
+    ? Number(clineCfg.plan_cost_eur)
+    : 10;
 
-  const grandTotal = caTotal + anthropicApiEur + opencodeApiEur + codexEur + openaiApiEur + opencodeGoEur + zaiEur;
+  const grandTotal = caTotal + anthropicApiEur + opencodeApiEur + codexEur + openaiApiEur + opencodeGoEur + zaiEur + clineEur;
   document.getElementById('grand-total').textContent = formatEur(grandTotal);
 
   // Helper to show/hide rows
@@ -321,6 +328,18 @@ function displayStats(stats) {
       keyCount > 0 ? costStr + ' · ' + keyCount + ' Keys' : costStr);
   } else {
     showRow('opencode-api-row', 'opencode-api-summary', null);
+  }
+
+  // Cline
+  const cl = cg?.cline;
+  if (cl && cl.plan_cost_eur) {
+    showRow('cline-row', 'cline-summary', formatEur(cl.plan_cost_eur) + '/Monat · ' + cl.plan_name);
+    const el = document.getElementById('cline-summary');
+    if (el) el.classList.remove('warning');
+  } else if (clineEur > 0) {
+    showRow('cline-row', 'cline-summary', formatEur(clineEur) + '/Monat');
+  } else {
+    showRow('cline-row', 'cline-summary', null);
   }
 
   // Codex

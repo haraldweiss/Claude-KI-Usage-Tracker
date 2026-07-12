@@ -59,7 +59,7 @@ export async function trackUsage(
 
     // Dedupe: at most one snapshot per day per source — delete today's stale
     // rows for this source before inserting fresh ones.
-    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync', 'opencode_api_sync', 'anthropic_console_cost_day', 'anthropic_console_cost_month', 'codex_sync', 'openai_api_sync'] as const;
+    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync', 'opencode_api_sync', 'anthropic_console_cost_day', 'anthropic_console_cost_month', 'codex_sync', 'openai_api_sync', 'cline_sync'] as const;
     if ((SYNC_SOURCES as readonly string[]).includes(source)) {
       await runQuery(
         `DELETE FROM usage_records
@@ -673,6 +673,17 @@ export async function getSummary(
       last_synced: openaiApiRow[0].timestamp
     } : null;
 
+    // -------- Cline subscription data (plan-only, no scraper yet) ---------
+    // Cline doesn't have a scraper; the user sets the plan name via Provider Settings.
+    // We load the configured plan from provider_config, then look up the price.
+    const clineConfig = await getQuery<{ plan_name: string | null }>(
+      `SELECT plan_name FROM provider_config
+       WHERE user_id = ? AND provider_name = 'cline'`,
+      [req.user!.id]
+    );
+    const clinePlanName = clineConfig?.plan_name ?? null;
+    const clinePlanCost = clinePlanName ? (await getPlanPrice(clinePlanName)) ?? 0 : 0;
+
     const consoleModelDay = await allQuery<{ model: string; input_tokens: number; output_tokens: number; cost_usd: number }>(
       `SELECT model,
               SUM(input_tokens) as input_tokens,
@@ -720,6 +731,14 @@ export async function getSummary(
         opencode_api: opencodeApi,
         codex,
         openai_api: openaiApi,
+        // Cline coding assistant — plan-only provider (no scraper yet).
+        // The user sets the price in the plan_pricing table; the card shows
+        // in the dashboard once a plan name is selected in Provider Settings.
+        cline: clinePlanName ? {
+          plan_name: clinePlanName,
+          plan_cost_eur: clinePlanCost,
+          last_synced: null,
+        } : null,
         console_model_breakdown: {
           day: consoleModelDay,
           month: consoleModelMonth
@@ -1106,6 +1125,17 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     const opencodeApiTotalUsd = opencodeApiCostRow?.total_usd ?? 0;
     const opencodeApiFx = await convertUsdToEur(opencodeApiTotalUsd);
 
+    // Cline subscription cost — plan-based, no scraper. Resolve from
+    // provider_config (user-set plan name) → plan_pricing lookup.
+    const clineConfig = await getQuery<{ plan_name: string | null }>(
+      `SELECT plan_name FROM provider_config
+       WHERE user_id = ? AND provider_name = 'cline'`,
+      [req.user!.id]
+    );
+    const clinePlanName = clineConfig?.plan_name ?? null;
+    const clineMonthlyEur = clinePlanName ? (await getPlanPrice(clinePlanName)) ?? 0 : 0;
+    const clineTotalEur = clineMonthlyEur > 0 ? clineMonthlyEur * Math.max(1, months.length) : 0;
+
     // OpenAI API month-to-date cost
     const openaiApiCostRow = await getQuery<{ total_usd: number }>(
       `SELECT SUM(cost_usd) as total_usd
@@ -1121,7 +1151,7 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       `SELECT MIN(timestamp) as first_ts
          FROM usage_records
         WHERE user_id = ?
-          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync', 'zai_sync', 'opencode_api_sync', 'codex_sync', 'openai_api_sync')`,
+          AND source IN ('claude_official_sync', 'claude_ai', 'anthropic_console_sync', 'claude_code_sync', 'opencode_go_sync', 'zai_sync', 'opencode_api_sync', 'codex_sync', 'openai_api_sync', 'cline_sync')`,
       [req.user!.id]
     );
     const since2 = earliestOverall2?.first_ts ? earliestOverall2.first_ts.slice(0, 10) : since;
@@ -1159,7 +1189,12 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
         total_usd: openaiApiTotalUsd,
         total_eur: openaiApiFx.eur
       },
-      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur + opencodeApiFx.eur + openaiApiFx.eur + (codexMonthlyEur > 0 ? codexMonthlyEur * Math.max(1, months.length) : 0),
+      cline: {
+        plan_name: clinePlanName,
+        monthly_eur: clineMonthlyEur,
+        total_eur: clineTotalEur
+      },
+      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur + opencodeApiFx.eur + openaiApiFx.eur + (codexMonthlyEur > 0 ? codexMonthlyEur * Math.max(1, months.length) : 0) + clineTotalEur,
       exchange_rate: {
         usd_to_eur: fx.rate,
         rate_date: fx.rate_date

@@ -57,6 +57,7 @@
         <hbox align="center"><label style="width:130px;">OpenCode Go</label><label id="row-opencode-go" value="—"/></hbox>
         <hbox align="center"><label style="width:130px;">OpenCode API</label><label id="row-opencode-api" value="—"/></hbox>
         <hbox align="center"><label style="width:130px;">z.ai</label><label id="row-zai" value="—"/></hbox>
+        <hbox align="center"><label style="width:130px;">Cline</label><label id="row-cline" value="—"/></hbox>
         <hbox align="center"><label style="width:130px;">ChatGPT Plus</label><label id="row-codex" value="—"/></hbox>
         <hbox align="center"><label style="width:130px;">OpenAI API</label><label id="row-openai-api" value="—"/></hbox>
       </vbox>

@@ -141,12 +141,15 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
     }
 
     // Upsert provider_config
+    // NOTE: plan_name uses excluded.plan_name directly (not COALESCE) so that
+    // setting plan_name = null actually clears the stored value. COALESCE would
+    // keep the old value when null is passed, making deactivation impossible.
     await runQuery(
       `INSERT INTO provider_config (user_id, provider_name, status_label, plan_name)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(user_id, provider_name) DO UPDATE SET
          status_label = COALESCE(excluded.status_label, provider_config.status_label),
-         plan_name = COALESCE(excluded.plan_name, provider_config.plan_name)`,
+         plan_name = excluded.plan_name`,
       [
         userId,
         providerName,

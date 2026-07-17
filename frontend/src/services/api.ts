@@ -24,9 +24,7 @@ import {
   AdminStats,
   PlanHistoryRow,
   PendingPlanChange,
-  AlertInfo,
-  ProviderInfo,
-  ProviderConfigUpdate
+  AlertInfo
 } from '../types/api';
 
 // Use relative path for API calls — works both locally and on production VPS

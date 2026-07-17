@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import ModelsTab from '../ModelsTab';
@@ -12,14 +11,14 @@ describe('ModelsTab', () => {
       model: 'Haiku 4.5',
       input_tokens: 1000000,
       output_tokens: 17000000,
-      cost: 100,
+      total_cost: 100,
       request_count: 50
     },
     {
       model: 'Opus 4.7',
       input_tokens: 39800,
       output_tokens: 5100000,
-      cost: 200,
+      total_cost: 200,
       request_count: 10
     }
   ];

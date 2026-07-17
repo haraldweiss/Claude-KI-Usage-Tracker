@@ -226,6 +226,18 @@ export interface ModelBreakdown {
   total_cost: number;
 }
 
+export interface ConsoleModelBreakdownRow {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface ConsoleModelBreakdown {
+  day?: ConsoleModelBreakdownRow[];
+  month?: ConsoleModelBreakdownRow[];
+}
+
 export interface PricingData {
   model: string;
   input_price: number;

@@ -82,9 +82,9 @@ async function loadStats() {
   errorContainer.innerHTML = '';
 
   try {
-    const stats = await fetchMonthlyStats();
+    const [stats, providers] = await Promise.all([fetchMonthlyStats(), fetchProviders()]);
     if (stats) {
-      displayStats(stats);
+      displayStats(stats, providers);
       // Check for ≥90% limits
       checkHandoffAlerts();
       loadingEl.style.display = 'none';
@@ -97,15 +97,29 @@ async function loadStats() {
   }
 }
 
-async function fetchMonthlyStats() {
+async function fetchWithAuth(path) {
   const { api_base, api_token } = await chrome.storage.local.get(['api_base', 'api_token']);
   const baseUrl = (api_base || DEFAULT_API_BASE).replace(/\/+$/, '');
   const headers = {};
   if (api_token) headers['Authorization'] = `Bearer ${api_token}`;
 
-  const response = await fetch(`${baseUrl}/usage/summary?period=month`, { headers });
+  const response = await fetch(`${baseUrl}${path}`, { headers });
   if (!response.ok) return null;
   return response.json();
+}
+
+async function fetchMonthlyStats() {
+  return fetchWithAuth('/usage/summary?period=month');
+}
+
+async function fetchProviders() {
+  try {
+    const data = await fetchWithAuth('/settings/providers');
+    if (!data || !data.providers) return null;
+    return data.providers;
+  } catch {
+    return null;
+  }
 }
 
 function startCountdown() {
@@ -216,7 +230,26 @@ async function updateAutoSyncInfo() {
   }
 }
 
-function displayStats(stats) {
+/**
+ * Determine whether a provider row should be visible.
+ * Only shows providers that have a plan configured in Settings.
+ * If provider config is not available (e.g. API error), falls back
+ * to showing providers that have actual usage data.
+ */
+function shouldShowProviderRow(providerKey, providerConfigs, hasData) {
+  if (!hasData) return false;
+
+  // If we have provider configs, only show providers with a configured plan
+  if (providerConfigs && providerConfigs.length > 0) {
+    const config = providerConfigs.find(p => p.key === providerKey);
+    return config?.plan_name ? true : false;
+  }
+
+  // Fallback: no provider configs available → show if there's data
+  return true;
+}
+
+function displayStats(stats, providers) {
   const cg = stats?.combined;
   if (!cg) { showError('Keine Daten vom Backend.'); return; }
 
@@ -228,7 +261,13 @@ function displayStats(stats) {
   const openaiApiEur = Number(cg?.openai_api?.cost_usd ?? 0) * 0.92;
   const opencodeGoEur = (cg?.opencode_go?.plan_name === 'OpenCode Go') ? 20 : 10;
   const zaiEur = 15;
-  const clineEur = cg?.cline?.plan_cost_eur ? Number(cg.cline.plan_cost_eur) : 10;
+  // Cline — plan-based subscription. Resolve the plan price from the plan_pricing
+  // table via the backend combined.ccline.plan_name, or fall back to a reasonable
+  // default (€10/month ≈ $120/year pass). The user edits the actual price in Settings.
+  const clineCfg = cg?.cline ?? null;
+  const clineEur = clineCfg?.plan_cost_eur
+    ? Number(clineCfg.plan_cost_eur)
+    : 10;
 
   const grandTotal = caTotal + anthropicApiEur + opencodeApiEur + codexEur + openaiApiEur + opencodeGoEur + zaiEur + clineEur;
   document.getElementById('grand-total').textContent = formatEur(grandTotal);
@@ -249,17 +288,16 @@ function displayStats(stats) {
 
   // Claude.ai
   const ca = cg?.claude_ai;
-  if (ca && ca.meta) {
-    const monthlyEur = Number(ca.meta.spending_eur ?? ca.cost_eur ?? 0);
+  const caHasData = ca && (ca.meta || ca.cost_eur);
+  if (caHasData && shouldShowProviderRow('claude_ai', providers, caHasData)) {
+    const monthlyEur = Number(ca.meta?.spending_eur ?? ca.cost_eur ?? 0);
     const parts = [];
     if (Number.isFinite(monthlyEur) && monthlyEur > 0) parts.push(formatEur(monthlyEur));
-    const sessionPct = Number(ca.meta.session_pct);
-    const weeklyPct = Number(ca.meta.weekly_pct);
+    const sessionPct = Number(ca.meta?.session_pct);
+    const weeklyPct = Number(ca.meta?.weekly_pct);
     if (Number.isFinite(sessionPct)) parts.push(`S ${sessionPct}%`);
     if (Number.isFinite(weeklyPct)) parts.push(`W ${weeklyPct}%`);
     showRow('claude-ai-row', 'claude-ai-summary', parts.length > 0 ? parts.join(' · ') : 'aktiv');
-  } else if (ca && ca.cost_eur) {
-    showRow('claude-ai-row', 'claude-ai-summary', formatEur(ca.cost_eur));
   } else {
     showRow('claude-ai-row', 'claude-ai-summary', null);
   }
@@ -276,12 +314,14 @@ function displayStats(stats) {
   }
 
   // Claude Code
+  const ccHasData = cg?.claude_code && cg.claude_code.length > 0;
   showRow('claude-code-row', 'claude-code-summary',
-    cg?.claude_code ? `${cg.claude_code.length} Keys` : null);
+    ccHasData ? `${cg.claude_code.length} Keys` : null);
 
   // OpenCode Go
   const og = cg?.opencode_go;
-  if (og) {
+  const ogHasData = og && (og.plan_name || og.continuous_pct != null);
+  if (ogHasData) {
     const parts = [];
     let maxPct = 0;
     if (typeof og.continuous_pct === 'number') { parts.push(`F ${og.continuous_pct}%`); maxPct = Math.max(maxPct, og.continuous_pct); }
@@ -297,7 +337,8 @@ function displayStats(stats) {
 
   // z.ai
   const zai = cg?.zai;
-  if (zai) {
+  const zaiHasData = zai && (zai.five_hour_pct != null || zai.plan_name);
+  if (zaiHasData && shouldShowProviderRow('zai', providers, zaiHasData)) {
     const parts = [];
     let maxPct = 0;
     if (typeof zai.five_hour_pct === 'number') { parts.push(`5h ${zai.five_hour_pct}%`); maxPct = Math.max(maxPct, zai.five_hour_pct); }
@@ -309,18 +350,6 @@ function displayStats(stats) {
     if (el) el.classList.toggle('warning', maxPct >= 90);
   } else {
     showRow('zai-row', 'zai-summary', null);
-  }
-
-  // Cline
-  const cl = cg?.cline;
-  if (cl && cl.plan_cost_eur) {
-    showRow('cline-row', 'cline-summary', formatEur(cl.plan_cost_eur) + '/Monat · ' + cl.plan_name);
-    const el = document.getElementById('cline-summary');
-    if (el) el.classList.remove('warning');
-  } else if (clineEur > 0) {
-    showRow('cline-row', 'cline-summary', formatEur(clineEur) + '/Monat');
-  } else {
-    showRow('cline-row', 'cline-summary', null);
   }
 
   // OpenCode API
@@ -336,9 +365,24 @@ function displayStats(stats) {
     showRow('opencode-api-row', 'opencode-api-summary', null);
   }
 
+  // Cline
+  const cl = cg?.cline;
+  const clineHasData = cl && cl.plan_name;
+  if (clineHasData && shouldShowProviderRow('cline', providers, clineHasData)) {
+    showRow('cline-row', 'cline-summary', formatEur(cl.plan_cost_eur || clineEur) + '/Monat · ' + cl.plan_name);
+    const el = document.getElementById('cline-summary');
+    if (el) el.classList.remove('warning');
+  } else if (clineEur > 0 && cl?.plan_name) {
+    // Only show fallback cost if we have a plan_name
+    showRow('cline-row', 'cline-summary', formatEur(clineEur) + '/Monat');
+  } else {
+    showRow('cline-row', 'cline-summary', null);
+  }
+
   // Codex
   const cx = cg?.codex;
-  if (cx) {
+  const cxHasData = cx && (cx.five_hour_remaining_pct != null || cx.plan_name);
+  if (cxHasData && shouldShowProviderRow('codex', providers, cxHasData)) {
     const fiveHour = cx.five_hour_remaining_pct != null ? Number(cx.five_hour_remaining_pct) : null;
     const weekly = cx.weekly_remaining_pct != null ? Number(cx.weekly_remaining_pct) : null;
     const monthly = cx.monthly_remaining_pct != null ? Number(cx.monthly_remaining_pct) : null;

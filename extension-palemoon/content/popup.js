@@ -107,6 +107,23 @@ function saveSettings() {
   refreshStats();
 }
 
+function fetchWithAuthSync(path) {
+  var apiBase = document.getElementById("api-base-input").value.trim() ||
+                "https://ki-usage-tracker.wolfinisoftware.de/api";
+  var apiToken = document.getElementById("api-token-input").value.trim();
+  var url = apiBase.replace(/\/+$/, "") + path;
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", url, false);
+  if (apiToken) {
+    xhr.setRequestHeader("Authorization", "Bearer " + apiToken);
+  }
+  xhr.send();
+  if (xhr.status === 200) {
+    return JSON.parse(xhr.responseText);
+  }
+  return null;
+}
+
 function refreshStats() {
   var apiBase = document.getElementById("api-base-input").value.trim() ||
                 "https://ki-usage-tracker.wolfinisoftware.de/api";
@@ -116,27 +133,42 @@ function refreshStats() {
   statusLabel.value = "Lade Daten…";
 
   try {
-    var url = apiBase.replace(/\/+$/, "") + "/usage/summary?period=month";
-    var xhr = new XMLHttpRequest();
-    xhr.open("GET", url, false); // synchronous for simplicity
-    if (apiToken) {
-      xhr.setRequestHeader("Authorization", "Bearer " + apiToken);
-    }
-    xhr.send();
+    var data = fetchWithAuthSync("/usage/summary?period=month");
+    var providersData = fetchWithAuthSync("/settings/providers");
+    var providers = (providersData && providersData.providers) || null;
 
-    if (xhr.status === 200) {
-      var data = JSON.parse(xhr.responseText);
-      displayStats(data);
+    if (data) {
+      displayStats(data, providers);
       statusLabel.value = "✅ Aktualisiert: " + new Date().toLocaleString("de-DE");
     } else {
-      statusLabel.value = "❌ Backend-Fehler: " + xhr.status;
+      statusLabel.value = "❌ Backend-Fehler";
     }
   } catch (ex) {
     statusLabel.value = "❌ " + ex.message;
   }
 }
 
-function displayStats(data) {
+/**
+ * Determine whether a provider row should be visible.
+ * Only shows providers that have a plan configured in Settings.
+ * If provider config is not available, shows if there's usage data.
+ */
+function shouldShowProviderRow(providerKey, providerConfigs, hasData) {
+  if (!hasData) return false;
+
+  // If we have provider configs, only show providers with a configured plan
+  if (providerConfigs && providerConfigs.length > 0) {
+    for (var i = 0; i < providerConfigs.length; i++) {
+      if (providerConfigs[i].key === providerKey && providerConfigs[i].plan_name) return true;
+    }
+    return false;
+  }
+
+  // Fallback: no provider configs available → show if there's data
+  return true;
+}
+
+function displayStats(data, providers) {
   var cg = data && data.combined;
   if (!cg) {
     document.getElementById("grand-total-label").value = "Keine Daten";
@@ -168,15 +200,17 @@ function displayStats(data) {
   var grandTotal = claudeAiEur + anthropicApiEur + opencodeGoEur + opencodeApiEur + zaiEur + codexEur + openaiApiEur + clineEur;
   document.getElementById("grand-total-label").value = "Gesamt: " + formatEur(grandTotal);
 
-  // Per-source rows
-  setRow("row-claude-ai", formatCost(claudeAiEur > 0 ? claudeAiEur : (cg.claude_ai && cg.claude_ai.meta && cg.claude_ai.meta.spending_eur)));
+  // Per-source rows — subscription providers filtered by configured plan
+  var claudeAiData = claudeAiEur > 0 ? claudeAiEur : (cg.claude_ai && cg.claude_ai.meta && cg.claude_ai.meta.spending_eur);
+  setRow("row-claude-ai", shouldShowProviderRow("claude_ai", providers, claudeAiData) ? formatCost(claudeAiData) : "—");
   setRow("row-anthropic-api", formatCost(anthropicApiEur));
   setRow("row-claude-code", cg.claude_code ? cg.claude_code.length + " Keys" : "—");
   setRow("row-opencode-go", cg.opencode_go ? (cg.opencode_go.plan_name || "aktiv") : "—");
   setRow("row-opencode-api", formatCost(opencodeApiEur));
-  setRow("row-zai", cg.zai ? (cg.zai.plan_name || "aktiv") : "—");
-  setRow("row-cline", cg.cline && cg.cline.plan_name ? cg.cline.plan_name + " " + formatEur(clineEur) : (clineEur > 0 ? formatEur(clineEur) + "/Monat" : "—"));
-  setRow("row-codex", cg.codex ? (cg.codex.plan_name || "ChatGPT Plus") + " " + formatEur(codexEur) : "—");
+  setRow("row-zai", shouldShowProviderRow("zai", providers, cg.zai) ? (cg.zai.plan_name || "aktiv") : "—");
+  setRow("row-cline", shouldShowProviderRow("cline", providers, cg.cline && cg.cline.plan_name) && cg.cline && cg.cline.plan_name
+    ? cg.cline.plan_name + " " + formatEur(clineEur) : (clineEur > 0 ? formatEur(clineEur) + "/Monat" : "—"));
+  setRow("row-codex", shouldShowProviderRow("codex", providers, cg.codex) ? (cg.codex.plan_name || "ChatGPT Plus") + " " + formatEur(codexEur) : "—");
   setRow("row-openai-api", cg.openai_api ? "$" + Number(cg.openai_api.cost_usd || 0).toFixed(2) : "—");
 
   // Usage details

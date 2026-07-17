@@ -243,7 +243,13 @@ export async function discoverUsers(req: Request, res: Response): Promise<void> 
     const resp = await fetch(overviewUrl, {
       headers: { Authorization: 'Bearer ' + token },
     });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' from ' + overviewUrl);
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(
+        'HTTP ' + resp.status + ' from ' + overviewUrl +
+        (body ? ' — ' + body.slice(0, 300) : ''),
+      );
+    }
     const data = (await resp.json()) as { users: Array<{ user_id: string; alias?: string | null }> };
     const existing = await listProviderUserIds(userId);
     const existingIds = new Set(existing.map((r) => r.provider_user_id));

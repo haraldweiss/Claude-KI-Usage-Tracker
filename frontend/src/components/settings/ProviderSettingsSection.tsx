@@ -30,6 +30,23 @@ const PLAN_GROUP_LABELS: Record<string, string> = {
 const PLAN_GROUP_ORDER = ['free', 'cline_pass', 'chatgpt', 'zai', 'anthropic', 'other'];
 
 /* ------------------------------------------------------------------ */
+/*  Provider → allowed plan groups mapping                             */
+/*  Each provider only shows plans relevant to it.                     */
+/* ------------------------------------------------------------------ */
+
+const PROVIDER_ALLOWED_PLAN_GROUPS: Record<string, string[]> = {
+  claude_ai:       ['anthropic'],
+  anthropic_api:   ['anthropic'],
+  claude_code:     ['anthropic'],
+  opencode_go:     ['free'],
+  opencode_api:    ['free'],
+  zai:             ['zai'],
+  codex:           ['chatgpt'],
+  openai_api:      ['free'],
+  cline:           ['cline_pass'],
+};
+
+/* ------------------------------------------------------------------ */
 /*  Provider definitions (icons + colors + group, rest comes from API) */
 /* ------------------------------------------------------------------ */
 
@@ -212,7 +229,7 @@ function ProviderCard({
               disabled={saving}
             >
               <option value="">— Kein Plan —</option>
-              {PLAN_GROUP_ORDER.map((g) => {
+              {(PROVIDER_ALLOWED_PLAN_GROUPS[provider.key] ?? PLAN_GROUP_ORDER).map((g) => {
                 const plans = groupedPlans[g];
                 if (!plans || plans.length === 0) return null;
                 return (

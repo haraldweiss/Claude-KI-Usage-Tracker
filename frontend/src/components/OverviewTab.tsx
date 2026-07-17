@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
-import { getSummary, getSpendingTotal, getPlanPricing } from '../services/api';
+import { getSummary, getSpendingTotal, getPlanPricing, getProviders } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
 import { formatEur, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
-import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, ClineSpend, type PlanPricingRow, SpendingTotal } from '../types/api';
+import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, ClineSpend, type PlanPricingRow, SpendingTotal, type ProviderInfo } from '../types/api';
 
 /** Days remaining in the current month, including today. */
 function daysRemainingInMonth(): number {
@@ -73,6 +73,8 @@ export default function OverviewTab(): React.ReactElement {
   const [combined, setCombined] = useState<CombinedSpendBreakdown | null>(null);
   const [allTime, setAllTime] = useState<SpendingTotal | null>(null);
   const [plans, setPlans] = useState<PlanPricingRow[]>([]);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [showOnlyActive, setShowOnlyActive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,15 +82,17 @@ export default function OverviewTab(): React.ReactElement {
     let cancelled = false;
     const load = async (): Promise<void> => {
       try {
-        const [summary, total, planRes] = await Promise.all([
+        const [summary, total, planRes, provRes] = await Promise.all([
           getSummary('month'),
           getSpendingTotal(),
-          getPlanPricing()
+          getPlanPricing(),
+          getProviders().catch(() => ({ providers: [] }))
         ]);
         if (cancelled) return;
         setCombined(summary.combined ?? null);
         setAllTime(total);
         setPlans(planRes.plans);
+        setProviders(provRes.providers ?? []);
         setError(null);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unknown error');
@@ -130,9 +134,23 @@ export default function OverviewTab(): React.ReactElement {
   const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
   const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
-  // Number of subscription side-cards shown to the right of the three core
-  // claude.ai cards — drives the responsive grid column count.
-  const statusCardCount = 3 + (opencodeGo ? 1 : 0) + (zai ? 1 : 0) + (chatGptEur > 0 ? 1 : 0) + (clineEur > 0 ? 1 : 0);
+  // Provider active status (from GET /settings/providers). A plan is considered
+  // active when it has a configured plan_name or the provider reports active
+  // usage. While providers are still loading (or the request failed) we fail
+  // open so cards stay visible.
+  const providerActive = (key: string): boolean => {
+    if (providers.length === 0) return true;
+    const p = providers.find((x) => x.key === key);
+    return !!p?.plan_name || p?.derived_status === 'active';
+  };
+
+  // Subscription side-cards shown to the right of the three core claude.ai
+  // cards. Each is gated on provider active status when "only active" is on.
+  const showOpenCodeGo = !!opencodeGo && (!showOnlyActive || providerActive('opencode_go'));
+  const showChatGpt = chatGptEur > 0 && (!showOnlyActive || providerActive('codex'));
+  const showZai = !!zai && (!showOnlyActive || providerActive('zai'));
+  const showCline = (clineEur > 0 || cline?.five_hour_pct != null) && (!showOnlyActive || providerActive('cline'));
+  const statusCardCount = 3 + (showOpenCodeGo ? 1 : 0) + (showChatGpt ? 1 : 0) + (showZai ? 1 : 0) + (showCline ? 1 : 0);
   const statusGridCols =
     statusCardCount >= 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
@@ -205,6 +223,18 @@ export default function OverviewTab(): React.ReactElement {
       </div>
 
       {/* Status row */}
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-sm font-medium text-gray-600">Anbieter-Status</span>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showOnlyActive}
+            onChange={(e) => setShowOnlyActive(e.target.checked)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Nur aktive Pläne
+        </label>
+      </div>
       <div className={`grid grid-cols-1 gap-6 ${statusGridCols}`}>
         {/* Plan-Status */}
         <div className="bg-white rounded-lg shadow p-5">
@@ -256,7 +286,7 @@ export default function OverviewTab(): React.ReactElement {
         </div>
 
         {/* OpenCode Go */}
-        {opencodeGo && (
+        {showOpenCodeGo && (
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               OpenCode Go
@@ -327,7 +357,7 @@ export default function OverviewTab(): React.ReactElement {
         )}
 
         {/* ChatGPT Plus */}
-        {chatGptEur > 0 && (() => {
+        {showChatGpt && (() => {
           const codexMeta = combined?.codex;
           const fiveHrUsed = codexMeta?.five_hour_remaining_pct != null ? 100 - codexMeta.five_hour_remaining_pct : null;
           const weeklyUsed = codexMeta?.weekly_remaining_pct != null ? 100 - codexMeta.weekly_remaining_pct : null;
@@ -357,7 +387,7 @@ export default function OverviewTab(): React.ReactElement {
         })()}
 
         {/* z.ai GLM Coding Plan */}
-        {zai && (
+        {showZai && (
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               z.ai
@@ -424,7 +454,7 @@ export default function OverviewTab(): React.ReactElement {
         )}
 
         {/* Cline coding assistant */}
-        {(clineEur > 0 || cline?.five_hour_pct != null) && (
+        {showCline && (
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               Cline

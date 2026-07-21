@@ -5812,3 +5812,11 @@ Plan-Dropdowns und Plan-Preis-Tabelle gruppieren Pläne dynamisch:
 **Architektur-Entscheidung:** Cline ist **plan-only** — kein Scraper, keine Limits, kein Handoff-Check. Der User stellt Plan-Name + Preis in den Einstellungen ein (Provider-Settings → Cline → Plan-Dropdown + Plan-Preis-Tabelle).
 
 **Nach Deploy:** User → Dashboard → Einstellungen → Anbieter → Cline → Plan wählen ("Cline Pass" oder "Cline Pass Yearly"). Karte erscheint dann im Dashboard.
+
+### 2026-07-21 — Provider-Auswahl steuert Summen und Extension-Sync
+
+- Die Monats-Heldenzahl in `OverviewTab` und die Gesamtkostenansicht zählen jetzt auch OpenCode-API- und OpenAI-API-Ausgaben mit dem vom Backend gelieferten USD→EUR-Kurs.
+- `provider_config.plan_name` ist die explizite Aktivierung: Aktive Abos bleiben für begonnene Abrechnungsmonate als Plan ausgewählt und in den Monatskosten, bis der Dienst gekündigt wird. Alte Scrape-Daten allein aktivieren keinen Anbieter mehr.
+- Für Pay-as-you-go-Anbieter gibt es den kostenfreien Plan `API Usage`. Er aktiviert nur die Kostenprüfung und fügt keinen Abo-Posten hinzu.
+- Chromium-, Edge-, Opera- und Firefox-Extensions lesen die Provider-Auswahl vor dem Hard-Sync und überspringen nicht aktivierte Quellen. Die Chromium-Hauptvariante exportiert außerdem nur Cookies der aktivierten Anbieter an den Server-Scraper.
+- Nach Änderung: Extension neu laden → **Einstellungen → Provider-Übersicht** prüfen → Popup **„Sync geschützte Quellen“** starten. Erwartung: Nur aktivierte Anbieter werden als Tabs geöffnet; das Dashboard enthält ihre API-Ausgaben in „Diesen Monat“.

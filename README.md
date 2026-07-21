@@ -65,7 +65,7 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 - **Modelle (Models)**: per-key detail table (key/member, source badge, workspace, cost, lines, last sync) with a per-model cost breakdown panel (last 24h / current month toggle) — pinpoints which model drove a spike without opening the Console.
 - **Gesamtkosten (Combined cost)**: same per-key table, plus a clearer "this month vs. all-time" split with a collapsible monthly breakdown (Plan-Abo + Zusatznutzung + total per month), and OpenCode Go + z.ai cards showing usage progress bars with reset timers.
 - **Recommendations**: multi-provider insights driven by live sync data — provider cost ranking (biggest cost driver), subscription vs variable cost split, utilization cross-check across ALL providers (>75% limit warnings), plan right-sizing (claude.ai weekly usage), monthly-limit forecast, Claude Code key efficiency comparison. Plus an interactive model suggester for ad-hoc "which model for task X?" queries.
-- **Settings**: **Provider-Übersicht** (8 farbcodierte Statuskarten aller Anbieter mit Plan, Kosten, Limits, Sync), editable Plan-Subscription pricing + editable Model token pricing + alert thresholds (low-balance % and rate multiplier).
+- **Settings**: **Provider-Übersicht** (8 farbcodierte Statuskarten aller Anbieter mit Plan, Kosten, Limits, Sync), editable Plan-Subscription pricing + editable Model token pricing + alert thresholds (low-balance % and rate multiplier). The selected plan is also the explicit sync opt-in: subscription providers are checked only while their plan remains selected; use the zero-cost **API Usage** entry to track a pay-as-you-go provider without adding a subscription charge.
 
 ### Architecture
 - **Backend**: Node.js + Express + TypeScript (strict mode), SQLite, additive migrations.
@@ -154,7 +154,7 @@ The scripts auto-detect when launched from a worktree and point the backend at t
 4. The popup opens via toolbar button or Tools → KI Usage Tracker.
 
 ### 5. Trigger your first sync
-Log into all services in regular browser tabs. The **server-scraper** (every 1h) handles Codex, OpenAI API, and Claude.ai automatically. For the 4 sources with macOS Keychain-encrypted httponly cookies (Anthropic Console, Claude Code, z.ai, OpenCode Go), open the extension popup and click **🔐 Sync geschützte Quellen** — it opens 4 tabs, scrapes data, and posts to the backend.
+Log into the services you have enabled in **Settings → Provider-Übersicht**. The selected plan is the source of truth: an active subscription stays selected (and therefore stays in the monthly costs) until it is cancelled; providers without a selected plan are skipped. For pay-as-you-go APIs, select **API Usage** — it enables cost tracking without a monthly subscription charge. The **server-scraper** (every 1h) handles Codex, OpenAI API, and Claude.ai automatically. For the protected sources (Anthropic Console, Claude Code, z.ai, OpenCode Go), open the extension popup and click **🔐 Sync geschützte Quellen** — it opens only the enabled provider tabs, scrapes data, and posts to the backend.
 
 > **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all seven scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
 

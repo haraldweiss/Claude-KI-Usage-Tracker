@@ -139,16 +139,17 @@ export default function OverviewTab(): React.ReactElement {
     return providers.find((x) => x.key === key)?.plan_name ?? null;
   };
 
-  const apiTotalEur = providerActive('anthropic_api')
-    ? combined?.anthropic_api?.cost_eur_equivalent ?? 0
-    : 0;
+  const showClaudeAi = providerActive('claude_ai');
+  const rawApiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
+  const showAnthropicApi = providerActive('anthropic_api') || rawApiTotalEur > 0;
+  const apiTotalEur = showAnthropicApi ? rawApiTotalEur : 0;
   const opencodeApiEur = providerActive('opencode_api')
     ? (combined?.opencode_api?.total_cost_usd ?? 0) * (combined?.exchange_rate?.usd_to_eur ?? 0.92)
     : 0;
   const openAiApiEur = providerActive('openai_api')
     ? (combined?.openai_api?.cost_usd ?? 0) * (combined?.exchange_rate?.usd_to_eur ?? 0.92)
     : 0;
-  const additionalEur = providerActive('claude_ai') ? claudeAi?.cost_eur ?? 0 : 0;
+  const additionalEur = showClaudeAi ? claudeAi?.cost_eur ?? 0 : 0;
   const planEur = subscriptionEur(plans, configuredPlan('claude_ai', meta?.plan_name));
   const claudeAiTotalEur = planEur + additionalEur;
   const opencodeGoEur = subscriptionEur(plans, configuredPlan('opencode_go', opencodeGo?.plan_name ?? 'OpenCode Go'));
@@ -164,7 +165,7 @@ export default function OverviewTab(): React.ReactElement {
   const showChatGpt = chatGptEur > 0 && (!showOnlyActive || providerActive('codex'));
   const showZai = !!zai && (!showOnlyActive || providerActive('zai'));
   const showCline = (clineEur > 0 || cline?.five_hour_pct != null) && (!showOnlyActive || providerActive('cline'));
-  const statusCardCount = 3 + (showOpenCodeGo ? 1 : 0) + (showChatGpt ? 1 : 0) + (showZai ? 1 : 0) + (showCline ? 1 : 0);
+  const statusCardCount = (showClaudeAi ? 3 : 0) + (showOpenCodeGo ? 1 : 0) + (showChatGpt ? 1 : 0) + (showZai ? 1 : 0) + (showCline ? 1 : 0);
   const statusGridCols =
     statusCardCount >= 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
@@ -210,6 +211,17 @@ export default function OverviewTab(): React.ReactElement {
     limitWarning = `Wochenlimit zu ${weeklyAllPct}% verbraucht — Reset folgt.`;
   }
 
+  const currentSpendBreakdown = [
+    showClaudeAi ? `claude.ai ${formatEur(claudeAiTotalEur)}` : null,
+    showAnthropicApi ? `Anthropic API ≈ ${formatEur(apiTotalEur)}` : null,
+    opencodeApiEur > 0 ? `OpenCode API ${formatEur(opencodeApiEur)}` : null,
+    openAiApiEur > 0 ? `OpenAI API ${formatEur(openAiApiEur)}` : null,
+    opencodeGoEur > 0 ? `OpenCode Go ${formatEur(opencodeGoEur)}` : null,
+    zaiEur > 0 ? `z.ai ${formatEur(zaiEur)}` : null,
+    chatGptEur > 0 ? `ChatGPT Plus ${formatEur(chatGptEur)}` : null,
+    clineEur > 0 ? `Cline ${formatEur(clineEur)}` : null,
+  ].filter((item): item is string => item !== null);
+
   return (
     <div className="space-y-6 py-6">
       {/* Hero */}
@@ -223,18 +235,19 @@ export default function OverviewTab(): React.ReactElement {
               <span className="text-3xl font-bold text-gray-900">{formatEur(grandTotalEur)}</span>
             </div>
             <p className="mt-1 text-sm text-gray-500">
-              claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
-              {opencodeApiEur > 0 && <> · OpenCode API {formatEur(opencodeApiEur)}</>}
-              {openAiApiEur > 0 && <> · OpenAI API {formatEur(openAiApiEur)}</>}
-              {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
-              {zaiEur > 0 && <> · z.ai {formatEur(zaiEur)}</>}
-              {chatGptEur > 0 && <> · ChatGPT Plus {formatEur(chatGptEur)}</>}
-              {clineEur > 0 && <> · Cline {formatEur(clineEur)}</>}
+              {currentSpendBreakdown.map((item, index) => (
+                <React.Fragment key={item}>
+                  {index > 0 && ' · '}
+                  {item}
+                </React.Fragment>
+              ))}
             </p>
           </div>
-          <div className="text-sm text-gray-500 sm:text-right">
-            {formatResetDateDisplay(meta?.reset_date, claudeAi?.last_synced ?? new Date().toISOString())}
-          </div>
+          {showClaudeAi && (
+            <div className="text-sm text-gray-500 sm:text-right">
+              {formatResetDateDisplay(meta?.reset_date, claudeAi?.last_synced ?? new Date().toISOString())}
+            </div>
+          )}
         </div>
       </div>
 
@@ -252,54 +265,58 @@ export default function OverviewTab(): React.ReactElement {
         </label>
       </div>
       <div className={`grid grid-cols-1 gap-6 ${statusGridCols}`}>
-        {/* Plan-Status */}
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Claude.ai</div>
-          <div className="mt-1 text-lg font-semibold text-gray-900">{meta?.plan_name ?? '—'}</div>
-          <div className="text-sm text-gray-600">{formatEur(planEur)} / Monat</div>
-          <div className="mt-3 text-xs text-gray-500">
-            Zusatznutzung {formatEur(additionalEur)}
-            {meta?.monthly_limit_eur != null && <> / {formatEur(meta.monthly_limit_eur)}</>}
-            {meta?.spent_pct != null && <> · {meta.spent_pct}%</>}
-          </div>
-        </div>
+        {showClaudeAi && (
+          <>
+            {/* Plan-Status */}
+            <div className="bg-white rounded-lg shadow p-5">
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Claude.ai</div>
+              <div className="mt-1 text-lg font-semibold text-gray-900">{meta?.plan_name ?? '—'}</div>
+              <div className="text-sm text-gray-600">{formatEur(planEur)} / Monat</div>
+              <div className="mt-3 text-xs text-gray-500">
+                Zusatznutzung {formatEur(additionalEur)}
+                {meta?.monthly_limit_eur != null && <> / {formatEur(meta.monthly_limit_eur)}</>}
+                {meta?.spent_pct != null && <> · {meta.spent_pct}%</>}
+              </div>
+            </div>
 
-        {/* Wochenlimits */}
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-            Wochenlimits
-          </div>
-          <div className="mt-3 space-y-3">
-            <ProgressRow label="Alle Modelle" pct={meta?.weekly_all_models_pct} hint={formatResetHint(meta?.weekly_all_models_reset_in)} />
-            <ProgressRow label="Nur Sonnet" pct={meta?.weekly_sonnet_pct} hint={formatResetHint(meta?.weekly_sonnet_reset_in)} />
-            <ProgressRow label="Aktuelle Sitzung" pct={meta?.session_pct} hint={formatResetHint(meta?.session_reset_in)} />
-            {meta?.session_limit_hours && (
-              <p className="mt-1 text-xs text-gray-500">
-                Limit: {meta.session_limit_hours} Std.
-              </p>
-            )}
-          </div>
-          {limitWarning && (
-            <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-              {limitWarning}
-            </p>
-          )}
-        </div>
+            {/* Wochenlimits */}
+            <div className="bg-white rounded-lg shadow p-5">
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                Wochenlimits
+              </div>
+              <div className="mt-3 space-y-3">
+                <ProgressRow label="Alle Modelle" pct={meta?.weekly_all_models_pct} hint={formatResetHint(meta?.weekly_all_models_reset_in)} />
+                <ProgressRow label="Nur Sonnet" pct={meta?.weekly_sonnet_pct} hint={formatResetHint(meta?.weekly_sonnet_reset_in)} />
+                <ProgressRow label="Aktuelle Sitzung" pct={meta?.session_pct} hint={formatResetHint(meta?.session_reset_in)} />
+                {meta?.session_limit_hours && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Limit: {meta.session_limit_hours} Std.
+                  </p>
+                )}
+              </div>
+              {limitWarning && (
+                <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  {limitWarning}
+                </p>
+              )}
+            </div>
 
-        {/* Budget */}
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Budget</div>
-          <div className="mt-2 text-2xl font-bold text-gray-900">
-            {meta?.balance_eur != null ? formatEur(meta.balance_eur) : '—'}
-          </div>
-          <div className="text-sm text-gray-600">Aktuelles Guthaben</div>
-          <div className="mt-3 text-xs text-gray-500 space-y-1">
-            {meta?.monthly_limit_eur != null && (
-              <div>Monatslimit: {formatEur(meta.monthly_limit_eur)}</div>
-            )}
-            {meta?.reset_date && <div>Reset: {meta.reset_date}</div>}
-          </div>
-        </div>
+            {/* Budget */}
+            <div className="bg-white rounded-lg shadow p-5">
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Budget</div>
+              <div className="mt-2 text-2xl font-bold text-gray-900">
+                {meta?.balance_eur != null ? formatEur(meta.balance_eur) : '—'}
+              </div>
+              <div className="text-sm text-gray-600">Aktuelles Guthaben</div>
+              <div className="mt-3 text-xs text-gray-500 space-y-1">
+                {meta?.monthly_limit_eur != null && (
+                  <div>Monatslimit: {formatEur(meta.monthly_limit_eur)}</div>
+                )}
+                {meta?.reset_date && <div>Reset: {meta.reset_date}</div>}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* OpenCode Go */}
         {showOpenCodeGo && (
@@ -580,7 +597,7 @@ export default function OverviewTab(): React.ReactElement {
       <LocalUsageCard />
 
       {/* Trend over months */}
-      {allTime && allTime.claude_ai.months.length > 1 && (
+      {showClaudeAi && allTime && allTime.claude_ai.months.length > 1 && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold text-gray-900">
             Kosten-Verlauf pro Abrechnungsperiode
@@ -616,7 +633,7 @@ export default function OverviewTab(): React.ReactElement {
 
       {/* Sync status */}
       <div className="text-xs text-gray-500 text-right space-x-4">
-        {claudeAi?.last_synced && (
+        {showClaudeAi && claudeAi?.last_synced && (
           <span>claude.ai-Sync: {formatRelativeTime(claudeAi.last_synced)}</span>
         )}
         {opencodeGo?.last_synced && (

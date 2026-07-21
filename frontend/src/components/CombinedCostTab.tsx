@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import React, { useEffect, useState } from 'react';
-import { getSummary, getConsoleKeys, getSpendingTotal, getPlanPricing } from '../services/api';
+import { getSummary, getConsoleKeys, getSpendingTotal, getPlanPricing, getProviders } from '../services/api';
 import {
   CombinedSpendBreakdown,
   ConsoleKeyRecord,
@@ -9,7 +9,8 @@ import {
   ZaiSpend,
   ClineSpend,
   type PlanPricingRow,
-  SpendingTotal
+  SpendingTotal,
+  type ProviderInfo
 } from '../types/api';
 import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
 import ApiKeysDetailTable from './ApiKeysDetailTable';
@@ -18,6 +19,7 @@ export default function CombinedCostTab(): React.ReactElement {
   const [combined, setCombined] = useState<CombinedSpendBreakdown | null>(null);
   const [keys, setKeys] = useState<ConsoleKeyRecord[]>([]);
   const [plans, setPlans] = useState<PlanPricingRow[]>([]);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [allTime, setAllTime] = useState<SpendingTotal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,17 +28,19 @@ export default function CombinedCostTab(): React.ReactElement {
     let cancelled = false;
     const load = async (): Promise<void> => {
       try {
-        const [summary, consoleKeys, planRes, total] = await Promise.all([
+        const [summary, consoleKeys, planRes, total, providerRes] = await Promise.all([
           getSummary('month'),
           getConsoleKeys(),
           getPlanPricing(),
-          getSpendingTotal()
+          getSpendingTotal(),
+          getProviders().catch(() => ({ providers: [] }))
         ]);
         if (cancelled) return;
         setCombined(summary.combined ?? null);
         setKeys(consoleKeys.keys);
         setPlans(planRes.plans);
         setAllTime(total);
+        setProviders(providerRes.providers ?? []);
         setError(null);
       } catch (err) {
         if (!cancelled) {
@@ -68,8 +72,16 @@ export default function CombinedCostTab(): React.ReactElement {
   }
 
   const claudeAi = combined?.claude_ai ?? null;
-  const apiTotal = combined?.anthropic_api?.cost_usd ?? 0;
-  const apiTotalEurEquiv = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
+  // An explicitly selected plan (including the zero-cost "API Usage" plan)
+  // determines which sources take part in current-month totals. When settings
+  // cannot be loaded, retain the prior fail-open behaviour.
+  const providerActive = (key: string): boolean =>
+    providers.length === 0 || !!providers.find((provider) => provider.key === key)?.plan_name;
+
+  const apiTotal = providerActive('anthropic_api') ? combined?.anthropic_api?.cost_usd ?? 0 : 0;
+  const apiTotalEurEquiv = providerActive('anthropic_api')
+    ? combined?.anthropic_api?.cost_eur_equivalent ?? 0
+    : 0;
   const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const zai: ZaiSpend | null = combined?.zai ?? null;
@@ -83,8 +95,12 @@ export default function CombinedCostTab(): React.ReactElement {
   const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
   const exchangeRate = combined?.exchange_rate;
   const usdToEur = exchangeRate?.usd_to_eur ?? 0.92;
-  const opencodeApiEur = (combined?.opencode_api?.total_cost_usd ?? 0) * usdToEur;
-  const openAiApiEur = (combined?.openai_api?.cost_usd ?? 0) * usdToEur;
+  const opencodeApiEur = providerActive('opencode_api')
+    ? (combined?.opencode_api?.total_cost_usd ?? 0) * usdToEur
+    : 0;
+  const openAiApiEur = providerActive('openai_api')
+    ? (combined?.openai_api?.cost_usd ?? 0) * usdToEur
+    : 0;
   const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
   const noData = !claudeAi && apiTotal === 0;

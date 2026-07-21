@@ -1,7 +1,7 @@
 // © 2026 Harald Weiss
 // KI Usage Tracker — Viewer-only + cookie export.
 
-importScripts('usage-parser-codex.js');
+importScripts('provider-sync-config.js', 'usage-parser-codex.js');
 
 const DEFAULT_API_BASE = 'https://ki-usage-tracker.wolfinisoftware.de/api';
 
@@ -16,6 +16,13 @@ function getAuthHeaders(token) {
   const headers = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   return headers;
+}
+
+async function getConfiguredProviders(apiBase, apiToken) {
+  const response = await fetch(`${apiBase.replace(/\/+$/, '')}/settings/providers`, { headers: getAuthHeaders(apiToken) });
+  if (!response.ok) throw new Error(`provider configuration request failed (${response.status})`);
+  const data = await response.json();
+  return getConfiguredProviderKeys(data?.providers);
 }
 
 // Read all cookies from known domains and return as Playwright-compatible JSON
@@ -275,6 +282,27 @@ async function syncHardSources() {
   const baseUrl = (api_base || 'https://ki-usage-tracker.wolfinisoftware.de/api').replace(/\/+$/, '');
   const headers = { 'Content-Type': 'application/json' };
   if (api_token) headers['Authorization'] = 'Bearer ' + api_token;
+
+  let configuredProviders;
+  try {
+    configuredProviders = await getConfiguredProviders(baseUrl, api_token);
+  } catch (error) {
+    return { success: false, results: [], error: error.message };
+  }
+  const originalCreateTab = chrome.tabs.create.bind(chrome.tabs);
+  chrome.tabs.create = (options) => {
+    const url = options?.url || '';
+    const provider = url.includes('/claude-code/') ? 'claude_code'
+      : url.includes('platform.claude.com') ? 'anthropic_api'
+      : url.includes('z.ai') ? 'zai'
+      : url.includes('chatgpt.com') ? 'codex'
+      : url.includes('opencode.ai') ? 'opencode_go'
+      : url.includes('cline.bot') ? 'cline'
+      : null;
+    return provider && !configuredProviders.has(provider)
+      ? Promise.reject(new Error('not_configured'))
+      : originalCreateTab(options);
+  };
 
   const results = [];
   const startTs = Date.now();
@@ -536,8 +564,12 @@ async function syncHardSources() {
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'cline', ok: false, error: e.message }); }
 
-  console.log('[sync-hard] results:', JSON.stringify(results));
-  return { success: true, results };
+  chrome.tabs.create = originalCreateTab;
+  const normalized = results.map((result) => result.error === 'not_configured'
+    ? { ...result, ok: true, skipped: true, reason: 'not_configured' }
+    : result);
+  console.log('[sync-hard] results:', JSON.stringify(normalized));
+  return { success: true, results: normalized };
 }
 
 async function fetchMonthlyStats() {

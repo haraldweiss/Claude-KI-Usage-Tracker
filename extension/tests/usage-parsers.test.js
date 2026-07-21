@@ -29,6 +29,31 @@ function loadScripts(files) {
   return context.module.exports;
 }
 
+function loadOptionalScript(file) {
+  const context = { module: { exports: {} }, exports: {} };
+  vm.createContext(context);
+  const filePath = path.join(__dirname, '..', file);
+  if (fs.existsSync(filePath)) {
+    vm.runInContext(fs.readFileSync(filePath, 'utf8'), context);
+  }
+  return context.module.exports;
+}
+
+test('uses only explicitly configured providers for extension syncs', () => {
+  const { getConfiguredProviderKeys } = loadOptionalScript('provider-sync-config.js');
+
+  assert.equal(typeof getConfiguredProviderKeys, 'function');
+  assert.deepEqual(
+    Array.from(getConfiguredProviderKeys([
+      { key: 'zai', plan_name: 'GLM Coding Lite-Monthly Plan' },
+      { key: 'openai_api', plan_name: 'API Usage' },
+      { key: 'codex', plan_name: null },
+      { key: 'anthropic_api', plan_name: '' }
+    ])).sort(),
+    ['openai_api', 'zai']
+  );
+});
+
 test('parses German Codex percentages as remaining capacity', () => {
   const { parseCodexUsageText } = loadParser('usage-parser-codex.js');
   const result = parseCodexUsageText(`

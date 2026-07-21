@@ -10,6 +10,8 @@ import { formatEur, formatUsd, formatRelativeTime } from '../../utils/format';
 /* ------------------------------------------------------------------ */
 
 function planGroupName(plan: PlanPricingRow): string {
+  if (plan.plan_name === 'API Usage') return 'api_usage';
+  if (plan.plan_name === 'OpenCode Go') return 'opencode_go';
   if (plan.monthly_eur === 0) return 'free';
   if (plan.plan_name.startsWith('Cline Pass')) return 'cline_pass';
   if (plan.plan_name.startsWith('ChatGPT')) return 'chatgpt';
@@ -19,6 +21,8 @@ function planGroupName(plan: PlanPricingRow): string {
 }
 
 const PLAN_GROUP_LABELS: Record<string, string> = {
+  api_usage: 'API-Verbrauch',
+  opencode_go: 'OpenCode Go',
   free: 'Kostenlos',
   cline_pass: 'Cline Pass',
   chatgpt: 'ChatGPT',
@@ -27,7 +31,7 @@ const PLAN_GROUP_LABELS: Record<string, string> = {
   other: 'Weitere',
 };
 
-const PLAN_GROUP_ORDER = ['free', 'cline_pass', 'chatgpt', 'zai', 'anthropic', 'other'];
+const PLAN_GROUP_ORDER = ['api_usage', 'opencode_go', 'free', 'cline_pass', 'chatgpt', 'zai', 'anthropic', 'other'];
 
 /* ------------------------------------------------------------------ */
 /*  Provider → allowed plan groups mapping                             */
@@ -36,13 +40,13 @@ const PLAN_GROUP_ORDER = ['free', 'cline_pass', 'chatgpt', 'zai', 'anthropic', '
 
 const PROVIDER_ALLOWED_PLAN_GROUPS: Record<string, string[]> = {
   claude_ai:       ['anthropic'],
-  anthropic_api:   ['anthropic'],
-  claude_code:     ['anthropic'],
-  opencode_go:     ['free'],
-  opencode_api:    ['free'],
+  anthropic_api:   ['api_usage'],
+  claude_code:     ['api_usage'],
+  opencode_go:     ['opencode_go'],
+  opencode_api:    ['api_usage'],
   zai:             ['zai'],
   codex:           ['chatgpt'],
-  openai_api:      ['free'],
+  openai_api:      ['api_usage'],
   cline:           ['cline_pass'],
 };
 
@@ -350,8 +354,9 @@ export default function ProviderSettingsSection(): React.ReactElement {
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Provider-Übersicht</h2>
         <p className="text-gray-600 text-sm mt-1">
-          Pro Provider den gebuchten Plan auswählen. Der Status wird aus den aktuell gescrapten
-          Daten ermittelt. Die Preise kommen aus der Plan-Tabelle weiter unten.
+          Pro Provider den gebuchten Plan auswählen. Diese Auswahl steuert auch den automatischen
+          Extension-Sync: Nur aktivierte Anbieter werden geprüft. Für Pay-as-you-go-APIs „API Usage“
+          wählen; das verursacht keine Abo-Kosten. Die Preise kommen aus der Plan-Tabelle weiter unten.
         </p>
       </div>
 

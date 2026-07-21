@@ -20,6 +20,9 @@ const SEED_PLANS: Array<Omit<PlanPricingRow, 'last_updated'>> = [
   { plan_name: 'Max (5x)', monthly_eur: 99, min_seats: 1, source: 'tier_default' },
   { plan_name: 'Max (20x)', monthly_eur: 199, min_seats: 1, source: 'tier_default' },
   { plan_name: 'Team', monthly_eur: 125, min_seats: 5, source: 'tier_default' },
+  // Explicit zero-cost marker used to activate pay-as-you-go API providers.
+  // It is a tracking switch, never a subscription charge.
+  { plan_name: 'API Usage', monthly_eur: 0, min_seats: 1, source: 'tier_default' },
   { plan_name: 'OpenCode Go', monthly_eur: 0, min_seats: 1, source: 'tier_default' },
   // z.ai GLM Coding Plan. Seed reflects the "Lite" tier ($16.2/mo ≈ 14.90 €
   // at the conservative fallback rate); the extension's zai_sync overwrites

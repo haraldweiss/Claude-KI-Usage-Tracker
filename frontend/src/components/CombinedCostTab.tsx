@@ -97,6 +97,17 @@ export default function CombinedCostTab(): React.ReactElement {
   const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
   const exchangeRate = combined?.exchange_rate;
   const usdToEur = exchangeRate?.usd_to_eur ?? 0.92;
+  const allTimeClaudeAiEur = allTime?.claude_ai?.total_eur ?? 0;
+  const allTimeApi = allTime?.anthropic_api;
+  const allTimeApiEur = allTimeApi
+    ? allTimeApi.total_eur_equivalent
+      ?? allTimeApi.total_usd * (allTime?.exchange_rate?.usd_to_eur ?? usdToEur)
+    : 0;
+  const allTimeGrandTotalEur = allTime
+    ? (allTime.grand_total_eur ?? allTimeClaudeAiEur + allTimeApiEur)
+      - (showClaudeAi ? 0 : allTimeClaudeAiEur)
+      - (showAnthropicApi ? 0 : allTimeApiEur)
+    : 0;
   const opencodeApiEur = providerActive('opencode_api')
     ? (combined?.opencode_api?.total_cost_usd ?? 0) * usdToEur
     : 0;
@@ -159,7 +170,7 @@ export default function CombinedCostTab(): React.ReactElement {
           </h2>
           <div className="mt-2 flex items-baseline gap-3 flex-wrap">
             <span className="text-2xl font-bold text-gray-900">
-              {formatEur(allTime.grand_total_eur ?? allTime.claude_ai.total_eur)}
+              {formatEur(allTimeGrandTotalEur)}
             </span>
             <span className="text-sm text-gray-500">
               seit {/^\d{4}-\d{2}-\d{2}$/.test(allTime.since) ? new Date(allTime.since).toLocaleDateString('de-DE') : allTime.since}

@@ -72,4 +72,35 @@ describe('CombinedCostTab', () => {
     expect(screen.queryByText('claude.ai')).not.toBeInTheDocument();
     expect(screen.queryByText(/Anthropic API/)).not.toBeInTheDocument();
   });
+
+  it('excludes hidden Claude.ai history from the all-time total', async () => {
+    vi.mocked(getSummary).mockResolvedValueOnce({
+      combined: {
+        claude_ai: {
+          cost_eur: 19,
+          weekly_used_pct: 50,
+          last_synced: '2026-07-21T10:00:00.000Z',
+          meta: { plan_name: 'Pro' }
+        },
+        anthropic_api: { cost_usd: 10, cost_eur_equivalent: 10, by_workspace: [] }
+      }
+    } as any);
+    vi.mocked(getSpendingTotal).mockResolvedValueOnce({
+      since: '2026-07-01',
+      grand_total_eur: 29,
+      claude_ai: { total_eur: 19, subscription_eur: 19, additional_eur: 0, months: [] },
+      anthropic_api: { total_usd: 10, total_eur_equivalent: 10 }
+    });
+    vi.mocked(getProviders).mockResolvedValueOnce({
+      providers: [
+        { key: 'claude_ai', plan_name: null },
+        { key: 'anthropic_api', plan_name: null }
+      ]
+    });
+
+    render(<CombinedCostTab />);
+
+    expect((await screen.findAllByText(/10,00/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/29,00/)).not.toBeInTheDocument();
+  });
 });

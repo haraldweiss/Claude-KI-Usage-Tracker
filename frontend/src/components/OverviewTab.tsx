@@ -124,25 +124,39 @@ export default function OverviewTab(): React.ReactElement {
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const zai: ZaiSpend | null = combined?.zai ?? null;
   const cline: ClineSpend | null = combined?.cline ?? null;
-  const apiTotalEur = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
-  const additionalEur = claudeAi?.cost_eur ?? 0;
-  const planEur = subscriptionEur(plans, meta?.plan_name);
-  const claudeAiTotalEur = planEur + additionalEur;
-  const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
-  const zaiEur = subscriptionEur(plans, zai?.plan_name);
-  const chatGptEur = subscriptionEur(plans, 'ChatGPT Plus');
-  const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
-  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
-  // Provider active status (from GET /settings/providers). A plan is considered
-  // active when it has a configured plan_name or the provider reports active
-  // usage. While providers are still loading (or the request failed) we fail
-  // open so cards stay visible.
+  // Provider Settings are the source of truth for what the user wants to
+  // track. A configured zero-cost "API Usage" plan activates API providers;
+  // a missing plan excludes stale historical snapshots. Until the request is
+  // available, fail open so existing installations keep rendering data.
   const providerActive = (key: string): boolean => {
     if (providers.length === 0) return true;
     const p = providers.find((x) => x.key === key);
-    return !!p?.plan_name || p?.derived_status === 'active';
+    return !!p?.plan_name;
   };
+  const configuredPlan = (key: string, fallback: string | null | undefined): string | null => {
+    if (providers.length === 0) return fallback ?? null;
+    return providers.find((x) => x.key === key)?.plan_name ?? null;
+  };
+
+  const apiTotalEur = providerActive('anthropic_api')
+    ? combined?.anthropic_api?.cost_eur_equivalent ?? 0
+    : 0;
+  const opencodeApiEur = providerActive('opencode_api')
+    ? (combined?.opencode_api?.total_cost_usd ?? 0) * (combined?.exchange_rate?.usd_to_eur ?? 0.92)
+    : 0;
+  const openAiApiEur = providerActive('openai_api')
+    ? (combined?.openai_api?.cost_usd ?? 0) * (combined?.exchange_rate?.usd_to_eur ?? 0.92)
+    : 0;
+  const additionalEur = providerActive('claude_ai') ? claudeAi?.cost_eur ?? 0 : 0;
+  const planEur = subscriptionEur(plans, configuredPlan('claude_ai', meta?.plan_name));
+  const claudeAiTotalEur = planEur + additionalEur;
+  const opencodeGoEur = subscriptionEur(plans, configuredPlan('opencode_go', opencodeGo?.plan_name ?? 'OpenCode Go'));
+  const zaiEur = subscriptionEur(plans, configuredPlan('zai', zai?.plan_name));
+  const chatGptEur = subscriptionEur(plans, configuredPlan('codex', combined?.codex?.plan_name));
+  const configuredClinePlan = configuredPlan('cline', cline?.plan_name);
+  const clineEur = subscriptionEur(plans, configuredClinePlan) || (configuredClinePlan ? combined?.cline?.plan_cost_eur ?? 0 : 0);
+  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
   // Subscription side-cards shown to the right of the three core claude.ai
   // cards. Each is gated on provider active status when "only active" is on.
@@ -156,9 +170,9 @@ export default function OverviewTab(): React.ReactElement {
 
   // Forecast: extrapolate today's spend rate to month end. Plan-Abo is fixed
   // (already counted), so we only forecast the variable parts (additional
-  // EUR + API USD->EUR). Early in the month we blend with the previous month's
+  // EUR + all configured API spend). Early in the month we blend with the previous month's
   // daily rate so a single high day doesn't produce a wild forecast.
-  const variableSoFar = additionalEur + apiTotalEur;
+  const variableSoFar = additionalEur + apiTotalEur + opencodeApiEur + openAiApiEur;
   const day = dayOfMonth();
   const daysLeft = Math.max(0, daysRemainingInMonth() - 1); // -1 because today is partly done
   const currentDailyRate = day > 0 ? variableSoFar / day : 0;
@@ -210,6 +224,8 @@ export default function OverviewTab(): React.ReactElement {
             </div>
             <p className="mt-1 text-sm text-gray-500">
               claude.ai {formatEur(claudeAiTotalEur)} · Anthropic API ≈ {formatEur(apiTotalEur)}
+              {opencodeApiEur > 0 && <> · OpenCode API {formatEur(opencodeApiEur)}</>}
+              {openAiApiEur > 0 && <> · OpenAI API {formatEur(openAiApiEur)}</>}
               {opencodeGoEur > 0 && <> · OpenCode Go {formatEur(opencodeGoEur)}</>}
               {zaiEur > 0 && <> · z.ai {formatEur(zaiEur)}</>}
               {chatGptEur > 0 && <> · ChatGPT Plus {formatEur(chatGptEur)}</>}

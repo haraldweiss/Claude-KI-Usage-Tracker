@@ -81,8 +81,11 @@ export default function CombinedCostTab(): React.ReactElement {
   const cline: ClineSpend | null = combined?.cline ?? null;
   const chatGptEur = subscriptionEur(plans, 'ChatGPT Plus');
   const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeGoEur + zaiEur + chatGptEur + clineEur;
   const exchangeRate = combined?.exchange_rate;
+  const usdToEur = exchangeRate?.usd_to_eur ?? 0.92;
+  const opencodeApiEur = (combined?.opencode_api?.total_cost_usd ?? 0) * usdToEur;
+  const openAiApiEur = (combined?.openai_api?.cost_usd ?? 0) * usdToEur;
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
   const noData = !claudeAi && apiTotal === 0;
 
@@ -104,6 +107,8 @@ export default function CombinedCostTab(): React.ReactElement {
           )}
           <span className="mx-1">·</span>
           Anthropic API {formatUsd(apiTotal)} ≈ {formatEur(apiTotalEurEquiv)}
+          {opencodeApiEur > 0 && <><span className="mx-1">·</span>OpenCode API {formatEur(opencodeApiEur)}</>}
+          {openAiApiEur > 0 && <><span className="mx-1">·</span>OpenAI API {formatEur(openAiApiEur)}</>}
           {opencodeGoEur > 0 && (
             <><span className="mx-1">·</span>OpenCode Go {formatEur(opencodeGoEur)}</>
           )}

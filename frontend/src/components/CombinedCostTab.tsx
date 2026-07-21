@@ -78,15 +78,17 @@ export default function CombinedCostTab(): React.ReactElement {
   const providerActive = (key: string): boolean =>
     providers.length === 0 || !!providers.find((provider) => provider.key === key)?.plan_name;
 
-  const apiTotal = providerActive('anthropic_api') ? combined?.anthropic_api?.cost_usd ?? 0 : 0;
-  const apiTotalEurEquiv = providerActive('anthropic_api')
-    ? combined?.anthropic_api?.cost_eur_equivalent ?? 0
-    : 0;
+  const showClaudeAi = providerActive('claude_ai');
+  const rawApiTotal = combined?.anthropic_api?.cost_usd ?? 0;
+  const rawApiTotalEurEquiv = combined?.anthropic_api?.cost_eur_equivalent ?? 0;
+  const showAnthropicApi = providerActive('anthropic_api') || rawApiTotal > 0 || rawApiTotalEurEquiv > 0;
+  const apiTotal = showAnthropicApi ? rawApiTotal : 0;
+  const apiTotalEurEquiv = showAnthropicApi ? rawApiTotalEurEquiv : 0;
   const apiByWorkspace = combined?.anthropic_api?.by_workspace ?? [];
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const zai: ZaiSpend | null = combined?.zai ?? null;
-  const additionalUsageEur = claudeAi?.cost_eur ?? 0;
-  const planSubscriptionEur = subscriptionEur(plans, claudeAi?.meta?.plan_name);
+  const additionalUsageEur = showClaudeAi ? claudeAi?.cost_eur ?? 0 : 0;
+  const planSubscriptionEur = showClaudeAi ? subscriptionEur(plans, claudeAi?.meta?.plan_name) : 0;
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
   const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
   const zaiEur = subscriptionEur(plans, zai?.plan_name);
@@ -103,7 +105,20 @@ export default function CombinedCostTab(): React.ReactElement {
     : 0;
   const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
-  const noData = !claudeAi && apiTotal === 0;
+  const noData = grandTotalEur === 0 && !showClaudeAi && !showAnthropicApi;
+  const showApiKeyDetails = showAnthropicApi || providerActive('claude_code');
+  const coreDetailCardCount = Number(showClaudeAi) + Number(showAnthropicApi);
+  const coreDetailGridCols = coreDetailCardCount === 2 ? 'md:grid-cols-2' : 'md:grid-cols-1';
+  const currentSpendBreakdown = [
+    showClaudeAi ? `claude.ai ${formatEur(claudeAiTotalEur)}` : null,
+    showAnthropicApi ? `Anthropic API ${formatUsd(apiTotal)} ≈ ${formatEur(apiTotalEurEquiv)}` : null,
+    opencodeApiEur > 0 ? `OpenCode API ${formatEur(opencodeApiEur)}` : null,
+    openAiApiEur > 0 ? `OpenAI API ${formatEur(openAiApiEur)}` : null,
+    opencodeGoEur > 0 ? `OpenCode Go ${formatEur(opencodeGoEur)}` : null,
+    zaiEur > 0 ? `z.ai ${formatEur(zaiEur)}` : null,
+    chatGptEur > 0 ? `ChatGPT Plus ${formatEur(chatGptEur)}` : null,
+    clineEur > 0 ? `Cline ${formatEur(clineEur)}` : null,
+  ].filter((item): item is string => item !== null);
 
   return (
     <div className="space-y-6 py-6">
@@ -117,20 +132,12 @@ export default function CombinedCostTab(): React.ReactElement {
           </span>
         </div>
         <p className="mt-2 text-sm text-gray-600">
-          claude.ai {formatEur(claudeAiTotalEur)}
-          {planSubscriptionEur > 0 && (
-            <> (Plan-Abo {formatEur(planSubscriptionEur)} + Zusatznutzung {formatEur(additionalUsageEur)})</>
-          )}
-          <span className="mx-1">·</span>
-          Anthropic API {formatUsd(apiTotal)} ≈ {formatEur(apiTotalEurEquiv)}
-          {opencodeApiEur > 0 && <><span className="mx-1">·</span>OpenCode API {formatEur(opencodeApiEur)}</>}
-          {openAiApiEur > 0 && <><span className="mx-1">·</span>OpenAI API {formatEur(openAiApiEur)}</>}
-          {opencodeGoEur > 0 && (
-            <><span className="mx-1">·</span>OpenCode Go {formatEur(opencodeGoEur)}</>
-          )}
-          {zaiEur > 0 && <><span className="mx-1">·</span>z.ai {formatEur(zaiEur)}</>}
-          {chatGptEur > 0 && <><span className="mx-1">·</span>ChatGPT Plus {formatEur(chatGptEur)}</>}
-          {clineEur > 0 && <><span className="mx-1">·</span>Cline {formatEur(clineEur)}</>}
+          {currentSpendBreakdown.map((item, index) => (
+            <React.Fragment key={item}>
+              {index > 0 && ' · '}
+              {item}
+            </React.Fragment>
+          ))}
         </p>
         {exchangeRate?.usd_to_eur && (
           <p className="mt-1 text-xs text-gray-400">
@@ -140,13 +147,12 @@ export default function CombinedCostTab(): React.ReactElement {
         )}
         {noData && (
           <p className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-            Noch keine Sync-Daten. Die Extension synchronisiert claude.ai alle 10 Min und die
-            Anthropic Console alle 24h.
+            Noch keine Sync-Daten für aktivierte Anbieter.
           </p>
         )}
       </div>
 
-      {allTime && allTime.since && (
+      {allTime && allTime.since && (showClaudeAi || showAnthropicApi) && (
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
             Insgesamt seit Tracking-Start
@@ -160,12 +166,21 @@ export default function CombinedCostTab(): React.ReactElement {
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-600">
-            claude.ai {formatEur(allTime.claude_ai.total_eur)} (Plan-Abos{' '}
-            {formatEur(allTime.claude_ai.subscription_eur)} + Zusatznutzung{' '}
-            {formatEur(allTime.claude_ai.additional_eur)}) <span className="mx-1">·</span>
-            Anthropic API {formatUsd(allTime.anthropic_api.total_usd)}
-            {allTime.anthropic_api.total_eur_equivalent != null && (
-              <> ≈ {formatEur(allTime.anthropic_api.total_eur_equivalent)}</>
+            {showClaudeAi && (
+              <>
+                claude.ai {formatEur(allTime.claude_ai.total_eur)} (Plan-Abos{' '}
+                {formatEur(allTime.claude_ai.subscription_eur)} + Zusatznutzung{' '}
+                {formatEur(allTime.claude_ai.additional_eur)})
+              </>
+            )}
+            {showClaudeAi && showAnthropicApi && <span className="mx-1">·</span>}
+            {showAnthropicApi && (
+              <>
+                Anthropic API {formatUsd(allTime.anthropic_api.total_usd)}
+                {allTime.anthropic_api.total_eur_equivalent != null && (
+                  <> ≈ {formatEur(allTime.anthropic_api.total_eur_equivalent)}</>
+                )}
+              </>
             )}
           </p>
           {allTime.exchange_rate?.usd_to_eur && (
@@ -175,7 +190,7 @@ export default function CombinedCostTab(): React.ReactElement {
                 ` (Kurs vom ${allTime.exchange_rate.rate_date})`}
             </p>
           )}
-          {allTime.claude_ai.months.length > 0 && (
+          {showClaudeAi && allTime.claude_ai.months.length > 0 && (
             <details className="mt-3">
               <summary className="cursor-pointer text-sm text-blue-600 hover:underline">
                 Aufschlüsselung pro Abrechnungsperiode ({allTime.claude_ai.months.length}{' '}
@@ -216,7 +231,9 @@ export default function CombinedCostTab(): React.ReactElement {
         </div>
       )}
 
-      <div className={`grid grid-cols-1 gap-6 ${opencodeGo ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+      {coreDetailCardCount > 0 && (
+      <div className={`grid grid-cols-1 gap-6 ${coreDetailGridCols}`}>
+        {showClaudeAi && (
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-baseline justify-between">
             <h3 className="text-lg font-semibold text-gray-900">claude.ai</h3>
@@ -295,7 +312,9 @@ export default function CombinedCostTab(): React.ReactElement {
             <p className="mt-3 text-gray-500">Noch keine Daten</p>
           )}
         </div>
+        )}
 
+        {showAnthropicApi && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold text-gray-900">Anthropic API</h3>
           <p className="mt-3 text-2xl font-bold text-blue-600">{formatUsd(apiTotal)}</p>
@@ -312,7 +331,9 @@ export default function CombinedCostTab(): React.ReactElement {
             <p className="mt-3 text-gray-500">Noch keine Daten</p>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {opencodeGo && (
         <div className="bg-white rounded-lg shadow p-6">
@@ -536,7 +557,7 @@ export default function CombinedCostTab(): React.ReactElement {
         </div>
       )}
 
-      <ApiKeysDetailTable keys={keys} />
+      {showApiKeyDetails && <ApiKeysDetailTable keys={keys} />}
     </div>
   );
 }

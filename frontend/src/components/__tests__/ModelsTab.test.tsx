@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // © 2026 Harald Weiss
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import ModelsTab from '../ModelsTab';
 import { ModelBreakdown } from '../../types/api';
+
+vi.mock('../ApiKeysDetailTable', () => ({ default: () => <div /> }));
 
 describe('ModelsTab', () => {
   const mockModels: ModelBreakdown[] = [
@@ -50,7 +52,7 @@ describe('ModelsTab', () => {
 
   it('handles empty models', () => {
     render(<ModelsTab models={[]} />);
-    const message = screen.getByText(/no model/i);
+    const message = screen.getByText(/Keine per-message Token-Daten verfügbar/i);
     expect(message).toBeInTheDocument();
   });
 

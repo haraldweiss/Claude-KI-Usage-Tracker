@@ -167,8 +167,8 @@ describe('DashboardTabs', () => {
     await user.click(uebersichtTab);
     await user.keyboard('{End}');
 
-    // 'combined' is now the last tab in the strip
-    expect(handleTabChange).toHaveBeenCalledWith('combined');
+    // Benchmarks is the last tab in the strip.
+    expect(handleTabChange).toHaveBeenCalledWith('benchmarks');
   });
 
   it('renders the combined cost tab and selects it on click', async () => {

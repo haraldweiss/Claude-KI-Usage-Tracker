@@ -6,11 +6,22 @@ import Settings from '../../pages/Settings';
 
 // Mock the API client
 const mockGetPricing = vi.fn();
+const mockGetPlanPricing = vi.fn();
 vi.mock('../../services/api', () => ({
   getPricing: () => mockGetPricing(),
+  getPlanPricing: () => mockGetPlanPricing(),
   updatePricing: vi.fn(),
   confirmPricing: vi.fn(),
 }));
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: null }),
+}));
+vi.mock('../../components/settings/AccountSection', () => ({ default: () => <div /> }));
+vi.mock('../../components/settings/ApiTokenSection', () => ({ default: () => <div /> }));
+vi.mock('../../components/settings/ProviderServiceSettings', () => ({ default: () => <div /> }));
+vi.mock('../../components/settings/ProviderSettingsSection', () => ({ default: () => <div /> }));
+vi.mock('../../components/PlanPricingTable', () => ({ default: () => <div /> }));
+vi.mock('../../components/PricingTable', () => ({ default: () => <div /> }));
 
 describe('Settings pending-confirmation banner', () => {
   const baseRow = {
@@ -26,12 +37,14 @@ describe('Settings pending-confirmation banner', () => {
 
   it('does NOT show banner when no rows are pending_confirmation', async () => {
     mockGetPricing.mockResolvedValue({ pricing: [baseRow] });
+    mockGetPlanPricing.mockResolvedValue({ plans: [] });
     render(<Settings />);
     await waitFor(() => expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument());
     expect(screen.queryByText(/New models detected/i)).not.toBeInTheDocument();
   });
 
   it('shows banner when at least one row is pending_confirmation', async () => {
+    mockGetPlanPricing.mockResolvedValue({ plans: [] });
     mockGetPricing.mockResolvedValue({
       pricing: [
         baseRow,

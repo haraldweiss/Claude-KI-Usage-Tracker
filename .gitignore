@@ -58,6 +58,7 @@ coverage/
 # Worktrees created by the harness for isolated feature work — they
 # contain a full checkout of the repo and must never be committed.
 .claude/worktrees/
+.worktrees/
 
 # Serena MCP scratch / language-server cache (per-clone, not portable).
 .serena/

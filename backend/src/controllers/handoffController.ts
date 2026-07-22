@@ -6,6 +6,8 @@
 
 import { Request, Response } from 'express';
 import { allQuery, getQuery } from '../database/sqlite.js';
+import { isPlanExpired } from '../utils/planValidity.js';
+import { getProviderValidityMap } from '../services/providerValidityService.js';
 
 // ──────────────────────────────────────────────
 // Types
@@ -86,13 +88,24 @@ export async function getHandoffCheck(
 async function collectAllLimits(userId: number): Promise<LimitAlert[]> {
   const limits: LimitAlert[] = [];
 
+  // Only limits of active providers matter. A provider is tracked when it has
+  // an assigned plan in provider_config whose valid_until date has not passed.
+  // Fail open when no provider config exists at all (fresh installations).
+  const validity = await getProviderValidityMap(userId);
+  const track = (key: string): boolean => {
+    if (validity.size === 0) return true;
+    const v = validity.get(key);
+    if (!v?.plan_name) return false;
+    return !isPlanExpired(v.plan_valid_until);
+  };
+
   // -- OpenCode Go --
-  const ogRow = await getQuery<{ response_metadata: string | null; timestamp: string }>(
+  const ogRow = track('opencode_go') ? await getQuery<{ response_metadata: string | null; timestamp: string }>(
     `SELECT response_metadata, timestamp FROM usage_records
      WHERE source = 'opencode_go_sync' AND user_id = ?
      ORDER BY timestamp DESC LIMIT 1`,
     [userId]
-  );
+  ) : undefined;
   if (ogRow?.response_metadata) {
     try {
       const meta = JSON.parse(ogRow.response_metadata);
@@ -118,12 +131,12 @@ async function collectAllLimits(userId: number): Promise<LimitAlert[]> {
   }
 
   // -- z.ai --
-  const zaiRow = await getQuery<{ response_metadata: string | null; timestamp: string }>(
+  const zaiRow = track('zai') ? await getQuery<{ response_metadata: string | null; timestamp: string }>(
     `SELECT response_metadata, timestamp FROM usage_records
      WHERE source = 'zai_sync' AND user_id = ?
      ORDER BY timestamp DESC LIMIT 1`,
     [userId]
-  );
+  ) : undefined;
   if (zaiRow?.response_metadata) {
     try {
       const meta = JSON.parse(zaiRow.response_metadata);
@@ -150,12 +163,12 @@ async function collectAllLimits(userId: number): Promise<LimitAlert[]> {
   }
 
   // -- Codex (remaining pct → inverse) --
-  const codexRow = await allQuery<{ response_metadata: string | null; timestamp: string }>(
+  const codexRow = track('codex') ? await allQuery<{ response_metadata: string | null; timestamp: string }>(
     `SELECT response_metadata, timestamp FROM usage_records
      WHERE source = 'codex_sync' AND user_id = ?
      ORDER BY timestamp DESC LIMIT 1`,
     [userId]
-  );
+  ) : [];
   if (codexRow?.[0]?.response_metadata) {
     try {
       const meta = JSON.parse(codexRow[0].response_metadata);
@@ -181,12 +194,12 @@ async function collectAllLimits(userId: number): Promise<LimitAlert[]> {
   }
 
   // -- Claude.ai meta --
-  const caRow = await getQuery<{ response_metadata: string | null; timestamp: string }>(
+  const caRow = track('claude_ai') ? await getQuery<{ response_metadata: string | null; timestamp: string }>(
     `SELECT response_metadata, timestamp FROM usage_records
      WHERE source = 'claude_official_sync' AND user_id = ?
      ORDER BY timestamp DESC LIMIT 1`,
     [userId]
-  );
+  ) : undefined;
   if (caRow?.response_metadata) {
     try {
       const meta = JSON.parse(caRow.response_metadata);

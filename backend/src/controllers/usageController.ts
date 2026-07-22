@@ -7,6 +7,8 @@ import { normalizeIncomingModel, tierDefaultPrice, type PricingRow as KnownRow }
 import { upsertPricing } from '../services/pricingService.js';
 import { getPlanPrice, updatePlanPrice } from '../services/planPricingService.js';
 import { convertUsdToEur } from '../services/exchangeRateService.js';
+import { countActiveMonths, currentMonthStartYmd, planCountsForMonth } from '../utils/planValidity.js';
+import { getProviderValidityMap } from '../services/providerValidityService.js';
 import logger from '../utils/logger.js';
 
 interface PricingRow {
@@ -622,6 +624,15 @@ export async function getSummary(
     let codexPlanCost = codexPlanName ? (await getPlanPrice(codexPlanName)) ?? 0 : 0;
     // Second fallback: if ChatGPT Plus isn't in plan_pricing, try others
     if (codexPlanCost === 0) codexPlanCost = (await getPlanPrice('ChatGPT Pro')) ?? 0;
+    // Plan expiry: a plan that ran out (provider_config.plan_valid_until in
+    // the past) no longer contributes cost — except for the month it ran out
+    // in, which was still paid.
+    const codexConfig = await getQuery<{ plan_valid_until: string | null }>(
+      `SELECT plan_valid_until FROM provider_config
+       WHERE user_id = ? AND provider_name = 'codex'`,
+      [req.user!.id]
+    );
+    if (!planCountsForMonth(codexConfig?.plan_valid_until, currentMonthStartYmd())) codexPlanCost = 0;
     const codex: CodexSummary | null = codexRow?.[0] ? {
       plan_name: codexPlanName,
       plan_cost_eur: codexPlanCost,
@@ -687,8 +698,8 @@ export async function getSummary(
     );
 
     // Also load the user's explicit plan selection from provider_config
-    const clineConfig = await getQuery<{ plan_name: string | null }>(
-      `SELECT plan_name FROM provider_config
+    const clineConfig = await getQuery<{ plan_name: string | null; plan_valid_until: string | null }>(
+      `SELECT plan_name, plan_valid_until FROM provider_config
        WHERE user_id = ? AND provider_name = 'cline'`,
       [req.user!.id]
     );
@@ -717,7 +728,9 @@ export async function getSummary(
 
     // Prefer user's explicit selection in provider_config over scraper's plan_name
     const clinePlanName = clineConfig?.plan_name ?? clineMeta?.plan_name ?? null;
-    const clinePlanCost = clinePlanName ? (await getPlanPrice(clinePlanName)) ?? 0 : 0;
+    let clinePlanCost = clinePlanName ? (await getPlanPrice(clinePlanName)) ?? 0 : 0;
+    // Expired plans stop contributing cost after the month they ran out in.
+    if (!planCountsForMonth(clineConfig?.plan_valid_until, currentMonthStartYmd())) clinePlanCost = 0;
 
     const consoleModelDay = await allQuery<{ model: string; input_tokens: number; output_tokens: number; cost_usd: number }>(
       `SELECT model,
@@ -1054,9 +1067,17 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       }
     }
 
+    // Plan validity per provider — an expired plan only contributes its fee
+    // for months up to and including the month it ran out in (that month was
+    // still paid). NULL valid_until = active indefinitely (previous behaviour).
+    const validityMap = await getProviderValidityMap(req.user!.id);
+    const claudeAiValidUntil = validityMap.get('claude_ai')?.plan_valid_until ?? null;
+
     const months: MonthSpendRow[] = [];
     for (const c of cycles) {
-      const subscription_eur = c.plan_name ? (await getPlanPrice(c.plan_name)) ?? 0 : 0;
+      const subscription_eur = c.plan_name && planCountsForMonth(claudeAiValidUntil, `${c.cycleEnd.slice(0, 7)}-01`)
+        ? (await getPlanPrice(c.plan_name)) ?? 0
+        : 0;
       months.push({
         month: c.cycleEnd,
         plan_name: c.plan_name,
@@ -1124,13 +1145,18 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
         if (codexPlanName) codexMonthlyEur = (await getPlanPrice(codexPlanName)) ?? 0;
       } catch { /* ignore */ }
     }
+    const codexTotalEur = codexMonthlyEur > 0
+      ? codexMonthlyEur * countActiveMonths(months, validityMap.get('codex')?.plan_valid_until)
+      : 0;
 
     // OpenCode Go subscription cost — fixed monthly fee added to totals.
     const opencodeGoRow = await getQuery<{ monthly_eur: number }>(
       `SELECT monthly_eur FROM plan_pricing WHERE plan_name = 'OpenCode Go'`
     );
     const opencodeGoMonthlyEur = opencodeGoRow?.monthly_eur ?? 0;
-    const opencodeGoTotalEur = opencodeGoMonthlyEur > 0 ? opencodeGoMonthlyEur * Math.max(1, months.length) : 0;
+    const opencodeGoTotalEur = opencodeGoMonthlyEur > 0
+      ? opencodeGoMonthlyEur * countActiveMonths(months, validityMap.get('opencode_go')?.plan_valid_until)
+      : 0;
 
     // z.ai GLM Coding Plan subscription cost — fixed monthly fee. The plan name
     // is dynamic (Lite/Pro/Max), so resolve it from the latest zai_sync snapshot
@@ -1151,7 +1177,9 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       }
     }
     const zaiMonthlyEur = zaiPlanName ? (await getPlanPrice(zaiPlanName)) ?? 0 : 0;
-    const zaiTotalEur = zaiMonthlyEur > 0 ? zaiMonthlyEur * Math.max(1, months.length) : 0;
+    const zaiTotalEur = zaiMonthlyEur > 0
+      ? zaiMonthlyEur * countActiveMonths(months, validityMap.get('zai')?.plan_valid_until)
+      : 0;
 
     // OpenCode API key usage — cumulative cost_usd from per-key aggregates.
     const opencodeApiCostRow = await getQuery<{ total_usd: number }>(
@@ -1174,7 +1202,9 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
     );
     const clinePlanName = clineConfig?.plan_name ?? null;
     const clineMonthlyEur = clinePlanName ? (await getPlanPrice(clinePlanName)) ?? 0 : 0;
-    const clineTotalEur = clineMonthlyEur > 0 ? clineMonthlyEur * Math.max(1, months.length) : 0;
+    const clineTotalEur = clineMonthlyEur > 0
+      ? clineMonthlyEur * countActiveMonths(months, validityMap.get('cline')?.plan_valid_until)
+      : 0;
 
     // OpenAI API month-to-date cost
     const openaiApiCostRow = await getQuery<{ total_usd: number }>(
@@ -1219,7 +1249,7 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
       codex: {
         plan_name: codexPlanName,
         monthly_eur: codexMonthlyEur,
-        total_eur: codexMonthlyEur > 0 ? codexMonthlyEur * Math.max(1, months.length) : 0
+        total_eur: codexTotalEur
       },
       opencode_api: {
         total_usd: opencodeApiTotalUsd,
@@ -1234,7 +1264,7 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
         monthly_eur: clineMonthlyEur,
         total_eur: clineTotalEur
       },
-      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur + opencodeApiFx.eur + openaiApiFx.eur + (codexMonthlyEur > 0 ? codexMonthlyEur * Math.max(1, months.length) : 0) + clineTotalEur,
+      grand_total_eur: claudeAiTotalEur + fx.eur + opencodeGoTotalEur + zaiTotalEur + opencodeApiFx.eur + openaiApiFx.eur + codexTotalEur + clineTotalEur,
       exchange_rate: {
         usd_to_eur: fx.rate,
         rate_date: fx.rate_date

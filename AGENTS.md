@@ -5954,7 +5954,12 @@ curl -s "http://localhost:3001/api/usage/summary?period=month" -H "Authorization
 curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat ~/.config/ki-tracker-token)" | jq '.sections[].source'
 ```
 
-**Next steps:**
-1. Verify server-scraper skips codex on oracle-vm: `ssh oracle-vm 'cd /opt/ki-usage-tracker/server-scraper && API_TOKEN=... npx tsx src/index.ts codex'`
-2. Set `plan_valid_until` for other expired plans (e.g., deprecated opencode_api if applicable)
-3. Optional: extend UI to show a timeline ("Plan läuft aus am: 2026-07-22")
+**Fixes (same session, 2026-07-22):**
+| Commit | What |
+|---|---|
+| `c812560` | UI: "Abgelaufen" badge on ChatGPT Plus card now shows `bis YYYY-MM-DD` (from `plan_valid_until`) |
+
+**Done (2026-07-22):**
+1. ✅ Server-scraper skips codex — verified live on oracle-vm: `--scraper codex` → `⏭️ codex_sync: provider inactive (plan expired or unassigned)`
+2. ✅ No other expired plans in production DB — only codex has `plan_valid_until`
+3. ✅ Expiry date shown on ChatGPT Plus card in OverviewTab: "Abgelaufen bis 2026-07-22"

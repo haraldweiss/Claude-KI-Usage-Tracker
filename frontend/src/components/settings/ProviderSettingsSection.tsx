@@ -78,9 +78,10 @@ const PROVIDER_GROUP_ORDER = ['free', 'subscription', 'api'];
 /*  Derived status → display helpers                                   */
 /* ------------------------------------------------------------------ */
 
-type DisplayStatus = 'active' | 'not_subscribed' | 'no_data' | 'no_plan';
+type DisplayStatus = 'active' | 'expired' | 'not_subscribed' | 'no_data' | 'no_plan';
 
 function displayStatus(derived: ProviderInfo['derived_status'], planName: string | null): DisplayStatus {
+  if (planName && derived === 'expired') return 'expired';
   if (planName) return 'active';
   if (derived === 'active') return 'active';
   if (derived === 'no_plan') return 'not_subscribed';
@@ -89,12 +90,14 @@ function displayStatus(derived: ProviderInfo['derived_status'], planName: string
 
 const STATUS_STYLES: Record<DisplayStatus, string> = {
   active:          'bg-emerald-100 text-emerald-700',
+  expired:         'bg-orange-100 text-orange-700',
   not_subscribed:  'bg-gray-100 text-gray-500',
   no_data:         'bg-gray-100 text-gray-400',
   no_plan:         'bg-amber-100 text-amber-700',
 };
 const STATUS_LABELS: Record<DisplayStatus, string> = {
   active:          'Aktiv',
+  expired:         'Abgelaufen',
   not_subscribed:  'Nicht abonniert',
   no_data:         'Keine Daten',
   no_plan:         'Kein Plan',
@@ -177,11 +180,13 @@ function ProviderCard({
   provider,
   allPlans,
   onPlanChange,
+  onValidUntilChange,
   saving,
 }: {
   provider: ProviderInfo;
   allPlans: PlanPricingRow[];
   onPlanChange: (key: string, planName: string | null) => void;
+  onValidUntilChange: (key: string, date: string | null) => void;
   saving: boolean;
 }): React.ReactElement {
   const meta = PROVIDER_META[provider.key] ?? { icon: '❓', color: 'bg-gray-500' };
@@ -249,6 +254,25 @@ function ProviderCard({
             </select>
           </div>
         </div>
+
+        {/* Plan expiry — expired plans stop syncing; the expiry month keeps its cost */}
+        {currentPlan && (
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Gültig bis</label>
+            <input
+              type="date"
+              value={provider.plan_valid_until ?? ''}
+              onChange={(e) => onValidUntilChange(provider.key, e.target.value || null)}
+              disabled={saving}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white disabled:opacity-50"
+            />
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {provider.plan_valid_until && dStatus === 'expired'
+                ? 'Abgelaufen — Sync gestoppt, Ablaufmonat bleibt in den Kosten.'
+                : 'Leer = unbefristet. Am Ablaufdatum endet Sync & Aktiv-Status; der Ablaufmonat bleibt berechnet.'}
+            </p>
+          </div>
+        )}
 
         {/* Cost */}
         <div className="flex justify-between gap-2">
@@ -320,8 +344,26 @@ export default function ProviderSettingsSection(): React.ReactElement {
   const handlePlanChange = useCallback(async (key: string, planName: string | null) => {
     setSaving(key);
     try {
-      await updateProvider(key, { plan_name: planName });
+      // Selecting a (new) plan reactivates the provider → clear any stored
+      // expiry date. Clearing the plan leaves plan_valid_until untouched
+      // (irrelevant while no plan is assigned).
+      await updateProvider(key, planName
+        ? { plan_name: planName, plan_valid_until: null }
+        : { plan_name: null });
       // Reload to get fresh data from backend
+      await load();
+    } catch (err) {
+      // eslint-disable-next-line no-alert
+      alert('Fehler beim Speichern: ' + (err instanceof Error ? err.message : 'unbekannt'));
+    } finally {
+      setSaving(null);
+    }
+  }, [load]);
+
+  const handleValidUntilChange = useCallback(async (key: string, date: string | null) => {
+    setSaving(key);
+    try {
+      await updateProvider(key, { plan_valid_until: date });
       await load();
     } catch (err) {
       // eslint-disable-next-line no-alert
@@ -375,6 +417,7 @@ export default function ProviderSettingsSection(): React.ReactElement {
                   provider={provider}
                   allPlans={plans}
                   onPlanChange={handlePlanChange}
+                  onValidUntilChange={handleValidUntilChange}
                   saving={saving === provider.key}
                 />
               ))}
@@ -388,8 +431,9 @@ export default function ProviderSettingsSection(): React.ReactElement {
           Datenquellen-Legende
         </summary>
         <div className="mt-2 space-y-1 text-xs text-gray-500">
-          <p><strong>Status</strong> — Grün = aktiv (Plan zugewiesen oder Kosten vorhanden). Grau "Nicht abonniert" = kein aktiver Plan. Grau "Keine Daten" = noch nie gesynct.</p>
-          <p><strong>Plan</strong> — Dropdown mit allen bekannten Abos. Auswahl wird in der Datenbank gespeichert und beim nächsten Dashboard-Besuch verwendet.</p>
+          <p><strong>Status</strong> — Grün = aktiv (Plan zugewiesen oder Kosten vorhanden). Orange "Abgelaufen" = Plan mit überschrittenem Gültig-bis-Datum (Sync gestoppt, Ablaufmonat noch berechnet). Grau "Nicht abonniert" = kein aktiver Plan. Grau "Keine Daten" = noch nie gesynct.</p>
+          <p><strong>Plan</strong> — Dropdown mit allen bekannten Abos. Auswahl wird in der Datenbank gespeichert und beim nächsten Dashboard-Besuch verwendet. Eine Neuauswahl löscht ein gesetztes Ablaufdatum.</p>
+          <p><strong>Gültig bis</strong> — Optionales Ablaufdatum für gekündigte Abos. Ab diesem Datum wird der Anbieter nicht mehr synchronisiert und nicht mehr als aktiv gezählt; der Monat, in dem das Abo ausläuft, bleibt voll in den Kosten.</p>
           <p><strong>Nutzung</strong> — Live-Daten aus dem letzten Scrape. "—" bedeutet keine Nutzungsdaten in der aktuellen Abrechnungsperiode.</p>
         </div>
       </details>

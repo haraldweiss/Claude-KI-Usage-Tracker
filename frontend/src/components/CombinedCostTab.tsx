@@ -77,6 +77,20 @@ export default function CombinedCostTab(): React.ReactElement {
   // cannot be loaded, retain the prior fail-open behaviour.
   const providerActive = (key: string): boolean =>
     providers.length === 0 || !!providers.find((provider) => provider.key === key)?.plan_name;
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  const currentMonthStart = `${todayYmd.slice(0, 7)}-01`;
+  // Plan rows historically render un-gated here; only an EXPIRED plan
+  // (valid_until before this month) removes its fee from the current month.
+  // The expiry month itself keeps the fee — it was still paid.
+  const providerCountsThisMonth = (key: string): boolean => {
+    if (providers.length === 0) return true;
+    const validUntil = providers.find((p) => p.key === key)?.plan_valid_until;
+    return !validUntil || validUntil >= currentMonthStart;
+  };
+  const configuredPlan = (key: string, fallback: string | null | undefined): string | null => {
+    if (providers.length === 0) return fallback ?? null;
+    return providers.find((p) => p.key === key)?.plan_name ?? fallback ?? null;
+  };
 
   const showClaudeAi = providerActive('claude_ai');
   const rawApiTotal = combined?.anthropic_api?.cost_usd ?? 0;
@@ -88,13 +102,19 @@ export default function CombinedCostTab(): React.ReactElement {
   const opencodeGo: OpenCodeGoSpend | null = combined?.opencode_go ?? null;
   const zai: ZaiSpend | null = combined?.zai ?? null;
   const additionalUsageEur = showClaudeAi ? claudeAi?.cost_eur ?? 0 : 0;
-  const planSubscriptionEur = showClaudeAi ? subscriptionEur(plans, claudeAi?.meta?.plan_name) : 0;
+  const planSubscriptionEur = showClaudeAi && providerCountsThisMonth('claude_ai')
+    ? subscriptionEur(plans, claudeAi?.meta?.plan_name)
+    : 0;
   const claudeAiTotalEur = planSubscriptionEur + additionalUsageEur;
-  const opencodeGoEur = subscriptionEur(plans, 'OpenCode Go');
-  const zaiEur = subscriptionEur(plans, zai?.plan_name);
+  const opencodeGoEur = providerCountsThisMonth('opencode_go') ? subscriptionEur(plans, 'OpenCode Go') : 0;
+  const zaiEur = providerCountsThisMonth('zai') ? subscriptionEur(plans, zai?.plan_name) : 0;
   const cline: ClineSpend | null = combined?.cline ?? null;
-  const chatGptEur = subscriptionEur(plans, 'ChatGPT Plus');
-  const clineEur = subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0);
+  const chatGptEur = providerCountsThisMonth('codex')
+    ? subscriptionEur(plans, configuredPlan('codex', combined?.codex?.plan_name ?? 'ChatGPT Plus'))
+    : 0;
+  const clineEur = providerCountsThisMonth('cline')
+    ? (subscriptionEur(plans, cline?.plan_name) || (combined?.cline?.plan_cost_eur ?? 0))
+    : 0;
   const exchangeRate = combined?.exchange_rate;
   const usdToEur = exchangeRate?.usd_to_eur ?? 0.92;
   const allTimeClaudeAiEur = allTime?.claude_ai?.total_eur ?? 0;

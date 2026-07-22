@@ -372,7 +372,9 @@ export interface ProviderInfo {
   icon: string;
   status_label: string | null;
   plan_name: string | null;
-  derived_status: 'active' | 'no_data' | 'no_plan';
+  /** Last day (YYYY-MM-DD) the assigned plan is valid; null = open-ended. */
+  plan_valid_until: string | null;
+  derived_status: 'active' | 'expired' | 'no_data' | 'no_plan';
   last_sync: string | null;
   scrape_summary: Record<string, unknown> | null;
 }
@@ -383,4 +385,5 @@ export interface ProviderInfo {
 export interface ProviderConfigUpdate {
   status_label?: string;
   plan_name?: string | null;
+  plan_valid_until?: string | null;
 }

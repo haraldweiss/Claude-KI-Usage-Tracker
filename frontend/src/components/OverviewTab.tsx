@@ -129,14 +129,26 @@ export default function OverviewTab(): React.ReactElement {
   // track. A configured zero-cost "API Usage" plan activates API providers;
   // a missing plan excludes stale historical snapshots. Until the request is
   // available, fail open so existing installations keep rendering data.
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  const currentMonthStart = `${todayYmd.slice(0, 7)}-01`;
   const providerActive = (key: string): boolean => {
     if (providers.length === 0) return true;
     const p = providers.find((x) => x.key === key);
-    return !!p?.plan_name;
+    if (!p?.plan_name) return false;
+    // Plans past their valid_until date are expired → no longer active.
+    return !p.plan_valid_until || p.plan_valid_until > todayYmd;
   };
   const configuredPlan = (key: string, fallback: string | null | undefined): string | null => {
     if (providers.length === 0) return fallback ?? null;
     return providers.find((x) => x.key === key)?.plan_name ?? null;
+  };
+  // Cost rule: an expired plan still contributes to the month it ran out in
+  // (that month was paid); later months exclude it entirely.
+  const providerCountsThisMonth = (key: string): boolean => {
+    if (providers.length === 0) return true;
+    const p = providers.find((x) => x.key === key);
+    if (!p?.plan_name) return false;
+    return !p.plan_valid_until || p.plan_valid_until >= currentMonthStart;
   };
 
   const showClaudeAi = providerActive('claude_ai');
@@ -150,13 +162,23 @@ export default function OverviewTab(): React.ReactElement {
     ? (combined?.openai_api?.cost_usd ?? 0) * (combined?.exchange_rate?.usd_to_eur ?? 0.92)
     : 0;
   const additionalEur = showClaudeAi ? claudeAi?.cost_eur ?? 0 : 0;
-  const planEur = subscriptionEur(plans, configuredPlan('claude_ai', meta?.plan_name));
+  const planEur = providerCountsThisMonth('claude_ai')
+    ? subscriptionEur(plans, configuredPlan('claude_ai', meta?.plan_name))
+    : 0;
   const claudeAiTotalEur = planEur + additionalEur;
-  const opencodeGoEur = subscriptionEur(plans, configuredPlan('opencode_go', opencodeGo?.plan_name ?? 'OpenCode Go'));
-  const zaiEur = subscriptionEur(plans, configuredPlan('zai', zai?.plan_name));
-  const chatGptEur = subscriptionEur(plans, configuredPlan('codex', combined?.codex?.plan_name));
+  const opencodeGoEur = providerCountsThisMonth('opencode_go')
+    ? subscriptionEur(plans, configuredPlan('opencode_go', opencodeGo?.plan_name ?? 'OpenCode Go'))
+    : 0;
+  const zaiEur = providerCountsThisMonth('zai')
+    ? subscriptionEur(plans, configuredPlan('zai', zai?.plan_name))
+    : 0;
+  const chatGptEur = providerCountsThisMonth('codex')
+    ? subscriptionEur(plans, configuredPlan('codex', combined?.codex?.plan_name))
+    : 0;
   const configuredClinePlan = configuredPlan('cline', cline?.plan_name);
-  const clineEur = subscriptionEur(plans, configuredClinePlan) || (configuredClinePlan ? combined?.cline?.plan_cost_eur ?? 0 : 0);
+  const clineEur = providerCountsThisMonth('cline')
+    ? (subscriptionEur(plans, configuredClinePlan) || (configuredClinePlan ? combined?.cline?.plan_cost_eur ?? 0 : 0))
+    : 0;
   const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
 
   // Subscription side-cards shown to the right of the three core claude.ai
@@ -397,8 +419,11 @@ export default function OverviewTab(): React.ReactElement {
           const monthlyUsed = codexMeta?.monthly_remaining_pct != null ? 100 - codexMeta.monthly_remaining_pct : null;
           return (
           <div className="bg-white rounded-lg shadow p-5">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <div className="flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wide">
               ChatGPT Plus
+              {!providerActive('codex') && (
+                <span className="normal-case text-orange-700 bg-orange-100 rounded-full px-2 py-0.5">Abgelaufen</span>
+              )}
             </div>
             <div className="mt-2 text-xl font-bold text-gray-900">
               ChatGPT Plus

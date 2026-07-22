@@ -575,6 +575,13 @@ export function initDatabase(): Promise<void> {
               (tErr: Error | null) => (tErr ? reject(tErr) : resolve())
             );
           });
+          // 2026-07-22: plan expiry — date (YYYY-MM-DD) through which an assigned
+          // plan stays cost-effective. NULL = active indefinitely. A plan whose
+          // valid_until lies in the past is expired: no longer synced and no
+          // longer counted for months after the expiry month.
+          await addMissingColumns('provider_config', [
+            { name: 'plan_valid_until', ddl: 'TEXT' }
+          ]);
 
           // Benchmark trigger requests — created from the dashboard, consumed by agents on each machine
           await new Promise<void>((resolve, reject) => {
@@ -622,6 +629,7 @@ const ALLOWED_TABLES = new Set([
   'users', 'sessions', 'magic_link_tokens', 'api_tokens',
   'catalog_hf_cache', 'catalog_latest_uploads', 'catalog_local_pros_cons',
   'model_pros_cons', 'provider_service_events', 'provider_service_user_ids',
+  'provider_config',
 ]);
 
 function addMissingColumns(

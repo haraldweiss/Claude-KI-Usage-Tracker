@@ -20,6 +20,7 @@ interface ProviderConfigRow {
   provider_name: string;
   status_label: string | null;
   plan_name: string | null;
+  plan_valid_until: string | null;
 }
 
 interface UsageRow {
@@ -34,10 +35,16 @@ interface ProviderResponse {
   icon: string;
   status_label: string | null;      // user-set label from provider_config
   plan_name: string | null;         // user-set plan from provider_config
-  derived_status: 'active' | 'no_data' | 'no_plan';
+  plan_valid_until: string | null;  // last day (YYYY-MM-DD) the plan is valid; null = open-ended
+  derived_status: 'active' | 'expired' | 'no_data' | 'no_plan';
   last_sync: string | null;
   scrape_summary: Record<string, unknown> | null;
 }
+
+// Shared expiry rule lives in utils/planValidity.js — re-exported here so
+// existing imports from this controller keep working.
+export { isPlanExpired } from '../utils/planValidity.js';
+import { isPlanExpired } from '../utils/planValidity.js';
 
 /**
  * GET /settings/providers
@@ -49,7 +56,7 @@ export async function getProviders(req: Request, res: Response): Promise<void> {
 
     // 1. Load user's provider configs
     const configRows = await allQuery<ProviderConfigRow>(
-      `SELECT provider_name, status_label, plan_name FROM provider_config
+      `SELECT provider_name, status_label, plan_name, plan_valid_until FROM provider_config
        WHERE user_id = ?`,
       [userId]
     );
@@ -86,12 +93,14 @@ export async function getProviders(req: Request, res: Response): Promise<void> {
         scrapeSummary = { total_cost_usd: costUsd };
       }
 
-      const derived_status: 'active' | 'no_data' | 'no_plan' =
-        usageRow
-          ? (scrapeSummary?.plan_name || scrapeSummary?.total_cost_usd != null
-              ? 'active'
-              : 'no_plan')
-          : 'no_data';
+      const derived_status: ProviderResponse['derived_status'] =
+        config?.plan_name && isPlanExpired(config.plan_valid_until)
+          ? 'expired'
+          : usageRow
+            ? (scrapeSummary?.plan_name || scrapeSummary?.total_cost_usd != null
+                ? 'active'
+                : 'no_plan')
+            : 'no_data';
 
       result.push({
         key: prov.key,
@@ -99,6 +108,7 @@ export async function getProviders(req: Request, res: Response): Promise<void> {
         icon: prov.icon,
         status_label: config?.status_label ?? null,
         plan_name: config?.plan_name ?? null,
+        plan_valid_until: config?.plan_valid_until ?? null,
         derived_status,
         last_sync: usageRow?.timestamp ?? null,
         scrape_summary: scrapeSummary,
@@ -129,9 +139,10 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const { status_label, plan_name } = req.body as {
+    const { status_label, plan_name, plan_valid_until } = req.body as {
       status_label?: string;
       plan_name?: string | null;
+      plan_valid_until?: string | null;
     };
 
     // Validate status_label
@@ -140,21 +151,48 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
       return;
     }
 
+    // Validate plan_valid_until: ISO date (YYYY-MM-DD) or null
+    const hasValidUntil = Object.prototype.hasOwnProperty.call(req.body, 'plan_valid_until');
+    if (hasValidUntil && plan_valid_until != null && !/^\d{4}-\d{2}-\d{2}$/.test(plan_valid_until)) {
+      res.status(400).json({ error: 'plan_valid_until must be a YYYY-MM-DD date or null' });
+      return;
+    }
+
+    // Decide the effective plan_valid_until value:
+    //  - explicitly sent → use it (null clears the expiry → reactivation)
+    //  - a new plan was selected without an explicit date → clear expiry
+    //  - otherwise → keep the stored value
+    let validUntilToWrite: string | null;
+    if (hasValidUntil) {
+      validUntilToWrite = plan_valid_until ?? null;
+    } else if (plan_name) {
+      validUntilToWrite = null;
+    } else {
+      const existing = await getQuery<{ plan_valid_until: string | null }>(
+        `SELECT plan_valid_until FROM provider_config
+         WHERE user_id = ? AND provider_name = ?`,
+        [userId, providerName]
+      );
+      validUntilToWrite = existing?.plan_valid_until ?? null;
+    }
+
     // Upsert provider_config
     // NOTE: plan_name uses excluded.plan_name directly (not COALESCE) so that
     // setting plan_name = null actually clears the stored value. COALESCE would
     // keep the old value when null is passed, making deactivation impossible.
     await runQuery(
-      `INSERT INTO provider_config (user_id, provider_name, status_label, plan_name)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO provider_config (user_id, provider_name, status_label, plan_name, plan_valid_until)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(user_id, provider_name) DO UPDATE SET
          status_label = COALESCE(excluded.status_label, provider_config.status_label),
-         plan_name = excluded.plan_name`,
+         plan_name = excluded.plan_name,
+         plan_valid_until = excluded.plan_valid_until`,
       [
         userId,
         providerName,
         status_label ?? null,
         plan_name ?? null,
+        validUntilToWrite,
       ]
     );
 

@@ -5892,3 +5892,25 @@ Plan-Dropdowns und Plan-Preis-Tabelle gruppieren Pläne dynamisch:
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+
+
+### 2026-07-22 — ⚠️ Limit-Warnung: Agent-Handover erforderlich
+
+**Ausgelöst:** 2026-07-22 16:53
+
+**Kritische Limits (≥90%):**
+
+| Quelle | Limit | Verbrauch | Reset |
+|--------|-------|-----------|-------|
+| OpenCode Go | Weekly | 93% | 4 days 7 hours |
+
+**Alle Limits (absteigend):**
+
+| Quelle | Limit | Verbrauch | Status |
+|--------|-------|-----------|--------|
+| OpenCode Go | Weekly | 93% | 🔴 Kritisch |
+| OpenCode Go | Rolling Usage | 77% | 🟡 Erhöht |
+| OpenCode Go | Monthly | 55% | 🟢 OK |
+
+**Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
+

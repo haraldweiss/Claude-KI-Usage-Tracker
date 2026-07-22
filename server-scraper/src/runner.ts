@@ -10,7 +10,7 @@
  *   2. Unified (page, config): receives a Page + config, returns rows (codex)
  */
 import { closeBrowser, getContext, saveCookies } from './browser.js';
-import { postUsage } from './api.js';
+import { getActiveProviderKeys, postUsage } from './api.js';
 import type { ScraperConfig, ScraperResult, UsageTrackPayload } from './types.js';
 import { SCRAPER_REGISTRY } from './types.js';
 
@@ -47,6 +47,20 @@ const UNIFIED: Record<string, UnifiedHandler> = {
   codex: scrapeCodex,
 };
 
+// ---- Provider gating ----
+
+/** Maps scraper registry keys to provider_config keys (console ≠ anthropic_api). */
+const SCRAPER_PROVIDER_KEY: Record<string, string> = {
+  claude_ai: 'claude_ai',
+  console: 'anthropic_api',
+  claude_code: 'claude_code',
+  opencode_go: 'opencode_go',
+  zai: 'zai',
+  opencode_api: 'opencode_api',
+  codex: 'codex',
+  openai_api: 'openai_api',
+};
+
 // ---- Run Options ----
 
 export interface RunOptions {
@@ -70,11 +84,25 @@ export async function runAll(options: RunOptions = {}): Promise<ScraperResult[]>
 
   const results: ScraperResult[] = [];
 
+  // Provider gating: skip scrapers whose plan is unassigned or expired
+  // (plan_valid_until reached). null = config unavailable → fail open.
+  const activeProviders = await getActiveProviderKeys();
+
   for (const key of keys) {
     const config = SCRAPER_REGISTRY[key];
     if (!config) {
       results.push({ success: false, source: key, error: `Unknown scraper key "${key}"` });
       continue;
+    }
+
+    if (activeProviders) {
+      const providerKey = SCRAPER_PROVIDER_KEY[key] ?? key;
+      if (!activeProviders.has(providerKey)) {
+        console.log(`\n=== ${config.label} (${key}) ===`);
+        console.log(`  ⏭️  ${config.source}: provider inactive (plan expired or unassigned) — skipping`);
+        results.push({ success: true, source: config.source, skipped: true, reason: 'provider_inactive' });
+        continue;
+      }
     }
 
     console.log(`\n=== ${config.label} (${key}) ===`);

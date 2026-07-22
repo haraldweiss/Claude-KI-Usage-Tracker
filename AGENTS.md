@@ -5914,3 +5914,47 @@ Plan-Dropdowns und Plan-Preis-Tabelle gruppieren Pläne dynamisch:
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+### 2026-07-22 — plan_valid_until: ChatGPT Plus expired, general mechanism for expired plans
+
+**Problem:** ChatGPT Plus ran out on 2026-07-22. The dashboard still showed it as active, counted it in forecasts, grand totals, and handoff limit checks. There was no general mechanism to mark a plan as expired.
+
+**Solution (13 files, 5 commits):**
+
+| Commit | Scope | What |
+|---|---|---|
+| `e1401e9` | Backend core | Pure helpers: `isPlanExpired`, `planCountsForMonth`, `countActiveMonths` in `utils/planValidity.ts` + DB loader in `services/providerValidityService.ts` + unit tests (90 lines, all scenarios) |
+| `260c204` | Backend provider | `plan_valid_until` column migration on `provider_config`; GET returns `derived_status: 'expired'`; PATCH accepts `plan_valid_until`; selecting a new plan clears expiry |
+| `88eedcc` | Backend costs | `getSummary` codex/cline `plan_cost_eur` gated on validity; `getSpendingTotal` all plan multipliers use `countActiveMonths`; handoff skips expired/unassigned |
+| `a8cb184` | Frontend | ProviderSettingsSection: "Abgelaufen" badge + date input; OverviewTab/CombinedCostTab: validity-gated plan costs + "Abgelaufen" card badge; typed schemas |
+| `71c0d72` | Extension | `provider-sync-config.js` filters expired; `popup.js` hides expired rows. 4 browser variants |
+| `1f454fb` | Server-scraper | `getActiveProviderKeys()` in api.ts; runner gating skips inactive scrapers; fail-open on no config |
+
+**Semantics:**
+- `plan_valid_until` (YYYY-MM-DD, nullable) = last valid day. NULL = active indefinitely.
+- `isPlanExpired`: date <= today → expired.
+- `planCountsForMonth`: counts month M if `!valid_until || valid_until >= firstDayOfMonth(M)`.
+- Expired plans: excluded from sync (extension + server-scraper), forecast, "Aktive Abos", handoff limit checks. Month-of-expiry cost remains in totals.
+
+**Production:**
+- Codex `plan_valid_until='2026-07-22'` set in production DB
+- User 2 (server-scraper) provider config mirrored from user 1 via `INSERT OR REPLACE ... SELECT`
+- Deployed: backend (docker cp → restart), frontend (rsync), server-scraper (rsync)
+- Backend tests: 299/299 pass (3 suite-load failures pre-existing pino-pretty/jest-ESM)
+- Extension parser tests: 5 pass (incl. expiry test), 8 pre-existing ENOENT for moved files
+
+**Verification commands:**
+```bash
+# Provider status
+curl -s http://localhost:3001/api/settings/providers -H "Authorization: Bearer $(cat ~/.config/ki-tracker-token)" | jq '.providers[] | {key, plan_name, plan_valid_until, derived_status}'
+
+# Monthly summary (should still show 18.50€ for July)
+curl -s "http://localhost:3001/api/usage/summary?period=month" -H "Authorization: Bearer $(cat ~/.config/ki-tracker-token)" | jq '{codex_plan: .combined.codex.plan_cost_eur, grand_total: .grand_total_eur}'
+
+# Handoff (no longer includes codex)
+curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat ~/.config/ki-tracker-token)" | jq '.sections[].source'
+```
+
+**Next steps:**
+1. Verify server-scraper skips codex on oracle-vm: `ssh oracle-vm 'cd /opt/ki-usage-tracker/server-scraper && API_TOKEN=... npx tsx src/index.ts codex'`
+2. Set `plan_valid_until` for other expired plans (e.g., deprecated opencode_api if applicable)
+3. Optional: extend UI to show a timeline ("Plan läuft aus am: 2026-07-22")

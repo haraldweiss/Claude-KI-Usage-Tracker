@@ -5820,3 +5820,27 @@ Plan-Dropdowns und Plan-Preis-Tabelle gruppieren Pläne dynamisch:
 - Für Pay-as-you-go-Anbieter gibt es den kostenfreien Plan `API Usage`. Er aktiviert nur die Kostenprüfung und fügt keinen Abo-Posten hinzu.
 - Chromium-, Edge-, Opera- und Firefox-Extensions lesen die Provider-Auswahl vor dem Hard-Sync und überspringen nicht aktivierte Quellen. Die Chromium-Hauptvariante exportiert außerdem nur Cookies der aktivierten Anbieter an den Server-Scraper.
 - Nach Änderung: Extension neu laden → **Einstellungen → Provider-Übersicht** prüfen → Popup **„Sync geschützte Quellen“** starten. Erwartung: Nur aktivierte Anbieter werden als Tabs geöffnet; das Dashboard enthält ihre API-Ausgaben in „Diesen Monat“.
+
+
+### 2026-07-22 — ⚠️ Limit-Warnung: Agent-Handover erforderlich
+
+**Ausgelöst:** 2026-07-22 05:51
+
+**Kritische Limits (≥90%):**
+
+| Quelle | Limit | Verbrauch | Reset |
+|--------|-------|-----------|-------|
+| OpenCode Go | Rolling Usage | 100% | 3 hours 38 minutes |
+
+**Alle Limits (absteigend):**
+
+| Quelle | Limit | Verbrauch | Status |
+|--------|-------|-----------|--------|
+| OpenCode Go | Rolling Usage | 100% | 🔴 Kritisch |
+| OpenCode Go | Weekly | 49% | 🟢 OK |
+| Codex (ChatGPT) | Weekly | 47% | 🟢 OK |
+| OpenCode Go | Monthly | 33% | 🟢 OK |
+| Codex (ChatGPT) | 5h Quota | 1% | 🟢 OK |
+
+**Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
+

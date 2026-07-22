@@ -6032,3 +6032,26 @@ curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat 
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+
+
+### 2026-07-22 — ⚠️ Limit-Warnung: Agent-Handover erforderlich
+
+**Ausgelöst:** 2026-07-22 20:53
+
+**Kritische Limits (≥90%):**
+
+| Quelle | Limit | Verbrauch | Reset |
+|--------|-------|-----------|-------|
+| OpenCode Go | Weekly | 100% | 4 days 3 hours |
+| OpenCode Go | Rolling Usage | 94% | 35 minutes |
+
+**Alle Limits (absteigend):**
+
+| Quelle | Limit | Verbrauch | Status |
+|--------|-------|-----------|--------|
+| OpenCode Go | Weekly | 100% | 🔴 Kritisch |
+| OpenCode Go | Rolling Usage | 94% | 🔴 Kritisch |
+| OpenCode Go | Monthly | 59% | 🟢 OK |
+
+**Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
+

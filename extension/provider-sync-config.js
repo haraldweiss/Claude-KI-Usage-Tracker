@@ -17,9 +17,12 @@
   };
 
   function getConfiguredProviderKeys(providers) {
+    const today = new Date().toISOString().slice(0, 10);
     return new Set(
       (Array.isArray(providers) ? providers : [])
         .filter((provider) => typeof provider?.key === 'string' && typeof provider?.plan_name === 'string' && provider.plan_name.trim() !== '')
+        // Plans past their plan_valid_until date are expired → not synced anymore.
+        .filter((provider) => !provider?.plan_valid_until || provider.plan_valid_until > today)
         .map((provider) => provider.key)
     );
   }

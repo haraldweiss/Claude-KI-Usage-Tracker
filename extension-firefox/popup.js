@@ -242,7 +242,10 @@ function shouldShowProviderRow(providerKey, providerConfigs, hasData) {
   // If we have provider configs, only show providers with a configured plan
   if (providerConfigs && providerConfigs.length > 0) {
     const config = providerConfigs.find(p => p.key === providerKey);
-    return config?.plan_name ? true : false;
+    if (!config?.plan_name) return false;
+    // Expired plans (plan_valid_until reached) are no longer shown.
+    if (config.plan_valid_until && config.plan_valid_until <= new Date().toISOString().slice(0, 10)) return false;
+    return true;
   }
 
   // Fallback: no provider configs available → show if there's data

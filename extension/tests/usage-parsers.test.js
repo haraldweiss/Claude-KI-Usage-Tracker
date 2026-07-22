@@ -54,6 +54,25 @@ test('uses only explicitly configured providers for extension syncs', () => {
   );
 });
 
+test('excludes expired plans from extension syncs', () => {
+  const { getConfiguredProviderKeys } = loadOptionalScript('provider-sync-config.js');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+  assert.deepEqual(
+    Array.from(getConfiguredProviderKeys([
+      { key: 'zai', plan_name: 'GLM Coding Lite-Monthly Plan', plan_valid_until: null },
+      { key: 'codex', plan_name: 'ChatGPT Plus', plan_valid_until: yesterday }, // expired → excluded
+      { key: 'cline', plan_name: 'Cline Pass', plan_valid_until: today },        // expires today → excluded
+      { key: 'opencode_go', plan_name: 'OpenCode Go', plan_valid_until: tomorrow }, // still valid
+      { key: 'openai_api', plan_name: 'API Usage' }                              // no date → active
+    ])).sort(),
+    ['openai_api', 'opencode_go', 'zai']
+  );
+});
+
 test('parses German Codex percentages as remaining capacity', () => {
   const { parseCodexUsageText } = loadParser('usage-parser-codex.js');
   const result = parseCodexUsageText(`

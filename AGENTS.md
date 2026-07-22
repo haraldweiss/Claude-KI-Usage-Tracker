@@ -5963,3 +5963,26 @@ curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat 
 1. ✅ Server-scraper skips codex — verified live on oracle-vm: `--scraper codex` → `⏭️ codex_sync: provider inactive (plan expired or unassigned)`
 2. ✅ No other expired plans in production DB — only codex has `plan_valid_until`
 3. ✅ Expiry date shown on ChatGPT Plus card in OverviewTab: "Abgelaufen bis 2026-07-22"
+
+
+### 2026-07-22 — ⚠️ Limit-Warnung: Agent-Handover erforderlich
+
+**Ausgelöst:** 2026-07-22 17:53
+
+**Kritische Limits (≥90%):**
+
+| Quelle | Limit | Verbrauch | Reset |
+|--------|-------|-----------|-------|
+| OpenCode Go | Weekly | 100% | 4 days 6 hours |
+| OpenCode Go | Rolling Usage | 94% | 3 hours 37 minutes |
+
+**Alle Limits (absteigend):**
+
+| Quelle | Limit | Verbrauch | Status |
+|--------|-------|-----------|--------|
+| OpenCode Go | Weekly | 100% | 🔴 Kritisch |
+| OpenCode Go | Rolling Usage | 94% | 🔴 Kritisch |
+| OpenCode Go | Monthly | 59% | 🟢 OK |
+
+**Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
+

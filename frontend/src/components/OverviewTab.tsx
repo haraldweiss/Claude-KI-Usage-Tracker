@@ -421,9 +421,16 @@ export default function OverviewTab(): React.ReactElement {
           <div className="bg-white rounded-lg shadow p-5">
             <div className="flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wide">
               ChatGPT Plus
-              {!providerActive('codex') && (
-                <span className="normal-case text-orange-700 bg-orange-100 rounded-full px-2 py-0.5">Abgelaufen</span>
-              )}
+              {!providerActive('codex') && (() => {
+                const codexProvider = providers.find(p => p.key === 'codex');
+                const vu = codexProvider?.plan_valid_until;
+                return (
+                  <div className="flex items-center gap-2 normal-case">
+                    <span className="text-orange-700 bg-orange-100 rounded-full px-2 py-0.5">Abgelaufen</span>
+                    {vu && <span className="text-[10px] text-orange-600 whitespace-nowrap">bis {vu}</span>}
+                  </div>
+                );
+              })()}
             </div>
             <div className="mt-2 text-xl font-bold text-gray-900">
               ChatGPT Plus

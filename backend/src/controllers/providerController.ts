@@ -14,6 +14,7 @@ const KNOWN_PROVIDERS = [
   { key: 'codex',           display_name: 'ChatGPT Codex',       source: 'codex_sync',               icon: '📝' },
   { key: 'openai_api',      display_name: 'OpenAI API',          source: 'openai_api_sync',          icon: '🟢' },
   { key: 'cline',           display_name: 'Cline',               source: 'cline_sync',               icon: '🤖' },
+  { key: 'openrouter',      display_name: 'OpenRouter',          source: 'openrouter_sync',          icon: '🌐' },
 ] as const;
 
 interface ProviderConfigRow {
@@ -291,6 +292,13 @@ function summarizeScrape(
       return {
         plan_name: meta.plan_name ?? null,
         price_usd: meta.price_usd ?? null,
+      };
+    }
+    case 'openrouter': {
+      return {
+        total_cost_usd: meta.total_cost_usd ?? row.cost ?? null,
+        credits_remaining: meta.credits_remaining ?? null,
+        model_count: meta.model_count ?? null,
       };
     }
     default:

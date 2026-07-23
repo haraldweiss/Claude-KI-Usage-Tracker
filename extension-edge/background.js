@@ -564,6 +564,37 @@ async function syncHardSources() {
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'cline', ok: false, error: e.message }); }
 
+  // 7. OpenRouter (credits page)
+  if (configuredProviders.has('openrouter')) {
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://openrouter.ai/credits',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 8000));
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        // Look for credits balance: "$10.00" or "€10.00" or "10.00 credits"
+        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\\s]*[€$]?\\s*([\\d.,]+)/i)
+          || text.match(/[€$]\\s*([\\d.,]+)\\s*(?:credits?|EUR|USD)/i);
+        // Try to find model count if visible
+        const modelMatch = text.match(/(\\d+)\\s*(?:models?|modelle)/i);
+        return {
+          credits_remaining: creditMatch ? parseFloat(creditMatch[1].replace(',', '')) : null,
+          model_count: modelMatch ? parseInt(modelMatch[1], 10) : null,
+        };
+      }
+    }).catch(() => null);
+    if (inj?.result) {
+      await postSource('openrouter_sync', 'OpenRouter (Extension)', inj.result);
+      results.push({ source: 'openrouter', ok: true });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'openrouter', ok: false, error: e.message }); }
+  } else { results.push({ source: 'openrouter', ok: true, skipped: true, reason: 'not_configured' }); }
+
   chrome.tabs.create = originalCreateTab;
   const normalized = results.map((result) => result.error === 'not_configured'
     ? { ...result, ok: true, skipped: true, reason: 'not_configured' }

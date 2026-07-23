@@ -48,6 +48,7 @@ const PROVIDER_ALLOWED_PLAN_GROUPS: Record<string, string[]> = {
   codex:           ['chatgpt'],
   openai_api:      ['api_usage'],
   cline:           ['cline_pass'],
+  openrouter:      ['api_usage'],
 };
 
 /* ------------------------------------------------------------------ */
@@ -60,6 +61,7 @@ const PROVIDER_META: Record<string, { icon: string; color: string; group: string
   codex:           { icon: '💬', color: 'bg-green-600', group: 'subscription', scrapeUrl: 'https://chatgpt.com/codex/settings/usage' },
   zai:             { icon: '🧠', color: 'bg-purple-600', group: 'subscription', scrapeUrl: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan' },
   cline:           { icon: '🤖', color: 'bg-violet-500', group: 'subscription', scrapeUrl: '' },
+  openrouter:      { icon: '🔀', color: 'bg-fuchsia-600', group: 'api', scrapeUrl: 'https://openrouter.ai/credits' },
   anthropic_api:   { icon: '🔑', color: 'bg-blue-600', group: 'api', scrapeUrl: 'https://platform.claude.com/settings/keys' },
   claude_code:     { icon: '💻', color: 'bg-indigo-600', group: 'api', scrapeUrl: 'https://platform.claude.com/claude-code/usage' },
   opencode_api:    { icon: '🔌', color: 'bg-sky-600', group: 'api', scrapeUrl: 'https://opencode.ai/…/usage' },
@@ -138,6 +140,10 @@ function formatDetail(key: string, summary: Record<string, unknown> | null): str
     case 'openai_api':
       return s.total_cost_usd != null
         ? `${formatUsd(s.total_cost_usd as number)} · ${s.organization ?? '—'}`
+        : '—';
+    case 'openrouter':
+      return s.credits_remaining != null
+        ? `${(s.credits_remaining as number).toFixed(2)} Credits · ${s.model_count ?? '?'} Models`
         : '—';
     default:
       return '—';

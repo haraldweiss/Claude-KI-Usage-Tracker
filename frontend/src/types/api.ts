@@ -103,6 +103,12 @@ export interface CombinedSpendBreakdown {
     last_synced: string | null;
   } | null;
   cline?: ClineSpend | null;
+  openrouter?: {
+    credits_remaining: number | null;
+    model_count: number | null;
+    total_cost_usd: number | null;
+    last_synced: string | null;
+  } | null;
   exchange_rate?: {
     usd_to_eur: number;
     rate_date: string | null;
@@ -186,6 +192,12 @@ export interface SpendingTotal {
     plan_name: string | null;
     monthly_eur: number;
     total_eur: number;
+  };
+  openrouter?: {
+    credits_remaining: number | null;
+    model_count: number | null;
+    total_cost_usd: number | null;
+    last_synced: string | null;
   };
   grand_total_eur?: number;
   exchange_rate?: {

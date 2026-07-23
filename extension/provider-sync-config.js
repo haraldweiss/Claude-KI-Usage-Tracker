@@ -13,7 +13,8 @@
     zai: ['z.ai', 'www.z.ai'],
     codex: ['chatgpt.com', 'www.chatgpt.com'],
     openai_api: ['platform.openai.com', 'www.platform.openai.com'],
-    cline: ['app.cline.bot', 'www.app.cline.bot']
+    cline: ['app.cline.bot', 'www.app.cline.bot'],
+    openrouter: ['openrouter.ai', 'www.openrouter.ai']
   };
 
   function getConfiguredProviderKeys(providers) {

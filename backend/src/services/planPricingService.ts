@@ -36,10 +36,13 @@ const SEED_PLANS: Array<Omit<PlanPricingRow, 'last_updated'>> = [
   { plan_name: 'ChatGPT Plus', monthly_eur: 18.5, min_seats: 1, source: 'tier_default' },
   { plan_name: 'ChatGPT Pro', monthly_eur: 92, min_seats: 1, source: 'tier_default' },
   { plan_name: 'ChatGPT Pro (20x)', monthly_eur: 185, min_seats: 1, source: 'tier_default' },
-  // Cline coding assistant subscription. User sets the actual price in settings;
+// Cline coding assistant subscription. User sets the actual price in settings;
   // seeds are placeholders for the dashboard to show the card even without scraped data.
   { plan_name: 'Cline Pass', monthly_eur: 20, min_seats: 1, source: 'tier_default' },
-  { plan_name: 'Cline Pass Yearly', monthly_eur: 10, min_seats: 1, source: 'tier_default' }
+  { plan_name: 'Cline Pass Yearly', monthly_eur: 10, min_seats: 1, source: 'tier_default' },
+  // OpenRouter pay-as-you-go. Seed at $0/mo — user adds their credit balance manually.
+  // The extension scraper will populate actual usage from openrouter.ai/credits.
+  { plan_name: 'OpenRouter', monthly_eur: 0, min_seats: 1, source: 'tier_default' },
 ];
 
 /**

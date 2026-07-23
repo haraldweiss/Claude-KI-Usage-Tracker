@@ -192,7 +192,8 @@ export enum SourceType {
   AnthropicConsoleCostMonth = 'anthropic_console_cost_month',
   CodexSync = 'codex_sync',
   OpenAiApiSync = 'openai_api_sync',
-  ClineSync = 'cline_sync'
+  ClineSync = 'cline_sync',
+  OpenRouterSync = 'openrouter_sync'
 }
 
 /**

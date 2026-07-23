@@ -6492,3 +6492,25 @@ curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat 
 **Architektur-Entscheidung:** OpenRouter ist **pay-as-you-go** — kein Abo, keine Limits. Plan "API Usage" (€0/mo) aktiviert nur das Scrapen. Kein Handoff-Check, keine Forecast-Kosten.
 
 **Deploy:** Frontend + Backend built & rsync'd, Extension reloaded. Verifiziert via `GET /api/settings/providers` + `GET /api/usage/summary?period=month` → `combined.openrouter` vorhanden.
+
+
+### 2026-07-23 — ⚠️ Limit-Warnung: Agent-Handover erforderlich
+
+**Ausgelöst:** 2026-07-23 17:51
+
+**Kritische Limits (≥90%):**
+
+| Quelle | Limit | Verbrauch | Reset |
+|--------|-------|-----------|-------|
+| OpenCode Go | Weekly | 100% | 3 days 6 hours |
+
+**Alle Limits (absteigend):**
+
+| Quelle | Limit | Verbrauch | Status |
+|--------|-------|-----------|--------|
+| OpenCode Go | Weekly | 100% | 🔴 Kritisch |
+| OpenCode Go | Monthly | 59% | 🟢 OK |
+| OpenCode Go | Rolling Usage | 0% | 🟢 OK |
+
+**Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
+

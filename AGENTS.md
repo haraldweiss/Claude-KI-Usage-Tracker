@@ -18,7 +18,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 
 ## 1. What this project is
 
-- **Multi-source AI cost tracker**: surfaces real spend from 7 disconnected places into one dashboard:
+- **Multi-source AI cost tracker**: surfaces real spend from 8 disconnected places into one dashboard:
   1. `claude.ai/settings/usage` — consumer subscription
   2. `console.anthropic.com/settings/keys` — workspace API keys
   3. `platform.claude.com/claude-code` — Claude Code keys + LOC metrics
@@ -26,6 +26,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
   5. `z.ai/manage-apikey/coding-plan` — GLM Coding Plan subscription (added 2026-06-14)
   6. `chatgpt.com/codex/settings/usage` — ChatGPT Pro/Plus Codex usage (added 2026-06-22)
   7. `platform.openai.com/usage` — OpenAI API month-to-date spend (added 2026-06-22)
+  8. `openrouter.ai/credits` — OpenRouter credits balance + 30-day activity usage (added 2026-07-23)
 - Three components: **backend** (Express + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3 + 4 Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
 - Hosted at `https://wolfinisoftware.de/claudetracker/` with magic-link auth + API tokens
 - Default branch: `main`, remote: `github.com:haraldweiss/Claude-KI-Usage-Tracker`
@@ -145,6 +146,7 @@ If a sibling repo is touched in the same session (`wolfini_de_web`, `ai-provider
 | Pricing fallback | `backend/src/data/pricing-fallback.ts` |
 | OpenCode Go scraper | `extension/background.js::opencodeGoSync()` |
 | z.ai scraper | `extension/background-scraper-zai.js::zaiSync()` |
+| OpenRouter scraper | `extension/background.js` (syncHardSources step 7) |
 | claude.ai scraper | `extension/background.js` (legacy of all scrapers) |
 | Edge-Variante | `extension-edge/` (manifest + browser_specific_settings) |
 | Opera-Variante | `extension-opera/` (manifest + browser_specific_settings) |
@@ -6473,3 +6475,20 @@ curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat 
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+
+
+### 2026-07-23 — OpenRouter als 8. Kostenquelle integriert (opencode)
+
+**Was:** OpenRouter (openrouter.ai) als achte Kostenquelle hinzugefügt — Pay-as-you-go Credits mit 30-Tage-Usage-Statistiken.
+
+**Scope:** 12 Dateien geändert, ~280 Zeilen hinzugefügt.
+
+| Bereich | Dateien | Details |
+|---------|---------|---------|
+| **Backend** | `types/models.ts`, `planPricingService.ts`, `usageController.ts`, `providerController.ts` | `SourceType.OpenRouterSync`, Seed "OpenRouter" = €0/mo, `combined.openrouter` in `/summary` (credits_remaining, total_cost_usd, total_tokens, total_requests, model_count, model_rows), Provider-Config |
+| **Frontend** | `ProviderSettingsSection.tsx`, `types/api.ts` | PROVIDER_META (🔀 fuchsia, api group), allowed plan group `api_usage`, `formatDetail` für Credits+Models, Typ-Erweiterungen |
+| **Extension (4 Varianten)** | `background.js`, `provider-sync-config.js`, Edge/Opera/Firefox `background.js` | Sync Step #7: 1) `openrouter.ai/credits` (credits, model count), 2) `openrouter.ai/activity?date_preset=past_30_days` (total_cost_usd, tokens, requests, model breakdown table). Regex via `new RegExp()` für Escape-Sicherheit. |
+
+**Architektur-Entscheidung:** OpenRouter ist **pay-as-you-go** — kein Abo, keine Limits. Plan "API Usage" (€0/mo) aktiviert nur das Scrapen. Kein Handoff-Check, keine Forecast-Kosten.
+
+**Deploy:** Frontend + Backend built & rsync'd, Extension reloaded. Verifiziert via `GET /api/settings/providers` + `GET /api/usage/summary?period=month` → `combined.openrouter` vorhanden.

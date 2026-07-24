@@ -81,6 +81,12 @@ export const SCRAPER_REGISTRY: Record<string, ScraperConfig> = {
     loginUrl: 'https://platform.openai.com/login',
     cookieKey: 'openai-api',
   },
+  openrouter: {
+    label: 'OpenRouter',
+    source: 'openrouter_sync',
+    loginUrl: 'https://openrouter.ai/workspaces/default',
+    cookieKey: 'openrouter',
+  },
 };
 
 /** Scrapers that share the same auth domain */

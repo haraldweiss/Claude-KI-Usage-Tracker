@@ -536,7 +536,7 @@ async function syncHardSources() {
   if (configuredProviders.has('openrouter')) {
   try {
     const tab = await chrome.tabs.create({
-      url: 'https://openrouter.ai/credits',
+      url: 'https://openrouter.ai/workspaces/default',
       active: true
     });
     await new Promise(r => setTimeout(r, 8000));

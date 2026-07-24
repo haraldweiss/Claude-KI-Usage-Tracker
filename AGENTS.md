@@ -49,8 +49,6 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - Production deploys (port 3001, systemd, log rotation)
 - `extension/manifest.json` permission changes (review carefully — Chrome flags new host_permissions on update)
 
----
-
 ## 3. Hard rules
 
 ### 3.0 Keine Subagenten bei Claude/Anthropic-Modellen ⛔ (bis auf Widerruf)
@@ -76,6 +74,12 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
   - Increase render delays before scraping (e.g. 2.5s → 4s)
   - Search before/after the percentage match, not only one direction
 - Don't aggressively cache scraper results — make them idempotent so a re-sync just upserts.
+- **⚠️ Neue Provider-Scraper = `manifest.json` Pflichtupdate**: Jeder neue Extension-Scraper für eine Domain (z.B. `openrouter.ai`) muss in `host_permissions` (MV3) bzw. `permissions` (MV2 Firefox) aller 4 Extension-Varianten eingetragen werden:
+  - `extension/manifest.json` (Chrome)
+  - `extension-edge/manifest.json` (Edge)
+  - `extension-opera/manifest.json` (Opera)
+  - `extension-firefox/manifest.json` (Firefox)
+  - Fehlt der Eintrag, blockiert Chrome den Tab-Zugriff still — der Scraper liefert `null` ohne Fehlermeldung.
 - **claude.ai scraper (`background-scraper-claude.js`) — two hard constraints learned 2026-06-19:**
   - Always open new tabs with `active: true` — Cloudflare blocks `active: false` (hidden) tabs with a Private Access Token challenge; the page never loads.
   - Never use hash navigation (`window.location.hash = 'settings/usage'`) to reach the usage page from a `/new` SPA tab — this triggers a client-side redirect that puts the tab in a transient state where `executeScript` throws "Cannot access contents of the page". Always navigate directly to `USAGE_PAGE_URL` via `chrome.tabs.update`.
@@ -6487,7 +6491,7 @@ curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat 
 |---------|---------|---------|
 | **Backend** | `types/models.ts`, `planPricingService.ts`, `usageController.ts`, `providerController.ts` | `SourceType.OpenRouterSync`, Seed "OpenRouter" = €0/mo, `combined.openrouter` in `/summary` (credits_remaining, total_cost_usd, total_tokens, total_requests, model_count, model_rows), Provider-Config |
 | **Frontend** | `ProviderSettingsSection.tsx`, `types/api.ts` | PROVIDER_META (🔀 fuchsia, api group), allowed plan group `api_usage`, `formatDetail` für Credits+Models, Typ-Erweiterungen |
-| **Extension (4 Varianten)** | `background.js`, `provider-sync-config.js`, Edge/Opera/Firefox `background.js` | Sync Step #7: 1) `openrouter.ai/credits` (credits, model count), 2) `openrouter.ai/activity?date_preset=past_30_days` (total_cost_usd, tokens, requests, model breakdown table). Regex via `new RegExp()` für Escape-Sicherheit. |
+| **Extension (4 Varianten)** | `background.js`, `provider-sync-config.js`, Edge/Opera/Firefox `background.js`, **alle `manifest.json`** | Sync Step #7: 1) `openrouter.ai/workspaces/default` (credits, model count), 2) `openrouter.ai/activity?date_preset=past_30_days` (total_cost_usd, tokens, requests, model breakdown table). ⚠️ `manifest.json` **muss** `https://openrouter.ai/*` in `host_permissions` haben — sonst blockiert Chrome den Tab. |
 
 **Architektur-Entscheidung:** OpenRouter ist **pay-as-you-go** — kein Abo, keine Limits. Plan "API Usage" (€0/mo) aktiviert nur das Scrapen. Kein Handoff-Check, keine Forecast-Kosten.
 

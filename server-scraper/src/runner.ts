@@ -23,6 +23,7 @@ import { scrapeZai } from './scrapers/zai.js';
 import { scrapeClaudeCode } from './scrapers/claude-code.js';
 import { scrapeOpenCodeApiUsage } from './scrapers/opencode-api-usage.js';
 import { scrape as scrapeCodex } from './scrapers/codex.js';
+import { scrapeOpenRouter } from './scrapers/openrouter.js';
 
 // ---- Handlers ----
 
@@ -35,6 +36,7 @@ const SELF_CONTAINED: Record<string, () => Promise<ScraperResult>> = {
   zai: scrapeZai,
   claude_code: scrapeClaudeCode,
   opencode_api: scrapeOpenCodeApiUsage,
+  openrouter: scrapeOpenRouter,
 };
 
 /** Unified handlers — receive (page, config), return ScraperResult with optional rows[] */
@@ -59,6 +61,7 @@ const SCRAPER_PROVIDER_KEY: Record<string, string> = {
   opencode_api: 'opencode_api',
   codex: 'codex',
   openai_api: 'openai_api',
+  openrouter: 'openrouter',
 };
 
 // ---- Run Options ----

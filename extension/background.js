@@ -453,8 +453,14 @@ async function syncHardSources() {
       }
     }).catch(() => null);
     if (inj?.result) {
-      await postSource('opencode_go_sync', 'OpenCode Go (Extension)', inj.result);
-      results.push({ source: 'opencode_go', ok: true });
+      const hasValidPct = inj.result.continuous_pct != null || inj.result.weekly_pct != null || inj.result.monthly_pct != null;
+      if (hasValidPct) {
+        await postSource('opencode_go_sync', 'OpenCode Go (Extension)', inj.result);
+        results.push({ source: 'opencode_go', ok: true });
+      } else {
+        console.log('[sync-hard] opencode_go skipped: all null values (page likely not loaded)');
+        results.push({ source: 'opencode_go', ok: true, skipped: true, reason: 'no_data' });
+      }
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'opencode_go', ok: false, error: e.message }); }
@@ -587,8 +593,14 @@ async function syncHardSources() {
 
     const combined = { ...creditsData, ...(usageInj?.result || {}) };
     if (combined && Object.keys(combined).length > 0) {
-      await postSource('openrouter_sync', 'OpenRouter (Extension)', combined);
-      results.push({ source: 'openrouter', ok: true });
+      const hasValidData = combined.total_cost_usd != null || combined.total_requests != null;
+      if (hasValidData) {
+        await postSource('openrouter_sync', 'OpenRouter (Extension)', combined);
+        results.push({ source: 'openrouter', ok: true });
+      } else {
+        console.log('[sync-hard] openrouter skipped: all null values (page likely not loaded)');
+        results.push({ source: 'openrouter', ok: true, skipped: true, reason: 'no_data' });
+      }
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'openrouter', ok: false, error: e.message }); }

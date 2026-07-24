@@ -157,7 +157,8 @@ function buildInsights(
     ? combined.opencode_api.total_cost_usd * usdToEur : 0;
   const openaiApiEur = combined?.openai_api?.cost_usd
     ? combined.openai_api.cost_usd * usdToEur : 0;
-  const grandTotalEur = claudeAiTotalEur + apiEur + opencodeGoEur + zaiEur + codexEur + clineEur + opencodeApiEur + openaiApiEur;
+  const openRouterEur = (combined?.openrouter?.total_cost_usd ?? 0) * usdToEur;
+  const grandTotalEur = claudeAiTotalEur + apiEur + opencodeGoEur + zaiEur + codexEur + clineEur + opencodeApiEur + openaiApiEur + openRouterEur;
   const daysTracked = daysSince(allTime?.since);
 
   // -------- Plan right-sizing --------

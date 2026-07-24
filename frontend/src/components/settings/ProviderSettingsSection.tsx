@@ -142,9 +142,14 @@ function formatDetail(key: string, summary: Record<string, unknown> | null): str
         ? `${formatUsd(s.total_cost_usd as number)} · ${s.organization ?? '—'}`
         : '—';
     case 'openrouter':
-      return s.credits_remaining != null
-        ? `${(s.credits_remaining as number).toFixed(2)} Credits · ${s.model_count ?? '?'} Models`
-        : '—';
+      if (s.credits_remaining == null && s.total_cost_usd == null) return '—';
+      const parts: string[] = [];
+      if (s.credits_remaining != null) parts.push(`${(s.credits_remaining as number).toFixed(2)} Credits`);
+      if (s.total_cost_usd != null) parts.push(`${formatUsd(s.total_cost_usd as number)} (30d)`);
+      if (s.total_tokens != null) parts.push(`${(s.total_tokens as number).toLocaleString()} Tokens`);
+      if (s.total_requests != null) parts.push(`${(s.total_requests as number).toLocaleString()} Requests`);
+      if (s.model_count != null) parts.push(`${s.model_count} Models`);
+      return parts.join(' · ');
     default:
       return '—';
   }

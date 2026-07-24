@@ -134,7 +134,10 @@ export default function CombinedCostTab(): React.ReactElement {
   const openAiApiEur = providerActive('openai_api')
     ? (combined?.openai_api?.cost_usd ?? 0) * usdToEur
     : 0;
-  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
+  const openrouter = combined?.openrouter ?? null;
+  const openRouterCostUsd = openrouter?.total_cost_usd ?? 0;
+  const openRouterEur = openRouterCostUsd * usdToEur;
+  const grandTotalEur = claudeAiTotalEur + apiTotalEurEquiv + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur + openRouterEur;
 
   const noData = grandTotalEur === 0 && !showClaudeAi && !showAnthropicApi;
   const showApiKeyDetails = showAnthropicApi || providerActive('claude_code');
@@ -149,6 +152,7 @@ export default function CombinedCostTab(): React.ReactElement {
     zaiEur > 0 ? `z.ai ${formatEur(zaiEur)}` : null,
     chatGptEur > 0 ? `ChatGPT Plus ${formatEur(chatGptEur)}` : null,
     clineEur > 0 ? `Cline ${formatEur(clineEur)}` : null,
+    openRouterEur > 0 ? `OpenRouter ≈ ${formatEur(openRouterEur)}` : null,
   ].filter((item): item is string => item !== null);
 
   return (
@@ -585,6 +589,96 @@ export default function CombinedCostTab(): React.ReactElement {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* OpenRouter (API Gateway / Pay-as-you-go) */}
+      {openRouterEur > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">OpenRouter</h3>
+            <span className="text-xs px-2 py-1 bg-fuchsia-100 text-fuchsia-700 rounded font-medium">
+              API-Gateway
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            Pay-as-you-go API-Router
+            {openRouterEur > 0 && <> · ~{formatEur(openRouterEur)} (30d)</>}
+          </p>
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+            {openrouter?.credits_remaining != null && (
+              <div>
+                <div className="text-gray-500">Credits</div>
+                <div className="font-medium">{openrouter.credits_remaining.toFixed(2)}</div>
+              </div>
+            )}
+            {openrouter?.total_cost_usd != null && (
+              <div>
+                <div className="text-gray-500">Kosten (30d)</div>
+                <div className="font-medium">{formatUsd(openrouter.total_cost_usd)}</div>
+              </div>
+            )}
+            {openrouter?.total_tokens != null && (
+              <div>
+                <div className="text-gray-500">Tokens (30d)</div>
+                <div className="font-medium">{openrouter.total_tokens.toLocaleString()}</div>
+              </div>
+            )}
+            {openrouter?.total_requests != null && (
+              <div>
+                <div className="text-gray-500">Requests (30d)</div>
+                <div className="font-medium">{openrouter.total_requests.toLocaleString()}</div>
+              </div>
+            )}
+            {openrouter?.model_count != null && (
+              <div>
+                <div className="text-gray-500">Modelle</div>
+                <div className="font-medium">{openrouter.model_count}</div>
+              </div>
+            )}
+          </div>
+          {openrouter?.model_rows != null && openrouter.model_rows.length > 0 && (
+            <div className="mt-4">
+              <details>
+                <summary className="text-sm cursor-pointer text-blue-600 hover:text-blue-800 font-medium">
+                  Modell-Details ({openrouter.model_rows.length}) ▸
+                </summary>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-xs text-gray-700 border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-1.5 pr-3 font-medium text-gray-500">Modell</th>
+                        {openrouter.model_rows[0].length > 1 && (
+                          <th className="text-right py-1.5 pl-3 font-medium text-gray-500">Kosten</th>
+                        )}
+                        {openrouter.model_rows[0].length > 2 && (
+                          <th className="text-right py-1.5 pl-3 font-medium text-gray-500">Tokens</th>
+                        )}
+                        {openrouter.model_rows[0].length > 3 && (
+                          <th className="text-right py-1.5 pl-3 font-medium text-gray-500">Requests</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {openrouter.model_rows.map((row, idx) => (
+                        <tr key={idx} className="border-b border-gray-100">
+                          <td className="py-1.5 pr-3 truncate max-w-[180px]">{row[0] ?? '—'}</td>
+                          {row[1] != null && <td className="text-right py-1.5 pl-3 font-mono">{row[1]}</td>}
+                          {row[2] != null && <td className="text-right py-1.5 pl-3 font-mono">{row[2]}</td>}
+                          {row[3] != null && <td className="text-right py-1.5 pl-3 font-mono">{row[3]}</td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </div>
+          )}
+          {openrouter?.last_synced && (
+            <p className="mt-4 text-xs text-gray-500">
+              Letzter Sync: {formatRelativeTime(openrouter.last_synced)}
+            </p>
+          )}
         </div>
       )}
 

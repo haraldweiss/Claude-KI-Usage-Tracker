@@ -107,6 +107,9 @@ export interface CombinedSpendBreakdown {
     credits_remaining: number | null;
     model_count: number | null;
     total_cost_usd: number | null;
+    total_tokens: number | null;
+    total_requests: number | null;
+    model_rows: Array<Array<string>> | null;
     last_synced: string | null;
   } | null;
   exchange_rate?: {

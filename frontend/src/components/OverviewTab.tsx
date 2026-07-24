@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { getSummary, getSpendingTotal, getPlanPricing, getProviders } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
-import { formatEur, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
+import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
 import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, ClineSpend, type PlanPricingRow, SpendingTotal, type ProviderInfo } from '../types/api';
 
 /** Days remaining in the current month, including today. */
@@ -179,7 +179,10 @@ export default function OverviewTab(): React.ReactElement {
   const clineEur = providerCountsThisMonth('cline')
     ? (subscriptionEur(plans, configuredClinePlan) || (configuredClinePlan ? combined?.cline?.plan_cost_eur ?? 0 : 0))
     : 0;
-  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur;
+  const openrouter = combined?.openrouter ?? null;
+  const openRouterCostUsd = openrouter?.total_cost_usd ?? 0;
+  const openRouterEur = openRouterCostUsd * (combined?.exchange_rate?.usd_to_eur ?? 0.92);
+  const grandTotalEur = claudeAiTotalEur + apiTotalEur + opencodeApiEur + openAiApiEur + opencodeGoEur + zaiEur + chatGptEur + clineEur + openRouterEur;
 
   // Subscription side-cards shown to the right of the three core claude.ai
   // cards. Each is gated on provider active status when "only active" is on.
@@ -187,7 +190,8 @@ export default function OverviewTab(): React.ReactElement {
   const showChatGpt = chatGptEur > 0 && (!showOnlyActive || providerActive('codex'));
   const showZai = !!zai && (!showOnlyActive || providerActive('zai'));
   const showCline = (clineEur > 0 || cline?.five_hour_pct != null) && (!showOnlyActive || providerActive('cline'));
-  const statusCardCount = (showClaudeAi ? 3 : 0) + (showOpenCodeGo ? 1 : 0) + (showChatGpt ? 1 : 0) + (showZai ? 1 : 0) + (showCline ? 1 : 0);
+  const showOpenRouter = providerActive('openrouter') || openRouterEur > 0;
+  const statusCardCount = (showClaudeAi ? 3 : 0) + (showOpenCodeGo ? 1 : 0) + (showChatGpt ? 1 : 0) + (showZai ? 1 : 0) + (showCline ? 1 : 0) + (showOpenRouter ? 1 : 0);
   const statusGridCols =
     statusCardCount >= 5 ? 'md:grid-cols-5' : statusCardCount === 4 ? 'md:grid-cols-4' : 'md:grid-cols-3';
 
@@ -242,6 +246,7 @@ export default function OverviewTab(): React.ReactElement {
     zaiEur > 0 ? `z.ai ${formatEur(zaiEur)}` : null,
     chatGptEur > 0 ? `ChatGPT Plus ${formatEur(chatGptEur)}` : null,
     clineEur > 0 ? `Cline ${formatEur(clineEur)}` : null,
+    openRouterEur > 0 ? `OpenRouter ≈ ${formatEur(openRouterEur)}` : null,
   ].filter((item): item is string => item !== null);
 
   return (
@@ -587,6 +592,96 @@ export default function OverviewTab(): React.ReactElement {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* OpenRouter (Pay-as-you-go API Gateway) */}
+        {showOpenRouter && (
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              OpenRouter
+            </div>
+            <div className="mt-2 text-xl font-bold text-gray-900">
+              API-Gateway
+            </div>
+            {openrouter?.total_cost_usd != null && (
+              <div className="mt-1 text-sm text-gray-600">
+                {formatUsd(openrouter.total_cost_usd)} (30 Tage)
+              </div>
+            )}
+            <div className="mt-3 space-y-2">
+              {openrouter?.credits_remaining != null && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-600">Credits</span>
+                  <span className="font-medium">{openrouter.credits_remaining.toFixed(2)}</span>
+                </div>
+              )}
+              {openrouter?.total_tokens != null && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-600">Tokens (30d)</span>
+                  <span className="font-medium">{openrouter.total_tokens.toLocaleString()}</span>
+                </div>
+              )}
+              {openrouter?.total_requests != null && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-600">Requests (30d)</span>
+                  <span className="font-medium">{openrouter.total_requests.toLocaleString()}</span>
+                </div>
+              )}
+              {openrouter?.model_count != null && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-600">Modelle</span>
+                  <span className="font-medium">{openrouter.model_count}</span>
+                </div>
+              )}
+              {openrouter?.model_rows != null && openrouter.model_rows.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-xs cursor-pointer text-blue-600 hover:text-blue-800 font-medium">
+                    Modell-Details ({openrouter.model_rows.length}) ▸
+                  </summary>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-[11px] text-gray-700 border-collapse">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-1 pr-2 font-medium text-gray-500">
+                            Modell
+                          </th>
+                          {openrouter.model_rows[0].length > 1 && (
+                            <th className="text-right py-1 pl-2 font-medium text-gray-500">
+                              Kosten
+                            </th>
+                          )}
+                          {openrouter.model_rows[0].length > 2 && (
+                            <th className="text-right py-1 pl-2 font-medium text-gray-500">
+                              Tokens
+                            </th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {openrouter.model_rows.slice(0, 10).map((row, idx) => (
+                          <tr key={idx} className="border-b border-gray-100">
+                            <td className="py-1 pr-2 truncate max-w-[140px]">{row[0] ?? '—'}</td>
+                            {row[1] != null && <td className="text-right py-1 pl-2 font-mono">{row[1]}</td>}
+                            {row[2] != null && <td className="text-right py-1 pl-2 font-mono">{row[2]}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {openrouter.model_rows.length > 10 && (
+                      <p className="mt-1 text-[10px] text-gray-400 text-center">
+                        + {openrouter.model_rows.length - 10} weitere
+                      </p>
+                    )}
+                  </div>
+                </details>
+              )}
+            </div>
+            {openrouter?.last_synced && (
+              <p className="mt-3 text-[10px] text-gray-400">
+                Sync: {formatRelativeTime(openrouter.last_synced)}
+              </p>
+            )}
           </div>
         )}
       </div>

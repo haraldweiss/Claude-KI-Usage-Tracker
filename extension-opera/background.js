@@ -564,6 +564,66 @@ async function syncHardSources() {
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'cline', ok: false, error: e.message }); }
 
+  // 7. OpenRouter (credits page + usage stats)
+  if (configuredProviders.has('openrouter')) {
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://openrouter.ai/workspaces/default',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 8000));
+    let creditsData = null;
+    const [creditsInj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\\s]*[€$]?\\s*([\\d.,]+)/i)
+          || text.match(/[€$]\\s*([\\d.,]+)\\s*(?:credits?|EUR|USD)/i);
+        const modelMatch = text.match(/(\\d+)\\s*(?:models?|modelle)/i);
+        return {
+          credits_remaining: creditMatch ? parseFloat(creditMatch[1].replace(',', '.')) : null,
+          model_count: modelMatch ? parseInt(modelMatch[1], 10) : null,
+        };
+      }
+    }).catch(() => null);
+    if (creditsInj?.result) creditsData = creditsInj.result;
+
+    // Scrape usage stats from activity page (last 30 days)
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const from = thirtyDaysAgo.toISOString();
+    const to = now.toISOString();
+    await chrome.tabs.update(tab.id, { url: 'https://openrouter.ai/activity?from=' + from + '&to=' + to + '&date_preset=past_30_days' });
+    await new Promise(r => setTimeout(r, 10000));
+    const [usageInj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        const totalMatch = text.match(new RegExp('(?:total|gesamt|spend|ausgaben)[:\\\\s]*\\$?([\\d.,]+)', 'i'))
+          || text.match(new RegExp('\\$\\s*([\\d.,]+)\\s*(?:total|gesamt)', 'i'));
+        const tokenMatch = text.match(new RegExp('(?:tokens?|token)[:\\\\s]*([\\d.,]+)', 'i'));
+        const reqMatch = text.match(new RegExp('(?:requests?|anfragen)[:\\\\s]*([\\d.,]+)', 'i'));
+        const rows = [...document.querySelectorAll('table tbody tr, [role="row"]')].map(r => 
+          [...r.querySelectorAll('td, [role="cell"]')].map(c => c.textContent?.trim())
+        ).filter(r => r.length >= 3);
+        return {
+          total_cost_usd: totalMatch ? parseFloat(totalMatch[1].replace(',', '.')) : null,
+          total_tokens: tokenMatch ? parseInt(tokenMatch[1].replace(/,/g, ''), 10) : null,
+          total_requests: reqMatch ? parseInt(reqMatch[1].replace(/,/g, ''), 10) : null,
+          model_rows: rows.slice(0, 20),
+        };
+      }
+    }).catch(() => null);
+
+    const combined = { ...creditsData, ...(usageInj?.result || {}) };
+    if (combined && Object.keys(combined).length > 0) {
+      await postSource('openrouter_sync', 'OpenRouter (Extension)', combined);
+      results.push({ source: 'openrouter', ok: true });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'openrouter', ok: false, error: e.message }); }
+  } else { results.push({ source: 'openrouter', ok: true, skipped: true, reason: 'not_configured' }); }
+
   chrome.tabs.create = originalCreateTab;
   const normalized = results.map((result) => result.error === 'not_configured'
     ? { ...result, ok: true, skipped: true, reason: 'not_configured' }

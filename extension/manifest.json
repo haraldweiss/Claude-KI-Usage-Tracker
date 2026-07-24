@@ -25,6 +25,8 @@
     "https://platform.openai.com/*",
     "https://app.cline.bot/",
     "https://app.cline.bot/*",
+    "https://openrouter.ai/",
+    "https://openrouter.ai/*",
     "https://wolfinisoftware.de/",
     "https://wolfinisoftware.de/*"
   ],

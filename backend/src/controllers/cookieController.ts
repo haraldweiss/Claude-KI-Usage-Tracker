@@ -28,6 +28,8 @@ export async function uploadCookies(req: Request, res: Response): Promise<void> 
       else if (domain.includes('platform.claude.com')) service = 'claude-code';
       else if (domain.includes('console.anthropic')) service = 'anthropic-console';
       else if (domain.includes('opencode.ai')) service = 'opencode-go';
+      else if (domain.includes('openrouter.ai')) service = 'openrouter';
+      else if (domain.includes('cline.bot')) service = 'cline';
       else if (domain.includes('z.ai')) service = 'zai';
       else if (domain.includes('chatgpt.com')) service = 'codex';
       else if (domain.includes('openai.com')) service = 'openai-api';

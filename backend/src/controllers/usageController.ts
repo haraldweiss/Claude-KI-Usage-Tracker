@@ -732,6 +732,38 @@ export async function getSummary(
     // Expired plans stop contributing cost after the month they ran out in.
     if (!planCountsForMonth(clineConfig?.plan_valid_until, currentMonthStartYmd())) clinePlanCost = 0;
 
+    // -------- OpenRouter data (scraper from openrouter.ai) ---------
+    const openrouterRow = await getQuery<{
+      timestamp: string;
+      response_metadata: string | null;
+    }>(
+      `SELECT timestamp, response_metadata
+       FROM usage_records
+       WHERE source = 'openrouter_sync'
+         AND user_id = ?
+       ORDER BY timestamp DESC LIMIT 1`,
+      [req.user!.id]
+    );
+
+    interface OpenRouterMeta {
+      credits_remaining?: number | null;
+      model_count?: number | null;
+      total_cost_usd?: number | null;
+      total_tokens?: number | null;
+      total_requests?: number | null;
+      model_rows?: Array<Array<string>> | null;
+      scraped_at?: string;
+    }
+
+    let openrouterMeta: OpenRouterMeta | null = null;
+    if (openrouterRow?.response_metadata) {
+      try {
+        openrouterMeta = JSON.parse(openrouterRow.response_metadata) as OpenRouterMeta;
+      } catch {
+        openrouterMeta = null;
+      }
+    }
+
     const consoleModelDay = await allQuery<{ model: string; input_tokens: number; output_tokens: number; cost_usd: number }>(
       `SELECT model,
               SUM(input_tokens) as input_tokens,
@@ -791,6 +823,15 @@ export async function getSummary(
           monthly_pct: clineMeta?.monthly_pct ?? null,
           monthly_reset_in: clineMeta?.monthly_reset_in ?? null,
           last_synced: clineRow.timestamp,
+        } : null,
+        openrouter: openrouterRow ? {
+          credits_remaining: openrouterMeta?.credits_remaining ?? null,
+          model_count: openrouterMeta?.model_count ?? null,
+          total_cost_usd: openrouterMeta?.total_cost_usd ?? null,
+          total_tokens: openrouterMeta?.total_tokens ?? null,
+          total_requests: openrouterMeta?.total_requests ?? null,
+          model_rows: openrouterMeta?.model_rows ?? null,
+          last_synced: openrouterRow.timestamp,
         } : null,
         console_model_breakdown: {
           day: consoleModelDay,

@@ -58,14 +58,33 @@ export async function scrapeOpenRouter(): Promise<ScraperResult> {
       // Model breakdown rows from table
       const rows: string[][] = [];
       try {
-        const tableRows = document.querySelectorAll('table tbody tr, [role="row"]');
-        for (const tr of tableRows) {
-          const cells = [...tr.querySelectorAll('td, [role="cell"]')]
-            .map(c => c.textContent?.trim() || '')
-            .filter(c => c.length > 0);
-          if (cells.length >= 2) rows.push(cells);
+        // Try text-based model breakdown first
+        const allText = document.body?.innerText || '';
+        const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        let inSpend = false, inRequests = false, inTokens = false;
+        for (const line of lines) {
+          if (/^Spend$/i.test(line)) inSpend = true;
+          else if (/^Requests?$/i.test(line)) { inSpend = false; inRequests = true; }
+          else if (/^Tokens?$/i.test(line)) { inRequests = false; inTokens = true; }
+          else if (/^View\s+Activity/i.test(line)) { inSpend = false; inRequests = false; inTokens = false; }
+          else if (inSpend || inRequests || inTokens) {
+            const parts = line.split(/\s{2,}/);
+            if (parts.length >= 2) rows.push(parts);
+          }
         }
-      } catch { /* table may not exist */ }
+      } catch {}
+      // Fallback: table selectors
+      if (rows.length < 2) {
+        try {
+          const tableRows = document.querySelectorAll('table tbody tr, [role="row"]');
+          for (const tr of tableRows) {
+            const cells = [...tr.querySelectorAll('td, [role="cell"]')]
+              .map(c => c.textContent?.trim() || '')
+              .filter(c => c.length > 0);
+            if (cells.length >= 2) rows.push(cells);
+          }
+        } catch {}
+      }
 
       return {
         total_cost_usd: totalMatch ? parseFloat(totalMatch[1].replace(',', '')) : null,

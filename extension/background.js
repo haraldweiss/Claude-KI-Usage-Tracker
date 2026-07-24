@@ -332,11 +332,11 @@ async function syncHardSources() {
       func: () => {
         const text = document.body?.innerText || '';
         const pct = (lbl) => {
-          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,40}?(\\d+)\\s*%', 'i'));
+          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,40}?(\d+)\\s*%', 'i'));
           return m ? parseInt(m[1]) : null;
         };
         return {
-          five_hour_pct: pct('5\\s*Hours?\\s*Quota'),
+          five_hour_pct: pct('5\\s*Hours?\s*Quota'),
           weekly_pct: pct('Weekly\\s*Quota'),
           monthly_pct: pct('Total\\s*Monthly'),
         };
@@ -427,7 +427,7 @@ async function syncHardSources() {
         const planMatch = text.match(/(?:Du hast|You have)\s+(.+?)\s+(?:abonniert|subscribed)/i);
         function extractPct(labels) {
           for (const label of labels) {
-            const re = new RegExp(label + '[\\s\\S]{0,200}?(\\d+)\\s*%', 'i');
+            const re = new RegExp(label + '[\\s\\S]{0,200}?(\d+)\\s*%', 'i');
             const m = text.match(re);
             if (m) return parseInt(m[1], 10);
           }
@@ -491,7 +491,7 @@ async function syncHardSources() {
           return match ? match[1].trim() : null;
         };
         const pct = (lbl) => {
-          const re = new RegExp(lbl + '[\\s\\S]{0,100}?(\\d+)\\s*%', 'i');
+          const re = new RegExp(lbl + '[\\s\\S]{0,100}?(\d+)\\s*%', 'i');
           const match = t.match(re);
           return match ? parseInt(match[1], 10) : null;
         };
@@ -532,7 +532,7 @@ async function syncHardSources() {
   } catch (e) { results.push({ source: 'cline', ok: false, error: e.message }); }
   } else { results.push({ source: 'cline', ok: true, skipped: true, reason: 'not_configured' }); }
 
-  // 7. OpenRouter (credits page)
+// 7. OpenRouter (credits page + usage stats)
   if (configuredProviders.has('openrouter')) {
   try {
     const tab = await chrome.tabs.create({
@@ -540,23 +540,54 @@ async function syncHardSources() {
       active: true
     });
     await new Promise(r => setTimeout(r, 8000));
-    const [inj] = await chrome.scripting.executeScript({
+    let creditsData = null;
+    const [creditsInj] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
         const text = document.body?.innerText || '';
-        // Look for credits balance: "$10.00" or "€10.00" or "10.00 credits"
-        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\\s]*[€$]?\\s*([\\d.,]+)/i)
-          || text.match(/[€$]\\s*([\\d.,]+)\\s*(?:credits?|EUR|USD)/i);
-        // Try to find model count if visible
+        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\s]*[$€]?\s*([\d.,]+)/i)
+          || text.match(/[$€]\s*([\d.,]+)\s*(?:credits?|EUR|USD)/i);
         const modelMatch = text.match(/(\d+)\s*(?:models?|modelle)/i);
         return {
-          credits_remaining: creditMatch ? parseFloat(creditMatch[1].replace(',', '')) : null,
+          credits_remaining: creditMatch ? parseFloat(creditMatch[1].replace(',', '.')) : null,
           model_count: modelMatch ? parseInt(modelMatch[1], 10) : null,
         };
       }
     }).catch(() => null);
-    if (inj?.result) {
-      await postSource('openrouter_sync', 'OpenRouter (Extension)', inj.result);
+    if (creditsInj?.result) creditsData = creditsInj.result;
+
+    // Scrape usage stats from activity page (last 30 days)
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const from = thirtyDaysAgo.toISOString();
+    const to = now.toISOString();
+    await chrome.tabs.update(tab.id, { url: `https://openrouter.ai/activity?from=${from}&to=${to}&date_preset=past_30_days` });
+    await new Promise(r => setTimeout(r, 10000));
+    const [usageInj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        // Use string-based regex to avoid escaping issues in background script
+        const totalMatch = text.match(new RegExp('(?:total|gesamt|spend|ausgaben)[:\\s]*\\$?([\\d.,]+)', 'i'))
+          || text.match(new RegExp('\\$\\s*([\\d.,]+)\\s*(?:total|gesamt)', 'i'));
+        const tokenMatch = text.match(new RegExp('(?:tokens?|token)[:\\s]*([\\d.,]+)', 'i'));
+        const reqMatch = text.match(new RegExp('(?:requests?|anfragen)[:\\s]*([\\d.,]+)', 'i'));
+        // Try to find model breakdown table rows
+        const rows = [...document.querySelectorAll('table tbody tr, [role="row"]')].map(r => 
+          [...r.querySelectorAll('td, [role="cell"]')].map(c => c.textContent?.trim())
+        ).filter(r => r.length >= 2);
+        return {
+          total_cost_usd: totalMatch ? parseFloat(totalMatch[1].replace(',', '.')) : null,
+          total_tokens: tokenMatch ? parseInt(tokenMatch[1].replace(/,/g, ''), 10) : null,
+          total_requests: reqMatch ? parseInt(reqMatch[1].replace(/,/g, ''), 10) : null,
+          model_rows: rows.slice(0, 30),
+        };
+      }
+    }).catch(() => null);
+
+    const combined = { ...creditsData, ...(usageInj?.result || {}) };
+    if (combined && Object.keys(combined).length > 0) {
+      await postSource('openrouter_sync', 'OpenRouter (Extension)', combined);
       results.push({ source: 'openrouter', ok: true });
     }
     await chrome.tabs.remove(tab.id);

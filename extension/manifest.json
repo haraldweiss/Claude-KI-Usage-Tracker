@@ -17,6 +17,8 @@
     "https://platform.claude.com/*",
     "https://opencode.ai/",
     "https://opencode.ai/*",
+    "https://auth.opencode.ai/",
+    "https://auth.opencode.ai/*",
     "https://z.ai/",
     "https://z.ai/*",
     "https://chatgpt.com/",

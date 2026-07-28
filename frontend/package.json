@@ -18,7 +18,7 @@
     "axios": "^1.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^7.14.2",
+    "react-router-dom": "^7.18.1",
     "recharts": "^2.10.0"
   },
   "devDependencies": {
@@ -30,7 +30,7 @@
     "@types/jest": "^30.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^4.0.0",
+    "@vitejs/plugin-react": "^6.0.0",
     "@vitest/ui": "^4.1.4",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",

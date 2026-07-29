@@ -319,7 +319,7 @@ async function syncHardSources() {
         const text = document.body?.innerText || '';
         return {
           plan_name: text.match(/(GLM\s+Coding[^\n]*?Plan)/i)?.[1]?.trim(),
-          price_usd: text.match(/\$\s*([\d]+(?:\\.\d+)?)/)?.[1],
+          price_usd: text.match(/\$\s*([\d]+(?:\.\d+)?)/)?.[1],
           auto_renew_date: text.match(/Auto-renew\s+on\s+([\d.\-/]+)/i)?.[1],
         };
       }
@@ -332,12 +332,12 @@ async function syncHardSources() {
       func: () => {
         const text = document.body?.innerText || '';
         const pct = (lbl) => {
-          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,40}?(\\d+)\\s*%', 'i'));
+          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,80}?(\\d+)\\s*%', 'i'));
           return m ? parseInt(m[1]) : null;
         };
         return {
-          five_hour_pct: pct('5\\s*Hours?\s*Quota'),
-          weekly_pct: pct('Weekly\\s*Quota'),
+          five_hour_pct: pct('5\\s*Hours?(?:\\s*Quota)?'),
+          weekly_pct: pct('Weekly(?:\\s*Quota)?'),
           monthly_pct: pct('Total\\s*Monthly'),
         };
       }

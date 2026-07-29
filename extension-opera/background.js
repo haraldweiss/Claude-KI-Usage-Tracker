@@ -360,7 +360,7 @@ async function syncHardSources() {
         const text = document.body?.innerText || '';
         return {
           plan_name: text.match(/(GLM\s+Coding[^\n]*?Plan)/i)?.[1]?.trim(),
-          price_usd: text.match(/\$\s*([\d]+(?:\\.\d+)?)/)?.[1],
+          price_usd: text.match(/\$\s*([\d]+(?:\.\d+)?)/)?.[1],
           auto_renew_date: text.match(/Auto-renew\s+on\s+([\d.\-/]+)/i)?.[1],
         };
       }
@@ -373,12 +373,12 @@ async function syncHardSources() {
       func: () => {
         const text = document.body?.innerText || '';
         const pct = (lbl) => {
-          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,40}?(\\d+)\\s*%', 'i'));
+          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,80}?(\\d+)\\s*%', 'i'));
           return m ? parseInt(m[1]) : null;
         };
         return {
-          five_hour_pct: pct('5\\s*Hours?\\s*Quota'),
-          weekly_pct: pct('Weekly\\s*Quota'),
+          five_hour_pct: pct('5\\s*Hours?(?:\\s*Quota)?'),
+          weekly_pct: pct('Weekly(?:\\s*Quota)?'),
           monthly_pct: pct('Total\\s*Monthly'),
         };
       }
@@ -583,9 +583,9 @@ async function syncHardSources() {
       target: { tabId: tab.id },
       func: () => {
         const text = document.body?.innerText || '';
-        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\\s]*[€$]?\\s*([\\d.,]+)/i)
-          || text.match(/[€$]\\s*([\\d.,]+)\\s*(?:credits?|EUR|USD)/i);
-        const modelMatch = text.match(/(\\d+)\\s*(?:models?|modelle)/i);
+        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\s]*[€$]?\s*([\d.,]+)/i)
+          || text.match(/[€$]\s*([\d.,]+)\s*(?:credits?|EUR|USD)/i);
+        const modelMatch = text.match(/(\d+)\s*(?:models?|modelle)/i);
         return {
           credits_remaining: creditMatch ? parseFloat(creditMatch[1].replace(',', '.')) : null,
           model_count: modelMatch ? parseInt(modelMatch[1], 10) : null,

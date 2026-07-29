@@ -6860,3 +6860,28 @@ curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat 
 **Regex-Escaping-Regel:** Bei `new RegExp(string)` braucht jeder Regex-Backslash einen doppelten Backslash im String. Bei Regex-Literalen (`/\d+/`) gilt das NICHT. Beim Kopieren von Regex-Literalen in String-Konstruktoren immer prüfen.
 
 **Nach Pull:** Extension in `chrome://extensions` togglen (AUS/AN), dann "Sync geschützte Quellen" klicken → Popup zeigt `F 0% · W 31% · M 9%`.
+
+### 2026-07-29 — Regex-Escaping-Bugs in ALLEN Extension-Scrapern repariert (Pi)
+
+**Symptom:** Dashboard zeigte wochenalte Daten (OpenCode Go Weekly 100% statt 31%), Extension-Sync lief scheinbar erfolgreich, postete aber nichts.
+
+**Zwei Bug-Klassen gefunden und in allen 4 Varianten gefixt:**
+
+**Klasse 1 — `(\d+)` mit einfachem Backslash in `new RegExp(string)`** (nur Chrome-Hauptvariante, L335/L430/L500):
+In JS-String-Literalen wird `\d` zu `'d'` → Regex matchte literale 'd'-Zeichen → alle Prozentwerte `null` → `hasValidPct=false` → Sync skippte. Betraf z.ai, OpenCode Go, Cline. Commits `dd4f3d4` + `ce44f9f`.
+
+**Klasse 2 — `\\.`/`\\s`/`\\d` mit doppeltem Backslash in Regex-LITERALEN** (`/.../ `):
+In Regex-Literalen ist `\\` ein literales Backslash-Zeichen → `\\.` matcht Backslash + beliebiges Zeichen statt Dezimalpunkt. Betraf:
+- z.ai `price_usd` in allen 4 Varianten ($16.2 → "16", Dezimalstellen verloren)
+- OpenRouter Credits-Scraper in Edge + Opera (`[:\\s]*` und `([\\d.,]+)` → Credits/Model-Count immer null)
+
+**Zusatz-Fixes z.ai:** pct()-Fenster 40→80 Zeichen ("Total Monthly Web Search · Reader · Zread" zu lang), Quota-Label optional (`'5\\s*Hours?(?:\\s*Quota)?'`).
+
+**Regex-Escaping-Regel (verbindlich):**
+- `new RegExp('...')` (String): jeder Regex-Backslash braucht `\\` (z.B. `'\\d+'`)
+- Regex-Literal `/.../ `: einfacher Backslash (z.B. `/\d+/`)
+- Beim Kopieren zwischen beiden Formen IMMER Escaping anpassen. Betroffene Stellen entstehen typischerweise beim Refactoring Literal↔String.
+
+**Verifiziert end-to-end:** OpenCode Go (0/31/9), z.ai ($16.2, 24/39/1), Cline (12/45/67), OpenRouter ($42.50, 154 Modelle), Codex (91/69). Sweep über alle 4 Varianten: 0 verbleibende Escaping-Issues.
+
+**Nach Pull:** Extension in `chrome://extensions` togglen (AUS/AN), dann "Sync geschützte Quellen" → Popup zeigt `F 0% · W 31% · M 9%`.

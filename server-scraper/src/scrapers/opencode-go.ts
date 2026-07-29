@@ -95,21 +95,21 @@ export async function scrapeOpenCodeGo(): Promise<ScraperResult> {
       };
 
       const continuous = extractPctAndReset([
-        'Fortlaufend(?![a-zäöüß])', 'Continuous(?![a-z])',
+        'Rolling Usage', 'Rolling(?![a-zA-Z])', 'Fortlaufend(?![a-zäöüß])', 'Continuous(?![a-z])',
         'Fortlaufende Nutzung', 'Continuous usage',
       ]);
       if (continuous.pct !== null) result.continuous_pct = continuous.pct;
       if (continuous.reset) result.continuous_reset_in = continuous.reset;
 
       const weekly = extractPctAndReset([
-        'Wöchentlich(?![a-zäöüß])', 'Weekly(?![a-z])',
+        'Weekly Usage', 'Weekly(?![a-z])', 'Wöchentlich(?![a-zäöüß])',
         'Wöchentliche Nutzung', 'Weekly usage',
       ]);
       if (weekly.pct !== null) result.weekly_pct = weekly.pct;
       if (weekly.reset) result.weekly_reset_in = weekly.reset;
 
       const monthly = extractPctAndReset([
-        'Monatlich(?![a-zäöüß])', 'Monthly(?![a-z])',
+        'Monthly Usage', 'Monthly(?![a-z])', 'Monatlich(?![a-zäöüß])',
         'Monatliche Nutzung', 'Monthly usage',
       ]);
       if (monthly.pct !== null) result.monthly_pct = monthly.pct;

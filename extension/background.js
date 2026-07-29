@@ -332,7 +332,7 @@ async function syncHardSources() {
       func: () => {
         const text = document.body?.innerText || '';
         const pct = (lbl) => {
-          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,40}?(\d+)\\s*%', 'i'));
+          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,40}?(\\d+)\\s*%', 'i'));
           return m ? parseInt(m[1]) : null;
         };
         return {
@@ -427,7 +427,7 @@ async function syncHardSources() {
         const planMatch = text.match(/(?:Du hast|You have)\s+(.+?)\s+(?:abonniert|subscribed)/i);
         function extractPct(labels) {
           for (const label of labels) {
-            const re = new RegExp(label + '[\\s\\S]{0,200}?(\d+)\\s*%', 'i');
+            const re = new RegExp(label + '[\\s\\S]{0,200}?(\\d+)\\s*%', 'i');
             const m = text.match(re);
             if (m) return parseInt(m[1], 10);
           }
@@ -497,7 +497,7 @@ async function syncHardSources() {
           return match ? match[1].trim() : null;
         };
         const pct = (lbl) => {
-          const re = new RegExp(lbl + '[\\s\\S]{0,100}?(\d+)\\s*%', 'i');
+          const re = new RegExp(lbl + '[\\s\\S]{0,100}?(\\d+)\\s*%', 'i');
           const match = t.match(re);
           return match ? parseInt(match[1], 10) : null;
         };

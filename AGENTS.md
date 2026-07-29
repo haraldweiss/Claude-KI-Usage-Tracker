@@ -6848,3 +6848,15 @@ curl -s http://localhost:3001/api/handoff/check -H "Authorization: Bearer $(cat 
 
 **Wechsel zu einem anderen Agenten empfohlen.** Der aktuelle agent hat seine Limits zu ≥90% ausgeschöpft. Der übernehmende Agent kann die aktuellen Werte im Dashboard (OverviewTab) einsehen und bei Bedarf einen neuen Sync via `Sync geschützte Quellen` im Extension-Popup auslösen.
 
+
+### 2026-07-29 — Extension-Scraper repariert: \d-Escaping-Bug brach z.ai/OpenCode Go/Cline (Pi)
+
+**Symptom:** Dashboard zeigte wochenalte OpenCode-Go-Daten (Weekly 100%), obwohl die Live-Seite andere Werte zeigte (Weekly 31%). Extension-Sync lief scheinbar erfolgreich durch, postete aber nichts.
+
+**Root Cause:** In `extension/background.js` stand in drei `new RegExp(...)`-String-Literalen `(\d+)` mit **einfachem** Backslash (L335 z.ai, L430 OpenCode Go, L500 Cline). In JS-String-Literalen wird `\d` zu `'d'` (unbekannte Escape-Sequenz, Backslash wird gedroppt) → die Regex matchte literale 'd'-Zeichen statt Ziffern → alle Prozentwerte `null` → `hasValidPct=false` → Sync skippte mit `no_data`. Nur die **Chrome-Hauptvariante** war betroffen; Edge/Opera/Firefox hatten korrektes `(\\d+)`.
+
+**Fix:** `(\d+)` → `(\\d+)` in allen drei Stellen (Commit `dd4f3d4`). Verifiziert: Extraction liefert exakt die Live-Werte (Rolling 0%, Weekly 31%, Monthly 9%), deutsche Labels matchen weiterhin.
+
+**Regex-Escaping-Regel:** Bei `new RegExp(string)` braucht jeder Regex-Backslash einen doppelten Backslash im String. Bei Regex-Literalen (`/\d+/`) gilt das NICHT. Beim Kopieren von Regex-Literalen in String-Konstruktoren immer prüfen.
+
+**Nach Pull:** Extension in `chrome://extensions` togglen (AUS/AN), dann "Sync geschützte Quellen" klicken → Popup zeigt `F 0% · W 31% · M 9%`.

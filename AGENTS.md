@@ -98,6 +98,13 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - To rewrite history: PUT ruleset to `enforcement=disabled`, push, restore to `enforcement=active`. **Always restore in the same session.**
 - Never leave the ruleset disabled overnight.
 
+### 3.6 React Router npm override (GHSA-qwww-vcr4-c8h2)
+- `frontend/package.json` hat einen npm override: `"overrides": { "react-router": "8.3.0" }`
+- **Nicht entfernen** bis `react-router-dom` eine v8-Version released (aktuell 7.18.1).
+- Der override erzwingt `react-router@8.3.0` (patched gegen RSC Mode CSRF Bypass).
+- Peer dependency warning (`react@>=19.2.7` required, wir haben `18.3.1`) wird akzeptiert — Build + Tests passen.
+- Wenn `react-router-dom@8.x` verfügbar wird: upgrade auf `react-router-dom@8.3.0+` und override entfernen.
+
 ---
 
 ## 4. Verification standards
@@ -6885,3 +6892,27 @@ In Regex-Literalen ist `\\` ein literales Backslash-Zeichen → `\\.` matcht Bac
 **Verifiziert end-to-end:** OpenCode Go (0/31/9), z.ai ($16.2, 24/39/1), Cline (12/45/67), OpenRouter ($42.50, 154 Modelle), Codex (91/69). Sweep über alle 4 Varianten: 0 verbleibende Escaping-Issues.
 
 **Nach Pull:** Extension in `chrome://extensions` togglen (AUS/AN), dann "Sync geschützte Quellen" → Popup zeigt `F 0% · W 31% · M 9%`.
+
+### 2026-07-29 — React Router CSRF Vulnerability gepatcht via npm override (Pi)
+
+**Vulnerability:** GHSA-qwww-vcr4-c8h2 — React Router RSC Mode CSRF Bypass Allows Action Execution Before 400 Response. Severity: High (7.1/10). Affects `react-router >= 7.12.0, < 8.3.0`. Fixed in `react-router@8.3.0`.
+
+**Problem:** `react-router-dom@7.18.1` pins `react-router: "7.18.1"` (exact). `react-router-dom` has no 8.x release. Standard upgrade impossible.
+
+**Fix:** npm override in `frontend/package.json`:
+```json
+"overrides": { "react-router": "8.3.0" }
+```
+
+Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-dom/node_modules/react-router/`.
+
+**⚠️ Peer dep warning:** `react-router@8.3.0` requires `react@>=19.2.7`, we run `react@18.3.1`. npm emits ERESOLVE warnings but installs successfully. Build + type-check + 115 tests pass.
+
+**Also fixed:** `brace-expansion < 1.1.17` DoS vulnerability via `npm audit fix`.
+
+**Result:** `npm audit` → **0 vulnerabilities**.
+
+**Commit:** `125fd5c`
+
+**To resolve properly:** When `react-router-dom` ships v8, upgrade to `react-router-dom@8.3.0+` and remove the override.
+

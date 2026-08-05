@@ -6893,6 +6893,28 @@ In Regex-Literalen ist `\\` ein literales Backslash-Zeichen → `\\.` matcht Bac
 
 **Nach Pull:** Extension in `chrome://extensions` togglen (AUS/AN), dann "Sync geschützte Quellen" → Popup zeigt `F 0% · W 31% · M 9%`.
 
+### 2026-08-05 — undici + brace-expansion CVEs gepatcht (Pi)
+
+**Anlass:** GitHub Security Alert CVE-2026-13697 (undici high) + npm audit.
+
+**Frontend (commit 3569785):**
+- `npm audit fix` bump `undici@7.28.0` → `undici@7.29.0`
+- 5 CVEs gefixt: GHSA-4cwx-7wf7-3272 (high, CVSS 7.4) + 4 moderate (retry desync, CRLF injection, Cache-Control whitespace, cookie injection)
+- Transitive via `jsdom@29.0.2` (devDependency — nicht im Production-Build)
+
+**Backend (commit 3995021):**
+- `overrides` in `backend/package.json` hinzugefügt:
+  - `"brace-expansion": ">=1.1.18"` (fixt DoS via ReDoS in eslint/jest/nodemon-Ketten)
+  - `"undici": ">=6.28.0"` (fixt sqlite3/node-gyp-Kette)
+- `npm audit fix` allein reichte nicht — Parent-Pakete pinnen vulnerable Versionen, daher overrides nötig (gleiche Technik wie `react-router@8.3.0` override im Frontend)
+- Backend type-check ✓, 299/299 Tests pass (3 pre-existing pino-pretty/jest-ESM suite-load failures, documented)
+
+**Ergebnis:** frontend + backend + server-scraper + root alle **0 vulnerabilities** lokal. GitHub meldet nach Push noch 3 moderate (Dependabot-Cache oder stale scan).
+
+**Lesson learned:** npm `overrides` sind das Mittel der Wahl wenn `npm audit fix` transitive Dependencies nicht automatisch upgraden kann — Parent-Pakete (minimatch, node-gyp) pinnen oft vulnerable Sub-Versionen.
+
+---
+
 ### 2026-07-29 — React Router CSRF Vulnerability gepatcht via npm override (Pi)
 
 **Vulnerability:** GHSA-qwww-vcr4-c8h2 — React Router RSC Mode CSRF Bypass Allows Action Execution Before 400 Response. Severity: High (7.1/10). Affects `react-router >= 7.12.0, < 8.3.0`. Fixed in `react-router@8.3.0`.

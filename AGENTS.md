@@ -27,7 +27,8 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
   6. `chatgpt.com/codex/settings/usage` — ChatGPT Pro/Plus Codex usage (added 2026-06-22)
   7. `platform.openai.com/usage` — OpenAI API month-to-date spend (added 2026-06-22)
   8. `openrouter.ai/credits` — OpenRouter credits balance + 30-day activity usage (added 2026-07-23)
-- Three components: **backend** (Express + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3 + 4 Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
+- Three components: **backend** (Express 5 + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3 + 4 Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
+- **Express 5 migration (2026-09-08):** Upgraded from Express 4.22.2 → 5.2.1 via Dependabot PR #22. Code uses standard patterns (Router, res.json/status/send, bodyParser.json/urlencoded) — no breaking changes encountered. body-parser also bumped 1.20.6 → 2.3.0 (now uses static exports, improved ESM compatibility). qs bumped 6.15.3 → 6.16.0 (fixes array-limit bypass).
 - Hosted at `https://wolfinisoftware.de/claudetracker/` with magic-link auth + API tokens
 - Default branch: `main`, remote: `github.com:haraldweiss/Claude-KI-Usage-Tracker`
 - **GitHub ruleset active**: `non_fast_forward` blocks force-push. To force-push: temp disable via `gh api -X PUT repos/.../rulesets/16651604 --input <json with enforcement: disabled>`, push, re-enable.

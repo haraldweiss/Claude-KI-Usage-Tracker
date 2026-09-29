@@ -120,6 +120,20 @@ Or use the convenience scripts that handle both at once:
 
 The scripts auto-detect when launched from a worktree and point the backend at the main repo's SQLite file so test runs and dev runs share the same data.
 
+### Tests & CI
+
+```bash
+cd backend  && npm ci && npm test              # jest   — 38 suites / 310 tests
+cd frontend && npm ci && npm test -- --run     # vitest — 14 files  / 115 tests
+```
+
+Both suites also run their TypeScript type-check (`npx tsc --noEmit` in the backend,
+`npm run type-check` in the frontend).
+
+CI (`.github/workflows/ci.yml`) runs all four checks on every push to `main` and on
+every pull request — including Dependabot PRs, so dependency bumps are validated
+before they reach `main`.
+
 ### 4. Install the extension
 
 > **Version note**: the extension is at **v3.2.1** (MV3) for Chromium browsers. Incompatible with any v1.x install — remove the old version before loading this one.

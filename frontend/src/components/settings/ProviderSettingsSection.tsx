@@ -141,7 +141,7 @@ function formatDetail(key: string, summary: Record<string, unknown> | null): str
       return s.total_cost_usd != null
         ? `${formatUsd(s.total_cost_usd as number)} · ${s.organization ?? '—'}`
         : '—';
-    case 'openrouter':
+    case 'openrouter': {
       if (s.credits_remaining == null && s.total_cost_usd == null) return '—';
       const parts: string[] = [];
       if (s.credits_remaining != null) parts.push(`${(s.credits_remaining as number).toFixed(2)} Credits`);
@@ -150,6 +150,7 @@ function formatDetail(key: string, summary: Record<string, unknown> | null): str
       if (s.total_requests != null) parts.push(`${(s.total_requests as number).toLocaleString()} Requests`);
       if (s.model_count != null) parts.push(`${s.model_count} Models`);
       return parts.join(' · ');
+    }
     default:
       return '—';
   }

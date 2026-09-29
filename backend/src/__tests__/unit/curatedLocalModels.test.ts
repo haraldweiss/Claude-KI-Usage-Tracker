@@ -30,7 +30,7 @@ describe('normalizeOllamaName', () => {
 
 describe('CURATED_LOCAL_MODELS', () => {
   it('every entry has exactly 3 pros and 3 cons', () => {
-    for (const [name, entry] of Object.entries(CURATED_LOCAL_MODELS)) {
+    for (const entry of Object.values(CURATED_LOCAL_MODELS)) {
       expect(entry.pros).toHaveLength(3);
       expect(entry.cons).toHaveLength(3);
       expect(['chat', 'code', 'embedding', 'custom']).toContain(entry.family);

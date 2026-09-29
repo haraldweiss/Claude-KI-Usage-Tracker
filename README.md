@@ -123,15 +123,17 @@ The scripts auto-detect when launched from a worktree and point the backend at t
 ### Tests & CI
 
 ```bash
-cd backend  && npm ci && npm test              # jest   — 38 suites / 310 tests
-cd frontend && npm ci && npm test -- --run     # vitest — 14 files  / 115 tests
+cd backend  && npm ci && npm run lint && npx tsc --noEmit && npm test   # jest   — 39 suites / 312 tests
+cd frontend && npm ci && npm run lint && npm run type-check && npm test -- --run  # vitest — 14 files / 115 tests
 ```
 
-Both suites also run their TypeScript type-check (`npx tsc --noEmit` in the backend,
-`npm run type-check` in the frontend).
+Lint (ESLint 8 with `@typescript-eslint/parser`, see AGENTS §3.9) reports **0 errors** in both
+packages; remaining warnings (`no-explicit-any`, `react/no-unescaped-entities`) are informational.
+ESLint deliberately has **no formatting rules** — Prettier owns formatting (`npm run format`), which
+is why `indent`/`quotes`/`semi` were removed from the configs on 2026-09-29.
 
-CI (`.github/workflows/ci.yml`) runs all four checks on every push to `main` and on
-every pull request — including Dependabot PRs, so dependency bumps are validated
+CI (`.github/workflows/ci.yml`) runs **lint + type-check + tests** for both packages on every push to
+`main` and on every pull request — including Dependabot PRs, so dependency bumps are validated
 before they reach `main`.
 
 ### 4. Install the extension

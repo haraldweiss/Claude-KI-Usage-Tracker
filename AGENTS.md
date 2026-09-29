@@ -124,6 +124,16 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 
 ---
 
+### 3.9 `npm run lint` muss laufen (TypeScript-Parser + Prettier besitzt die Formatierung)
+
+- Beide ESLint-Configs (`.eslintrc.json` in `backend/` und `frontend/`) nutzten den **Standard-Parser (espree)** — jede `.ts`/`.tsx`-Datei endete in `Parsing error: Unexpected token :` (Backend 324, Frontend 59 „Probleme"). Seit 2026-09-29 setzen beide `parser: @typescript-eslint/parser` + `plugins: ["@typescript-eslint"]` und extenden `plugin:@typescript-eslint/recommended` (dafür sind `@typescript-eslint/parser`/`-eslint-plugin@^8` devDependencies).
+- **Keine Style-Regeln in ESLint:** `indent`/`quotes`/`semi` wurden entfernt — sie widersprechen dem Prettier-Format des Repos (387 der 392 Backend-Funde waren genau diese drei Regeln). Formatierung macht `prettier` (`extends: [… "prettier"]`), ESLint prüft Korrektheit.
+- `no-undef` ist aus (TypeScript übernimmt das), `@typescript-eslint/no-explicit-any` und `react/no-unescaped-entities` sind **warn** (deutsche UI-Texte mit `"`/`'` sind in JSX korrekt und sollen nicht erzwungen escaped werden).
+- Scripts: `npm run lint` (ohne `--fix`, CI-tauglich) und `npm run lint:fix`. **Nicht** wieder `eslint src --fix` ohne `--ext` verwenden — ohne `--ext` findet ESLint in `src/` keine `.ts`-Dateien und bricht mit „No files matching the pattern" ab.
+- CI (`.github/workflows/ci.yml`) führt jetzt **Lint + Type-Check + Tests** für Backend und Frontend aus. Stand: Backend 0 Fehler/3 Warnungen (39 Suites/312 Tests), Frontend 0 Fehler/26 Warnungen (14 Dateien/115 Tests).
+
+---
+
 ## 4. Verification standards
 
 ```
@@ -6980,4 +6990,17 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 - **Nebenbefund:** `npm run lint`/`npx eslint src` ist **vorbestehend** kaputt (322 Fehler inkl. `Parsing error: Unexpected token :` in TS-Dateien, u. a. `utils/secretCrypto.ts`) — ESLint 8 ohne TS-Parser-Setup. CI führt bewusst nur jest/vitest/Type-Checks aus; kein Blocker, aber Kandidat für einen eigenen Fix.
 - **Docs:** README „Container deployment" um den SQLite-Härtungs-Absatz + den Hotfix-Deploy-Pfad (Derivat-Image + Rollback-Tag) ergänzt; **neue Hard Rule §3.8**.
 - **Git:** `f1eb0b1` (SQLite) → `0c83812` (Merge) → `e4446d4` (provider-sync guard) → `e3545da` (Merge), `main` gepusht. Beide Deploys per Derivat-Image, Rollback-Tags `pre-sqlite-fix-20260929` / `pre-provider-sync-fix-20260929`.
+
+
+### 2026-09-29 (3) — Token-Rotation (ai-provider) + ESLint repariert + Altlasten entfernt
+
+- **Token-Rotation (Reaktion auf den Audit; Werte nie im Log, nur Fingerprints):** Neue 43-Zeichen-`SERVICE_TOKEN`, 40-Zeichen-`ADMIN_TOKEN` und 64-Zeichen-`SECRET_KEY` in `/etc/ai-provider/ai-provider.env` (Backups `.bak-rot-20260929-*`), Container neu erstellt. **Zusatzfund:** `SECRET_KEY` war eine **Kopie des alten Service-Tokens** (fp `a96f36c8…`) — Flask benutzt ihn nur für Admin-UI-Sessions, deshalb wurde er mitrotiert (Sessions sind dadurch einmalig abgemeldet, keine Daten betroffen).
+  - **Vollständiger Verbraucher-Sweep vorher** (Dateien + Container-Envs auf beiden Hosts, decrypt im Tracker): `ai-provider`, WP-Optionen (`wolfini_aic_settings_v2.service_token`, `wolfini_eval_admin_token`), `/etc/bewerbungen/bewerbungen.env` (+ `bewerbungen-cron` mit Token im Env → **recreate**, die übrigen Bewerbungen-Container mounten die Datei → Restart), ionos `/etc/httpd/ai-studio-token.conf` + `/opt/open-webui/owui.env` (Container neu), Tracker-DB `user_provider_service_config.service_token_enc` (speichert den **ADMIN_TOKEN** verschlüsselt → über `upsertProviderServiceConfig` neu verschlüsselt), Mac `~/.pi/agent/.env`.
+  - **Verifiziert:** alter Service-Token → **401**, alter Admin-Token → **403**; neue Tokens 200/400 (auth ok); bewerbungen-Stack `/v1/models` → 200/948 Modelle; AI-Studio-Proxy 200; Open WebUI-Key → 200/948 Modelle; Tracker-Sync **15/0**; WP-Kachel Leaderboard lädt; pi 200; Website/Studio/chat 200.
+  - **Ein erwarteter Transient:** der geplante Sync-Tick um 20:15 UTC lief genau zwischen „ai-provider hat den neuen Token" (20:13) und „Tracker-DB aktualisiert" (20:15:5x) → einmalig 401 für alle IDs; der manuelle Sync danach und alle folgenden Ticks sind fehlerfrei.
+  - **Hygiene:** alte Werte in allen Backup-Dateien (env/owui/conf/pi) durch `<rotated-2026-09-29>` ersetzt; Endsuche nach beiden alten Werten (Dateien + Container-Envs, beide Hosts + Mac) → **0 Treffer**; `/root/.newtokens` (Zwischenspeicher) gelöscht.
+- **ESLint repariert (Hard Rule §3.9):** beide Lints brachen am fehlenden TS-Parser (`Parsing error: Unexpected token :`). `@typescript-eslint/parser` + `-eslint-plugin@^8` als devDependencies, beide `.eslintrc.json` auf Parser + `plugin:@typescript-eslint/recommended` umgestellt, Style-Regeln (`indent`/`quotes`/`semi`) entfernt (387 der 392 Backend-Funde waren genau die → Prettier besitzt Formatierung), `no-undef` aus, `no-explicit-any`/`react/no-unescaped-entities` auf warn; 4 echte Funde gefixt (unbenutzte Variable, `prefer-const`, `no-case-declarations` → Block-Braces, `declare global`-Namespace mit gezieltem Disable). Scripts jetzt `lint`/`lint:fix` **mit `--ext`**, Lint in die CI aufgenommen. Ergebnis: Backend 0 Fehler/3 Warnungen, Frontend 0 Fehler/26 Warnungen, Tests unverändert grün (312 + 115).
+- **Altlasten entfernt:** ionos `/opt/ai-provider-data` (22 M), `/opt/bewerbungen-data` (43 M), `/opt/open-webui/data` (1,2 G). **Bewusst stehen gelassen** (weil genutzt/unklar): oracles `/opt/bewerbungen-data` (wird noch beschrieben), `/opt/open-webui-data` (5,9 G, Cron `wolfini-chat-sync` liest die dortige `webui.db`).
+- **Offen (empfohlen):** `/etc/cron.d/wolfini-chat-sync` (täglich 05:00) liest `/opt/open-webui-data/webui.db` auf **oracle** — Open WebUI läuft aber auf ionos, der lokale Stand ist vom 20.08. → der Sync holt veraltete Chats ins WP-Memory. Fix: `OPEN_WEBUI_DB` auf eine synchronisierte Kopie zeigen lassen (oder Skript auf ionos betreiben) und dann `/opt/open-webui-data` löschen.
+- **Git:** siehe Commit im Repo (Lint/CI + Doku).
 

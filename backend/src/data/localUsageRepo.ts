@@ -346,12 +346,17 @@ export interface ActiveProviderUserIdEntry {
 
 export async function listAllActiveProviderUserIds(): Promise<ActiveProviderUserIdEntry[]> {
   // Joins with user_provider_service_config so master-disabled entries are skipped.
+  // Rows without a provider_user_id are skipped as well: the provider API answers
+  // HTTP 400 for an empty id, so such a row produced a warning on every
+  // 15-minute sync tick forever (row id=40 with provider_user_id='' managed
+  // 15,604 of them since June 2026).
   const rows = await allQuery<ProviderUserIdRow & { master_enabled: number }>(
     `SELECT psuid.*, upsc.enabled AS master_enabled
        FROM provider_service_user_ids psuid
        JOIN user_provider_service_config upsc
          ON upsc.user_id = psuid.user_id
-      WHERE psuid.enabled = 1 AND upsc.enabled = 1`,
+      WHERE psuid.enabled = 1 AND upsc.enabled = 1
+        AND TRIM(COALESCE(psuid.provider_user_id, '')) <> ''`,
   );
   return rows.map((r) => ({
     user_id: r.user_id,

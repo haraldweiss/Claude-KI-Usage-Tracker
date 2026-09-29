@@ -46,16 +46,44 @@ function getDb(): sqlite3.Database {
 }
 
 /**
+ * Apply the per-connection SQLite settings and the database-wide journal mode.
+ *
+ * Exported because the test suite cannot usefully re-import this module against
+ * a different `DATABASE_PATH` (the suite runs in native ESM, which has no module
+ * reload) — it calls this helper on its own temporary database instead.
+ *
+ * Hardening rationale (2026-09-29): node-sqlite3 defaults to
+ * `journal_mode=delete` with a busy timeout of 0, so a reader blocks every
+ * writer and a competing writer fails instantly with SQLITE_BUSY. This database
+ * is written by the API server (container) *and* by the host-side benchmark
+ * agent while the dashboard reads it; WAL lets readers continue during a write
+ * and the busy timeout makes the loser wait instead of losing the request.
+ */
+export function applyConnectionPragmas(database: sqlite3.Database): void {
+  // SQLite disables foreign-key enforcement by default and re-disables it on
+  // every new connection. Required for the ON DELETE CASCADE declarations on
+  // sessions/api_tokens to actually fire when a user is deleted.
+  database.run('PRAGMA foreign_keys = ON');
+  database.run('PRAGMA journal_mode = WAL');
+  database.run('PRAGMA busy_timeout = 10000');
+  database.run('PRAGMA synchronous = NORMAL');
+  // Log the effective mode once at boot: the failure this hardening prevents
+  // (silently dropped writes) was invisible in the logs.
+  database.get('PRAGMA journal_mode',
+    (_err: Error | null, row: { journal_mode?: string } | undefined) => {
+      console.log(`[db] journal_mode=${row?.journal_mode ?? '?'} ` +
+        'busy_timeout=10000 synchronous=NORMAL');
+    });
+}
+
+/**
  * Initialize database tables
  */
 export function initDatabase(): Promise<void> {
   return new Promise((resolve, reject) => {
     const database = getDb();
     database.serialize(() => {
-      // SQLite disables foreign-key enforcement by default and re-disables it on
-      // every new connection. Required for the ON DELETE CASCADE declarations on
-      // sessions/api_tokens to actually fire when a user is deleted.
-      database.run('PRAGMA foreign_keys = ON');
+      applyConnectionPragmas(database);
 
       // Usage records table
       database.run(`

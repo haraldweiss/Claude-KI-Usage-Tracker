@@ -413,6 +413,23 @@ Der Production-Backend läuft auf der **oracle-vm** als Docker-Container (`ki-us
 | **Apache vHost** | `/etc/httpd/conf.d/ki-usage-tracker.wolfinisoftware.de.conf` | ProxyPass `/api/` → `127.0.0.1:3001` |
 | **Server-Scraper** | `/opt/ki-usage-tracker/server-scraper/` | Playwright, systemd-Timer `ki-usage-scraper.timer` |
 
+**SQLite-Härtung (2026-09-29):** `database/sqlite.ts::applyConnectionPragmas()` setzt pro Verbindung `journal_mode=WAL`, `busy_timeout=10000` und `synchronous=NORMAL` (plus `foreign_keys=ON`). Das ist Absicht: node-sqlite3-Defaults sind `journal_mode=delete` + Busy-Timeout **0**, und dieselbe Datei wird von **zwei** Prozessen geschrieben (API-Container + Host-Agent `benchmark/agent.js`, beide UID 1000) — ohne die Pragmas blockiert ein Leser alle Schreiber und der zweite Schreiber verliert seinen Request mit `SQLITE_BUSY`. Beim Start loggt der Service `[db] journal_mode=wal busy_timeout=10000 synchronous=NORMAL`; fehlt die Zeile, läuft ein alter Build.
+
+**Deploy ohne Repo-Drift (Hotfix-Pfad, 2026-09-29):** Auf der VM liegt unter `/opt/ki-usage-tracker/backend/` nur der **kompilierte** `dist/` (kein `src/`, kein `Dockerfile`) — ein „echter" Rebuild würde also die gesamte Drift zwischen Repo-`main` und dem laufenden Image (Juni) mitdeployen. Für einen gezielten Fix deshalb:
+
+```bash
+# 1. laufende Datei herausziehen, patchen, Derivat-Image bauen (nur diese Datei neu)
+docker cp ki-usage-tracker:/app/dist/<pfad>.js /tmp/fix/<datei>.js
+# … patchen …
+docker tag localhost/ki-usage-tracker:latest localhost/ki-usage-tracker:pre-<fix>-<datum>
+printf 'FROM localhost/ki-usage-tracker:latest\nCOPY <datei>.js /app/dist/<pfad>.js\n' > /tmp/fix/Dockerfile
+docker build -t localhost/ki-usage-tracker:latest /tmp/fix
+docker cp /tmp/fix/<datei>.js ki-usage-tracker:/app/dist/<pfad>.js   # greift schon bei `docker restart`
+docker restart ki-usage-tracker
+```
+
+Rollback: `docker tag localhost/ki-usage-tracker:pre-<fix>-<datum> localhost/ki-usage-tracker:latest` + Container neu erstellen. Die Repo-Quelle wird parallel gefixt, damit der nächste echte Build den Zustand reproduziert.
+
 **Docker-Kommandos:**
 ```bash
 # Container-Status

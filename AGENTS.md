@@ -114,6 +114,16 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 
 ---
 
+### 3.8 SQLite: WAL + busy_timeout sind Pflicht (node-sqlite3-Defaults sind gefährlich)
+
+- `node-sqlite3` öffnet die DB mit **`journal_mode=delete` und Busy-Timeout 0**. Dieselbe Datei wird von **zwei** Prozessen beschrieben — dem API-Container (`node dist/server.js`, UID 1000 `node`) **und** dem Host-Agent `/opt/ki-usage-tracker/benchmark/agent.js` (UID 1000 `opc` = dieselbe UID) — während das Dashboard liest. Ohne Pragmas blockiert ein Leser alle Schreiber, und der zweite Schreiber verliert seinen Request mit `SQLITE_BUSY` (kein Retry).
+- Deshalb setzt **`backend/src/database/sqlite.ts::applyConnectionPragmas()`** pro Verbindung `journal_mode=WAL`, `busy_timeout=10000`, `synchronous=NORMAL` (+ `foreign_keys=ON`). **Nicht entfernen**; jede neue direkte `sqlite3.Database(...)`-Verbindung im Code muss diese Helper aufrufen.
+- Beim Start muss im Log `[db] journal_mode=wal busy_timeout=10000 synchronous=NORMAL` erscheinen — fehlt die Zeile, läuft ein alter Build (`docker logs --since 5m ki-usage-tracker | grep '\[db\]'`).
+- DB-Hygiene-Check (jederzeit gefahrlos): `sqlite3`-Pragmas + `integrity_check` wie in `tests/unit/sqlitePragmas.test.ts`; `PRAGMA journal_mode=WAL` ist **datenbankweit persistent**, `busy_timeout` pro Verbindung.
+- Verwandt: §3.7 (Tests/CI) — neue Pragmas/Tests müssen die Suite grün halten (`npm test` → aktuell 39 Suites / 312 Tests).
+
+---
+
 ## 4. Verification standards
 
 ```
@@ -6955,4 +6965,19 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 - **Dependabot-Bezug (gleiche Session):** #27 (`undici 8.11.2`, CVE-2026-85024) gemergt `29fb46af`; #28 (`nodemailer 10.0.2`, major) nach `tsc --noEmit` (exit 0) + Baseline-Vergleich gemergt `e7679148`; Alert-Stand danach **0 offene Alerts**.
 - **Docs:** AGENTS §3.7 (neue Hard Rule) + README-Abschnitt „Tests & CI".
 - **Git:** Branch `fix/backend-tests-pino-pretty` → PR → Merge nach `main`.
+
+### 2026-09-29 (2) — SQLite-Härtung (WAL) + Provider-Sync-Dauerfehler (15.604× HTTP 400) gefixt
+
+- **Anlass:** Stack-weiter SQLite-Audit nach dem ai-provider-Fund (dort gingen unter Schreiblast 42–54 Usage-/Audit-Zeilen mit `database is locked` verloren, gefixt in `ai-provider-service`). Befund hier: `database.sqlite` lief mit **`journal_mode=delete`**, und `node-sqlite3` öffnet mit **Busy-Timeout 0**.
+- **Risiko:** Dieselbe Datei schreiben **zwei** Prozesse — der API-Container (`node dist/server.js`, UID 1000 `node`) und der Host-Agent `benchmark/agent.js` (UID 1000 `opc`) — während das Dashboard liest. Ein Leser blockiert damit alle Schreiber, der zweite Schreiber verliert seinen Request mit `SQLITE_BUSY` (kein Retry, kein BUSY-Handling im Code). Die Container-Logs zeigten 24 h lang 0 Treffer → **präventiver** Fix, kein akuter Ausfall (im Gegensatz zu ai-provider).
+- **Fix (Repo):** neuer exportierter Helper `backend/src/database/sqlite.ts::applyConnectionPragmas(database)` — `journal_mode=WAL`, `busy_timeout=10000`, `synchronous=NORMAL`, `foreign_keys=ON` (letzteres unverändert), aufgerufen aus `initDatabase()` innerhalb der `serialize()`-Sektion, plus Logzeile `[db] journal_mode=… busy_timeout=10000 synchronous=NORMAL` beim Start.
+- **Test:** `src/__tests__/unit/sqlitePragmas.test.ts` (eigene temporäre DB; die Suite läuft im nativen ESM, deshalb der exportierte Seam statt `DATABASE_PATH`-Tausch + Re-Import). **Negativ-Beweis:** mit entfernter WAL-Zeile schlägt der Test fehl. Suite: **39 Suites / 312 Tests grün**, `tsc --noEmit` clean.
+- **Deploy (ohne Repo-Drift):** unter `/opt/ki-usage-tracker/backend/` liegt nur `dist/` (kein `src/`, kein `Dockerfile`) → Derivat-Image `FROM localhost/ki-usage-tracker:latest` + `COPY` der gepatchten `dist/database/sqlite.js`, zusätzlich `docker cp` in den laufenden Container (greift bei `docker restart`). **Beweis:** vor dem Start `PRAGMA journal_mode` auf `delete` zurückgesetzt → nach dem Start meldet das Log `[db] journal_mode=wal busy_timeout=10000 synchronous=NORMAL` und die DB steht auf `wal` (+ `-shm`/`-wal`). Rollback-Tag: `localhost/ki-usage-tracker:pre-sqlite-fix-20260929`.
+- **Zweiter Fund (Dauerfehler):** `[provider-service-sync] user=1 providerUserId= error=HTTP 400` **15.604×** seit Juni — Ursache: Produktionszeile `provider_service_user_ids.id=40` ist `enabled=1` mit `provider_user_id=''` (label „other"); der 15-Minuten-Sync fragte damit `?user_id=` (leer) und bekam 400, während alle 15 echten IDs sauber synchronisierten.
+  - **Datenfix (reversibel):** `UPDATE provider_service_user_ids SET enabled = 0 WHERE id = 40 AND TRIM(COALESCE(provider_user_id,'')) = ''` (1 Zeile, `enabled` 1→0; zurück mit `SET enabled=1`).
+  - **Codefix:** `listAllActiveProviderUserIds()` filtert zusätzlich `TRIM(COALESCE(provider_user_id,'')) <> ''`; Test in `tests/unit/localUsageRepo.test.ts` (leere **und** Whitespace-IDs werden übersprungen). Deploy wie oben (gepatchte `dist/data/localUsageRepo.js`).
+  - **Beweis:** Zeile 40 kurz wieder auf `enabled=1` → deployter Code liefert **15** Einträge und **keine** leere ID; danach Zeile 40 wieder `enabled=0`. Kein weiterer 400er nach der Aktivierung; der nächste planmäßige Tick bestätigt es im Log (`docker logs --since 20m ki-usage-tracker | grep -c 'error=HTTP 400'` → 0).
+- **Nebenbefund:** `npm run lint`/`npx eslint src` ist **vorbestehend** kaputt (322 Fehler inkl. `Parsing error: Unexpected token :` in TS-Dateien, u. a. `utils/secretCrypto.ts`) — ESLint 8 ohne TS-Parser-Setup. CI führt bewusst nur jest/vitest/Type-Checks aus; kein Blocker, aber Kandidat für einen eigenen Fix.
+- **Docs:** README „Container deployment" um den SQLite-Härtungs-Absatz + den Hotfix-Deploy-Pfad (Derivat-Image + Rollback-Tag) ergänzt; **neue Hard Rule §3.8**.
+- **Git:** `f1eb0b1` (SQLite) → `0c83812` (Merge) → `e4446d4` (provider-sync guard) → `e3545da` (Merge), `main` gepusht. Beide Deploys per Derivat-Image, Rollback-Tags `pre-sqlite-fix-20260929` / `pre-provider-sync-fix-20260929`.
 

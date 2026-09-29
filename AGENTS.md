@@ -106,6 +106,12 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - Peer dependency warning (`react@>=19.2.7` required, wir haben `18.3.1`) wird akzeptiert — Build + Tests passen.
 - Wenn `react-router-dom@8.x` verfügbar wird: upgrade auf `react-router-dom@8.3.0+` und override entfernen.
 
+### 3.7 Backend-Tests brauchen `pino-pretty` (devDependency) — CI muss grün bleiben
+- `backend/src/utils/logger.ts` setzt für `NODE_ENV !== 'production'` einen pino-Transport auf `pino-pretty`. pino löst das Transport-Ziel **beim Import** auf — fehlt `pino-pretty`, scheitern **27 von 38** Jest-Suites mit `unable to determine transport target for "pino-pretty"` (2026-09-29 beim Prüfen von Dependabot-PR #28 aufgefallen).
+- `pino-pretty` ist bewusst eine **devDependency** — nicht entfernen und nicht nach `dependencies` verschieben.
+- Vor jedem Merge: `cd backend && npm ci && npm test` → **38/38 Suites / 310 Tests grün**; `cd frontend && npm ci && npm test -- --run` → **14/14 Dateien / 115 Tests grün**.
+- CI: `.github/workflows/ci.yml` (jest + vitest + beide Type-Checks) läuft auf `push main` und auf **jedem PR** (inkl. Dependabot) — ergänzt 2026-09-29, weil das Repo bis dahin **keine** Workflows hatte.
+
 ---
 
 ## 4. Verification standards
@@ -6938,4 +6944,15 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 **Commit:** `125fd5c`
 
 **To resolve properly:** When `react-router-dom` ships v8, upgrade to `react-router-dom@8.3.0+` and remove the override.
+
+
+### 2026-09-29 — Backend-Testsuite repariert (`pino-pretty` devDep) + CI-Workflow ergänzt
+- **Trigger:** Beim Bewerten von Dependabot-PR #28 (`nodemailer 9.1.1 → 10.0.2`, major) war `npm test` im Backend **27 von 38** Suites rot — identische Zahlen auf `main`, also nicht PR-bedingt, aber die Suite war damit als Regressionsschutz wertlos.
+- **Root cause:** `backend/src/utils/logger.ts` setzt für `NODE_ENV !== 'production'` einen pino-Transport mit `target: 'pino-pretty'`; pino löst das Transport-Ziel **beim Import** auf. `pino-pretty` fehlte in `devDependencies` → jeder Import von `logger.ts` warf `unable to determine transport target for "pino-pretty"` → fast alle Suites brachen schon in der Import-Phase ab.
+- **Fix:** `pino-pretty@^13.1.3` als **devDependency** in `backend/package.json` (+ regeneriertes `backend/package-lock.json`).
+- **CI ergänzt** (das Repo hatte **keine** Actions-Workflows): `.github/workflows/ci.yml` mit zwei Jobs (ubuntu-24.04, Node 22) — Backend (`npm ci` → `npx tsc --noEmit` → `npm test`) und Frontend (`npm ci` → `npm run type-check` → `npm test -- --run`). Trigger: `push main`, `pull_request` (sichert damit auch **Dependabot-PRs** ab) und `workflow_dispatch`. Action-Versionen wie im Schwester-Repo `mail-client` (`actions/checkout@v4`, `actions/setup-node@v4`, node 22).
+- **Verifiziert (lokal, frisches `npm ci`):** Backend `npx tsc --noEmit` → exit 0, `npm test` → **38/38 Suites, 310/310 Tests**, exit 0 (vorher 11/38, 106/310). Frontend `npm run type-check` → exit 0, `npm test` → **14/14 Dateien, 115/115 Tests**, exit 0.
+- **Dependabot-Bezug (gleiche Session):** #27 (`undici 8.11.2`, CVE-2026-85024) gemergt `29fb46af`; #28 (`nodemailer 10.0.2`, major) nach `tsc --noEmit` (exit 0) + Baseline-Vergleich gemergt `e7679148`; Alert-Stand danach **0 offene Alerts**.
+- **Docs:** AGENTS §3.7 (neue Hard Rule) + README-Abschnitt „Tests & CI".
+- **Git:** Branch `fix/backend-tests-pino-pretty` → PR → Merge nach `main`.
 

@@ -41,6 +41,35 @@ const app = createApp();
 const PORT = process.env.PORT || 3001;
 
 // Initialize database and start server
+/**
+ * Pull usage events from each configured ai-provider-service.
+ *
+ * Iterates per tracker-user; the sync fans out across that user's
+ * provider_user_ids. Per-id failures are logged but do not abort the loop.
+ * Lives at module scope (declared inside the cron-registration block it would
+ * be an inner function declaration) and runs every 15 minutes plus once at
+ * startup.
+ */
+async function runProviderServiceSyncTick(): Promise<void> {
+  const active = await listAllActiveProviderUserIds();
+  const userIds = Array.from(new Set(active.map((a) => a.user_id)));
+  for (const uid of userIds) {
+    try {
+      const r = await syncProviderServiceEvents(uid);
+      for (const p of r.perId) {
+        if (p.newEvents > 0) {
+          logger.info(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} new=${p.newEvents}`);
+        }
+        if (!p.ok) {
+          logger.warn(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} error=${p.error}`);
+        }
+      }
+    } catch (err) {
+      logger.error({ uid, err }, '[provider-service-sync] unexpected');
+    }
+  }
+}
+
 async function start(): Promise<void> {
   try {
     await initDatabase();
@@ -126,28 +155,6 @@ async function start(): Promise<void> {
     });
     logger.info('Hourly cleanup scheduled for expired sessions and magic-link tokens');
 
-    // Pull usage events from each configured ai-provider-service every 15 min.
-    // Iterates per tracker-user; sync internally fans out across that user's
-    // provider_user_ids. Per-id failures are logged but do not abort the loop.
-    async function runProviderServiceSyncTick(): Promise<void> {
-      const active = await listAllActiveProviderUserIds();
-      const userIds = Array.from(new Set(active.map((a) => a.user_id)));
-      for (const uid of userIds) {
-        try {
-          const r = await syncProviderServiceEvents(uid);
-          for (const p of r.perId) {
-            if (p.newEvents > 0) {
-              logger.info(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} new=${p.newEvents}`);
-            }
-            if (!p.ok) {
-              logger.warn(`[provider-service-sync] user=${uid} providerUserId=${p.providerUserId} error=${p.error}`);
-            }
-          }
-        } catch (err) {
-          logger.error({ uid, err }, '[provider-service-sync] unexpected');
-        }
-      }
-    }
     cron.schedule('*/15 * * * *', () => {
       runProviderServiceSyncTick().catch((err) =>
         logger.error({ err }, '[provider-service-sync] cron tick error')

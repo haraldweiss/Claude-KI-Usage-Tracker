@@ -46,7 +46,7 @@ export default function OpportunitiesTable(props: OpportunitiesTableProps): Reac
     return 'text-slate-600';
   };
 
-  let sortedOpportunities = [...opportunitiesData];
+  const sortedOpportunities = [...opportunitiesData];
   sortedOpportunities.sort((a, b) => {
     let aVal: number;
     let bVal: number;

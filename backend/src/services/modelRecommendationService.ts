@@ -177,7 +177,7 @@ export function analyzeTaskComplexity(taskDescription: string): TaskComplexity {
   const desc = taskDescription.toLowerCase();
   let complexity = 5; // Default middle value
   let category: 'simple_task' | 'medium_task' | 'complex_task' | 'general' = 'general';
-  let matchedKeywords: string[] = [];
+  const matchedKeywords: string[] = [];
 
   // Check simple keywords
   for (const keyword of COMPLEXITY_KEYWORDS.simple) {

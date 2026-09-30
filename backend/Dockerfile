@@ -4,14 +4,18 @@
 # Multi-stage build for the Claude Usage Tracker backend.
 # Stage 1 compiles TypeScript and prunes dev-deps; stage 2 is the runtime.
 # Using Debian Bookworm (glibc 2.36) instead of Alpine to avoid musl issues
-# with sqlite3 native bindings and to keep glibc current enough for
-# unpinned sqlite3 releases.
+# with sqlite3 native bindings.
+# NOTE: sqlite3 >= 6.0.1 prebuilt binaries require glibc 2.38+ (Bookworm
+# ships 2.36). We install build tools in stage 1 and compile sqlite3 from
+# source so the binary links against the container's glibc.
 
 # ─── Stage 1: build ───
 FROM docker.io/library/node:22-bookworm-slim AS builder
 WORKDIR /app
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci
+RUN npm rebuild sqlite3 --build-from-source
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --production

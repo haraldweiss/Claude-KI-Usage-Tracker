@@ -296,6 +296,7 @@ async function syncHardSources() {
       : url.includes('platform.claude.com') ? 'anthropic_api'
       : url.includes('z.ai') ? 'zai'
       : url.includes('chatgpt.com') ? 'codex'
+      : url.includes('opencode.ai') && url.includes('/usage') ? 'opencode_api'
       : url.includes('opencode.ai') ? 'opencode_go'
       : url.includes('cline.bot') ? 'cline'
       : null;
@@ -464,7 +465,15 @@ async function syncHardSources() {
           for (const label of labels) {
             const re = new RegExp(label + '[\\s\\S]{0,200}?(\\d+)\\s*%', 'i');
             const m = text.match(re);
-            if (m) return parseInt(m[1], 10);
+            if (m) {
+              const val = parseInt(m[1], 10);
+              // If the matched text indicates 'Remaining' or 'Verbleibend', invert to used%
+              const matchText = m[0];
+              if (/remaining|verbleibend/i.test(matchText)) {
+                return 100 - val;
+              }
+              return val;
+            }
           }
           return null;
         }
@@ -488,13 +497,58 @@ async function syncHardSources() {
       }
     }).catch(() => null);
     if (inj?.result) {
-      await postSource('opencode_go_sync', 'OpenCode Go (Extension)', inj.result);
-      results.push({ source: 'opencode_go', ok: true });
+      const hasValidPct = inj.result.continuous_pct != null || inj.result.weekly_pct != null || inj.result.monthly_pct != null;
+      if (hasValidPct) {
+        await postSource('opencode_go_sync', 'OpenCode Go (Extension)', inj.result);
+        results.push({ source: 'opencode_go', ok: true });
+      } else {
+        console.log('[sync-hard] opencode_go skipped: all null values (page likely not loaded)');
+        results.push({ source: 'opencode_go', ok: true, skipped: true, reason: 'no_data' });
+      }
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'opencode_go', ok: false, error: e.message }); }
 
-  // 6. Cline (app.cline.bot subscription — plan name + usage limits)
+  // 6. OpenCode API usage (pay-as-you-go — per-key aggregates + grand total)
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/usage',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 8000));
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        const costRe = /(?:Gesamt|Total|Grand)\s*(?:Kosten|Cost)\s*[:\$]\s*([\d.]+)/i;
+        const tokensRe = /(?:Gesamt|Total)\s*(?:Tokens?)\s*[:\$]?\s*([\d.,]+)/i;
+        const requestsRe = /(?:Gesamt|Total)\s*(?:Anfragen|Requests?)\s*[:\$]?\s*([\d.,]+)/i;
+        const costMatch = text.match(costRe);
+        const tokensMatch = text.match(tokensRe);
+        const requestsMatch = text.match(requestsRe);
+        const rows = [...document.querySelectorAll('table tbody tr')].map(tr => {
+          const cells = [...tr.querySelectorAll('td')].map(td => td.textContent?.trim());
+          return cells.filter(c => c);
+        }).filter(r => r.length >= 2);
+        return {
+          grand_cost_usd: costMatch ? parseFloat(costMatch[1]) : null,
+          total_tokens: tokensMatch ? parseInt(tokensMatch[1].replace(/[^0-9]/g, '')) : null,
+          total_requests: requestsMatch ? parseInt(requestsMatch[1].replace(/[^0-9]/g, '')) : null,
+          rows_preview: rows.slice(0, 5),
+          text_preview: text.substring(0, 800),
+        };
+      }
+    }).catch(() => null);
+    if (inj?.result) {
+      await postSource('opencode_api_sync', 'OpenCode API (Extension)', inj.result);
+      results.push({ source: 'opencode_api', ok: true });
+    } else {
+      results.push({ source: 'opencode_api', ok: false, error: 'no_data', preview: '' });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'opencode_api', ok: false, error: e.message }); }
+
+  // 6b. Cline (app.cline.bot subscription — plan name + usage limits)
   try {
     const tab = await chrome.tabs.create({
       url: 'https://app.cline.bot/dashboard/subscription',

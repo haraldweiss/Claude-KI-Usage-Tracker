@@ -6938,3 +6938,27 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **To resolve properly:** When `react-router-dom` ships v8, upgrade to `react-router-dom@8.3.0+` and remove the override.
 
+### 2026-10-01 — OpenCode remaining→used % + opencode_api_sync über ALLE Varianten + Server-Scraper-Unit repariert (opencode)
+
+**Kontext:** Commit `d0d5cd8` fügte den OpenCode-Go „Remaining→Used %"-Invert und den neuen `opencode_api_sync`-Schritt (OpenCode API, pay-as-you-go) in `extension/`, `extension-edge/`, `extension-opera/` und `server-scraper/src/scrapers/opencode-go.ts` ein. Die **Firefox-Variante fehlte**; der Server-Scraper wurde nie auf die VM deployt und die systemd-Unit war kaputt.
+
+**Extension-Nachtrag:**
+- `extension-firefox/background.js` (MV2): `extractPct` invertiert `remaining|verbleibend` → `100 - val`; `hasValidPct`-Null-Guard ergänzt (skip `reason:'no_data'`); neuer Schritt 6 `opencode_api_sync` (`opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/usage`), spiegelt Chrome. Provider-Mapping im `chrome.tabs.create`-Monkeypatch: `opencode.ai` + `/usage` → `opencode_api`, sonst `opencode_go`.
+- `extension-palemoon/`: **Viewer/Cookie-Export-only** (kein `syncHardSources`) → keine Scraper-Änderung; Popup zeigt `opencode_api` bereits.
+- Verifiziert: `node --check` auf allen 4 Varianten ✓; Parser-Tests 6/14 pass (8 vorbestehende ENOENT für nach `extension-scrapers-bak/` verschobene Scraper).
+
+**Server-Scraper-Unit repariert (Production, oracle-vm):** Die Unit `/etc/systemd/system/ki-usage-scraper.service` zeigte seit Jul 29 auf ein **nicht existierendes** `/opt/claudetracker/server-scraper` → jede Timer-Ausführung schlug mit `status=200/CHDIR` fehl (19 Fehlläufe/7 Tage), Scraper lief nie.
+- Pfade → `/opt/ki-usage-tracker/server-scraper` (ExecStart + WorkingDirectory).
+- Token aus der Unit entfernt → `EnvironmentFile=-/etc/ki-usage-tracker/scraper.env` (chmod 600). Unit-Datei **muss** `root:root` + SELinux `systemd_unit_file_t` sein, sonst ignoriert systemd sie (auch die Env-Datei braucht `etc_t`, sonst wird sie still übersprungen → 401).
+- `server-scraper/ki-usage-scraper.service` + `deploy.sh` im Repo entsprechend aktualisiert (Pfad, `sudo`, `chown root:root`, `restorecon`, Env-Warnung).
+- Deployt + getestet: `sudo systemctl start ki-usage-scraper` → `Summary: 8 ✅, 1 ❌`; alle 401 verschwunden. `opencode_go_sync: login_required` bleibt (VPS hat keine opencode.ai-Session-Cookies → OpenCode Go läuft weiterhin über den Extension-Sync).
+
+**Validierte Tokens (2026-10-01):**
+- ✅ **user 2** `ck_live_f2969…` (in `/etc/ki-usage-tracker/scraper.env`) → 200/201 auf summary+track.
+- ❌ **user 1** `ck_live_cdb39683…` (in `~/.config/ki-tracker-token` **und** `ki-usage-benchmark-agent.service`) → **401**, d.h. der **Benchmark-Agent ist aktuell auth-broken** und braucht einen frischen user-1-Token (Dashboard → API-Token rotieren). Nicht in dieser Session gefixt (Auth/Prod = Claude-Code-Lane).
+
+**Sibling `wolfinisoftware`:** `scripts/coding-benchmark/coding-benchmark.py` Hardcoded-Free-Model-Fallback war veraltet (enthielt das am 2026-10-01 entfernte `nemotron-3-ultra-free` sowie weitere tote IDs) → auf die aktuellen 8 Free-Modelle aus dem `opencode-models-check`-Cache (04:30 UTC) aktualisiert.
+
+**Manuell offen:** Firefox-Extension in `about:debugging`/`about:addons` neu laden; Extension-Reload testen (Popup → „Sync geschützte Quellen").
+
+

@@ -4,10 +4,13 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/node /opt/claudetracker/server-scraper/node_modules/.bin/tsx /opt/claudetracker/server-scraper/src/index.ts
-WorkingDirectory=/opt/claudetracker/server-scraper
+# API_TOKEN lives in /etc/ki-usage-tracker/scraper.env (chmod 600, SELinux ctx etc_t).
+# The leading '-' makes a missing env file non-fatal, but a missing vars file means
+# posts will 401 — verify with: journalctl -u ki-usage-scraper -n 20
+EnvironmentFile=-/etc/ki-usage-tracker/scraper.env
+ExecStart=/usr/bin/node /opt/ki-usage-tracker/server-scraper/node_modules/.bin/tsx /opt/ki-usage-tracker/server-scraper/src/index.ts
+WorkingDirectory=/opt/ki-usage-tracker/server-scraper
 Environment=API_BASE=http://localhost:3001/api
-Environment=API_TOKEN=
 Environment=PLAYWRIGHT_HEADLESS=true
 User=root
 Group=root

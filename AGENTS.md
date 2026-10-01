@@ -27,7 +27,8 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
   6. `chatgpt.com/codex/settings/usage` — ChatGPT Pro/Plus Codex usage (added 2026-06-22)
   7. `platform.openai.com/usage` — OpenAI API month-to-date spend (added 2026-06-22)
   8. `openrouter.ai/credits` — OpenRouter credits balance + 30-day activity usage (added 2026-07-23)
-- Three components: **backend** (Express + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3 + 4 Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
+- Three components: **backend** (Express 5 + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3 + 4 Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
+- **Express 5 migration (2026-09-08):** Upgraded from Express 4.22.2 → 5.2.1 via Dependabot PR #22. Code uses standard patterns (Router, res.json/status/send, bodyParser.json/urlencoded) — no breaking changes encountered. body-parser also bumped 1.20.6 → 2.3.0 (now uses static exports, improved ESM compatibility). qs bumped 6.15.3 → 6.16.0 (fixes array-limit bypass).
 - Hosted at `https://wolfinisoftware.de/claudetracker/` with magic-link auth + API tokens
 - Default branch: `main`, remote: `github.com:haraldweiss/Claude-KI-Usage-Tracker`
 - **GitHub ruleset active**: `non_fast_forward` blocks force-push. To force-push: temp disable via `gh api -X PUT repos/.../rulesets/16651604 --input <json with enforcement: disabled>`, push, re-enable.
@@ -104,6 +105,32 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - Der override erzwingt `react-router@8.3.0` (patched gegen RSC Mode CSRF Bypass).
 - Peer dependency warning (`react@>=19.2.7` required, wir haben `18.3.1`) wird akzeptiert — Build + Tests passen.
 - Wenn `react-router-dom@8.x` verfügbar wird: upgrade auf `react-router-dom@8.3.0+` und override entfernen.
+
+### 3.7 Backend-Tests brauchen `pino-pretty` (devDependency) — CI muss grün bleiben
+- `backend/src/utils/logger.ts` setzt für `NODE_ENV !== 'production'` einen pino-Transport auf `pino-pretty`. pino löst das Transport-Ziel **beim Import** auf — fehlt `pino-pretty`, scheitern **27 von 38** Jest-Suites mit `unable to determine transport target for "pino-pretty"` (2026-09-29 beim Prüfen von Dependabot-PR #28 aufgefallen).
+- `pino-pretty` ist bewusst eine **devDependency** — nicht entfernen und nicht nach `dependencies` verschieben.
+- Vor jedem Merge: `cd backend && npm ci && npm test` → **38/38 Suites / 310 Tests grün**; `cd frontend && npm ci && npm test -- --run` → **14/14 Dateien / 115 Tests grün**.
+- CI: `.github/workflows/ci.yml` (jest + vitest + beide Type-Checks) läuft auf `push main` und auf **jedem PR** (inkl. Dependabot) — ergänzt 2026-09-29, weil das Repo bis dahin **keine** Workflows hatte.
+
+---
+
+### 3.8 SQLite: WAL + busy_timeout sind Pflicht (node-sqlite3-Defaults sind gefährlich)
+
+- `node-sqlite3` öffnet die DB mit **`journal_mode=delete` und Busy-Timeout 0**. Dieselbe Datei wird von **zwei** Prozessen beschrieben — dem API-Container (`node dist/server.js`, UID 1000 `node`) **und** dem Host-Agent `/opt/ki-usage-tracker/benchmark/agent.js` (UID 1000 `opc` = dieselbe UID) — während das Dashboard liest. Ohne Pragmas blockiert ein Leser alle Schreiber, und der zweite Schreiber verliert seinen Request mit `SQLITE_BUSY` (kein Retry).
+- Deshalb setzt **`backend/src/database/sqlite.ts::applyConnectionPragmas()`** pro Verbindung `journal_mode=WAL`, `busy_timeout=10000`, `synchronous=NORMAL` (+ `foreign_keys=ON`). **Nicht entfernen**; jede neue direkte `sqlite3.Database(...)`-Verbindung im Code muss diese Helper aufrufen.
+- Beim Start muss im Log `[db] journal_mode=wal busy_timeout=10000 synchronous=NORMAL` erscheinen — fehlt die Zeile, läuft ein alter Build (`docker logs --since 5m ki-usage-tracker | grep '\[db\]'`).
+- DB-Hygiene-Check (jederzeit gefahrlos): `sqlite3`-Pragmas + `integrity_check` wie in `tests/unit/sqlitePragmas.test.ts`; `PRAGMA journal_mode=WAL` ist **datenbankweit persistent**, `busy_timeout` pro Verbindung.
+- Verwandt: §3.7 (Tests/CI) — neue Pragmas/Tests müssen die Suite grün halten (`npm test` → aktuell 39 Suites / 312 Tests).
+
+---
+
+### 3.9 `npm run lint` muss laufen (TypeScript-Parser + Prettier besitzt die Formatierung)
+
+- Beide ESLint-Configs (`.eslintrc.json` in `backend/` und `frontend/`) nutzten den **Standard-Parser (espree)** — jede `.ts`/`.tsx`-Datei endete in `Parsing error: Unexpected token :` (Backend 324, Frontend 59 „Probleme"). Seit 2026-09-29 setzen beide `parser: @typescript-eslint/parser` + `plugins: ["@typescript-eslint"]` und extenden `plugin:@typescript-eslint/recommended` (dafür sind `@typescript-eslint/parser`/`-eslint-plugin@^8` devDependencies).
+- **Keine Style-Regeln in ESLint:** `indent`/`quotes`/`semi` wurden entfernt — sie widersprechen dem Prettier-Format des Repos (387 der 392 Backend-Funde waren genau diese drei Regeln). Formatierung macht `prettier` (`extends: [… "prettier"]`), ESLint prüft Korrektheit.
+- `no-undef` ist aus (TypeScript übernimmt das), `@typescript-eslint/no-explicit-any` und `react/no-unescaped-entities` sind **warn** (deutsche UI-Texte mit `"`/`'` sind in JSX korrekt und sollen nicht erzwungen escaped werden).
+- Scripts: `npm run lint` (ohne `--fix`, CI-tauglich) und `npm run lint:fix`. **Nicht** wieder `eslint src --fix` ohne `--ext` verwenden — ohne `--ext` findet ESLint in `src/` keine `.ts`-Dateien und bricht mit „No files matching the pattern" ab.
+- CI (`.github/workflows/ci.yml`) führt jetzt **Lint + Type-Check + Tests** für Backend und Frontend aus. Stand: Backend 0 Fehler/3 Warnungen (39 Suites/312 Tests), Frontend 0 Fehler/26 Warnungen (14 Dateien/115 Tests).
 
 ---
 
@@ -6938,7 +6965,45 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **To resolve properly:** When `react-router-dom` ships v8, upgrade to `react-router-dom@8.3.0+` and remove the override.
 
-### 2026-10-01 — OpenCode remaining→used % + opencode_api_sync über ALLE Varianten + Server-Scraper-Unit repariert (opencode)
+
+### 2026-09-29 — Backend-Testsuite repariert (`pino-pretty` devDep) + CI-Workflow ergänzt
+- **Trigger:** Beim Bewerten von Dependabot-PR #28 (`nodemailer 9.1.1 → 10.0.2`, major) war `npm test` im Backend **27 von 38** Suites rot — identische Zahlen auf `main`, also nicht PR-bedingt, aber die Suite war damit als Regressionsschutz wertlos.
+- **Root cause:** `backend/src/utils/logger.ts` setzt für `NODE_ENV !== 'production'` einen pino-Transport mit `target: 'pino-pretty'`; pino löst das Transport-Ziel **beim Import** auf. `pino-pretty` fehlte in `devDependencies` → jeder Import von `logger.ts` warf `unable to determine transport target for "pino-pretty"` → fast alle Suites brachen schon in der Import-Phase ab.
+- **Fix:** `pino-pretty@^13.1.3` als **devDependency** in `backend/package.json` (+ regeneriertes `backend/package-lock.json`).
+- **CI ergänzt** (das Repo hatte **keine** Actions-Workflows): `.github/workflows/ci.yml` mit zwei Jobs (ubuntu-24.04, Node 22) — Backend (`npm ci` → `npx tsc --noEmit` → `npm test`) und Frontend (`npm ci` → `npm run type-check` → `npm test -- --run`). Trigger: `push main`, `pull_request` (sichert damit auch **Dependabot-PRs** ab) und `workflow_dispatch`. Action-Versionen wie im Schwester-Repo `mail-client` (`actions/checkout@v4`, `actions/setup-node@v4`, node 22).
+- **Verifiziert (lokal, frisches `npm ci`):** Backend `npx tsc --noEmit` → exit 0, `npm test` → **38/38 Suites, 310/310 Tests**, exit 0 (vorher 11/38, 106/310). Frontend `npm run type-check` → exit 0, `npm test` → **14/14 Dateien, 115/115 Tests**, exit 0.
+- **Dependabot-Bezug (gleiche Session):** #27 (`undici 8.11.2`, CVE-2026-85024) gemergt `29fb46af`; #28 (`nodemailer 10.0.2`, major) nach `tsc --noEmit` (exit 0) + Baseline-Vergleich gemergt `e7679148`; Alert-Stand danach **0 offene Alerts**.
+- **Docs:** AGENTS §3.7 (neue Hard Rule) + README-Abschnitt „Tests & CI".
+- **Git:** Branch `fix/backend-tests-pino-pretty` → PR → Merge nach `main`.
+
+### 2026-09-29 (2) — SQLite-Härtung (WAL) + Provider-Sync-Dauerfehler (15.604× HTTP 400) gefixt
+
+- **Anlass:** Stack-weiter SQLite-Audit nach dem ai-provider-Fund (dort gingen unter Schreiblast 42–54 Usage-/Audit-Zeilen mit `database is locked` verloren, gefixt in `ai-provider-service`). Befund hier: `database.sqlite` lief mit **`journal_mode=delete`**, und `node-sqlite3` öffnet mit **Busy-Timeout 0**.
+- **Risiko:** Dieselbe Datei schreiben **zwei** Prozesse — der API-Container (`node dist/server.js`, UID 1000 `node`) und der Host-Agent `benchmark/agent.js` (UID 1000 `opc`) — während das Dashboard liest. Ein Leser blockiert damit alle Schreiber, der zweite Schreiber verliert seinen Request mit `SQLITE_BUSY` (kein Retry, kein BUSY-Handling im Code). Die Container-Logs zeigten 24 h lang 0 Treffer → **präventiver** Fix, kein akuter Ausfall (im Gegensatz zu ai-provider).
+- **Fix (Repo):** neuer exportierter Helper `backend/src/database/sqlite.ts::applyConnectionPragmas(database)` — `journal_mode=WAL`, `busy_timeout=10000`, `synchronous=NORMAL`, `foreign_keys=ON` (letzteres unverändert), aufgerufen aus `initDatabase()` innerhalb der `serialize()`-Sektion, plus Logzeile `[db] journal_mode=… busy_timeout=10000 synchronous=NORMAL` beim Start.
+- **Test:** `src/__tests__/unit/sqlitePragmas.test.ts` (eigene temporäre DB; die Suite läuft im nativen ESM, deshalb der exportierte Seam statt `DATABASE_PATH`-Tausch + Re-Import). **Negativ-Beweis:** mit entfernter WAL-Zeile schlägt der Test fehl. Suite: **39 Suites / 312 Tests grün**, `tsc --noEmit` clean.
+- **Deploy (ohne Repo-Drift):** unter `/opt/ki-usage-tracker/backend/` liegt nur `dist/` (kein `src/`, kein `Dockerfile`) → Derivat-Image `FROM localhost/ki-usage-tracker:latest` + `COPY` der gepatchten `dist/database/sqlite.js`, zusätzlich `docker cp` in den laufenden Container (greift bei `docker restart`). **Beweis:** vor dem Start `PRAGMA journal_mode` auf `delete` zurückgesetzt → nach dem Start meldet das Log `[db] journal_mode=wal busy_timeout=10000 synchronous=NORMAL` und die DB steht auf `wal` (+ `-shm`/`-wal`). Rollback-Tag: `localhost/ki-usage-tracker:pre-sqlite-fix-20260929`.
+- **Zweiter Fund (Dauerfehler):** `[provider-service-sync] user=1 providerUserId= error=HTTP 400` **15.604×** seit Juni — Ursache: Produktionszeile `provider_service_user_ids.id=40` ist `enabled=1` mit `provider_user_id=''` (label „other"); der 15-Minuten-Sync fragte damit `?user_id=` (leer) und bekam 400, während alle 15 echten IDs sauber synchronisierten.
+  - **Datenfix (reversibel):** `UPDATE provider_service_user_ids SET enabled = 0 WHERE id = 40 AND TRIM(COALESCE(provider_user_id,'')) = ''` (1 Zeile, `enabled` 1→0; zurück mit `SET enabled=1`).
+  - **Codefix:** `listAllActiveProviderUserIds()` filtert zusätzlich `TRIM(COALESCE(provider_user_id,'')) <> ''`; Test in `tests/unit/localUsageRepo.test.ts` (leere **und** Whitespace-IDs werden übersprungen). Deploy wie oben (gepatchte `dist/data/localUsageRepo.js`).
+  - **Beweis:** Zeile 40 kurz wieder auf `enabled=1` → deployter Code liefert **15** Einträge und **keine** leere ID; danach Zeile 40 wieder `enabled=0`. Kein weiterer 400er nach der Aktivierung; der nächste planmäßige Tick bestätigt es im Log (`docker logs --since 20m ki-usage-tracker | grep -c 'error=HTTP 400'` → 0).
+- **Nebenbefund:** `npm run lint`/`npx eslint src` ist **vorbestehend** kaputt (322 Fehler inkl. `Parsing error: Unexpected token :` in TS-Dateien, u. a. `utils/secretCrypto.ts`) — ESLint 8 ohne TS-Parser-Setup. CI führt bewusst nur jest/vitest/Type-Checks aus; kein Blocker, aber Kandidat für einen eigenen Fix.
+- **Docs:** README „Container deployment" um den SQLite-Härtungs-Absatz + den Hotfix-Deploy-Pfad (Derivat-Image + Rollback-Tag) ergänzt; **neue Hard Rule §3.8**.
+- **Git:** `f1eb0b1` (SQLite) → `0c83812` (Merge) → `e4446d4` (provider-sync guard) → `e3545da` (Merge), `main` gepusht. Beide Deploys per Derivat-Image, Rollback-Tags `pre-sqlite-fix-20260929` / `pre-provider-sync-fix-20260929`.
+
+
+### 2026-09-29 (3) — Token-Rotation (ai-provider) + ESLint repariert + Altlasten entfernt
+
+- **Token-Rotation (Reaktion auf den Audit; Werte nie im Log, nur Fingerprints):** Neue 43-Zeichen-`SERVICE_TOKEN`, 40-Zeichen-`ADMIN_TOKEN` und 64-Zeichen-`SECRET_KEY` in `/etc/ai-provider/ai-provider.env` (Backups `.bak-rot-20260929-*`), Container neu erstellt. **Zusatzfund:** `SECRET_KEY` war eine **Kopie des alten Service-Tokens** (fp `a96f36c8…`) — Flask benutzt ihn nur für Admin-UI-Sessions, deshalb wurde er mitrotiert (Sessions sind dadurch einmalig abgemeldet, keine Daten betroffen).
+  - **Vollständiger Verbraucher-Sweep vorher** (Dateien + Container-Envs auf beiden Hosts, decrypt im Tracker): `ai-provider`, WP-Optionen (`wolfini_aic_settings_v2.service_token`, `wolfini_eval_admin_token`), `/etc/bewerbungen/bewerbungen.env` (+ `bewerbungen-cron` mit Token im Env → **recreate**, die übrigen Bewerbungen-Container mounten die Datei → Restart), ionos `/etc/httpd/ai-studio-token.conf` + `/opt/open-webui/owui.env` (Container neu), Tracker-DB `user_provider_service_config.service_token_enc` (speichert den **ADMIN_TOKEN** verschlüsselt → über `upsertProviderServiceConfig` neu verschlüsselt), Mac `~/.pi/agent/.env`.
+  - **Verifiziert:** alter Service-Token → **401**, alter Admin-Token → **403**; neue Tokens 200/400 (auth ok); bewerbungen-Stack `/v1/models` → 200/948 Modelle; AI-Studio-Proxy 200; Open WebUI-Key → 200/948 Modelle; Tracker-Sync **15/0**; WP-Kachel Leaderboard lädt; pi 200; Website/Studio/chat 200.
+  - **Ein erwarteter Transient:** der geplante Sync-Tick um 20:15 UTC lief genau zwischen „ai-provider hat den neuen Token" (20:13) und „Tracker-DB aktualisiert" (20:15:5x) → einmalig 401 für alle IDs; der manuelle Sync danach und alle folgenden Ticks sind fehlerfrei.
+  - **Hygiene:** alte Werte in allen Backup-Dateien (env/owui/conf/pi) durch `<rotated-2026-09-29>` ersetzt; Endsuche nach beiden alten Werten (Dateien + Container-Envs, beide Hosts + Mac) → **0 Treffer**; `/root/.newtokens` (Zwischenspeicher) gelöscht.
+- **ESLint repariert (Hard Rule §3.9):** beide Lints brachen am fehlenden TS-Parser (`Parsing error: Unexpected token :`). `@typescript-eslint/parser` + `-eslint-plugin@^8` als devDependencies, beide `.eslintrc.json` auf Parser + `plugin:@typescript-eslint/recommended` umgestellt, Style-Regeln (`indent`/`quotes`/`semi`) entfernt (387 der 392 Backend-Funde waren genau die → Prettier besitzt Formatierung), `no-undef` aus, `no-explicit-any`/`react/no-unescaped-entities` auf warn; 4 echte Funde gefixt (unbenutzte Variable, `prefer-const`, `no-case-declarations` → Block-Braces, `declare global`-Namespace mit gezieltem Disable). Scripts jetzt `lint`/`lint:fix` **mit `--ext`**, Lint in die CI aufgenommen. Ergebnis: Backend 0 Fehler/3 Warnungen, Frontend 0 Fehler/26 Warnungen, Tests unverändert grün (312 + 115).
+- **Altlasten entfernt:** ionos `/opt/ai-provider-data` (22 M), `/opt/bewerbungen-data` (43 M), `/opt/open-webui/data` (1,2 G). **Bewusst stehen gelassen** (weil genutzt/unklar): oracles `/opt/bewerbungen-data` (wird noch beschrieben), `/opt/open-webui-data` (5,9 G, Cron `wolfini-chat-sync` liest die dortige `webui.db`).
+- **Offen (empfohlen):** `/etc/cron.d/wolfini-chat-sync` (täglich 05:00) liest `/opt/open-webui-data/webui.db` auf **oracle** — Open WebUI läuft aber auf ionos, der lokale Stand ist vom 20.08. → der Sync holt veraltete Chats ins WP-Memory. Fix: `OPEN_WEBUI_DB` auf eine synchronisierte Kopie zeigen lassen (oder Skript auf ionos betreiben) und dann `/opt/open-webui-data` löschen.
+- **Git:** siehe Commit im Repo (Lint/CI + Doku).
+\n\n### 2026-10-01 — OpenCode remaining→used % + opencode_api_sync über ALLE Varianten + Server-Scraper-Unit repariert (opencode)
 
 **Kontext:** Commit `d0d5cd8` fügte den OpenCode-Go „Remaining→Used %"-Invert und den neuen `opencode_api_sync`-Schritt (OpenCode API, pay-as-you-go) in `extension/`, `extension-edge/`, `extension-opera/` und `server-scraper/src/scrapers/opencode-go.ts` ein. Die **Firefox-Variante fehlte**; der Server-Scraper wurde nie auf die VM deployt und die systemd-Unit war kaputt.
 

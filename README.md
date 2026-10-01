@@ -120,6 +120,22 @@ Or use the convenience scripts that handle both at once:
 
 The scripts auto-detect when launched from a worktree and point the backend at the main repo's SQLite file so test runs and dev runs share the same data.
 
+### Tests & CI
+
+```bash
+cd backend  && npm ci && npm run lint && npx tsc --noEmit && npm test   # jest   — 39 suites / 312 tests
+cd frontend && npm ci && npm run lint && npm run type-check && npm test -- --run  # vitest — 14 files / 115 tests
+```
+
+Lint (ESLint 8 with `@typescript-eslint/parser`, see AGENTS §3.9) reports **0 errors** in both
+packages; remaining warnings (`no-explicit-any`, `react/no-unescaped-entities`) are informational.
+ESLint deliberately has **no formatting rules** — Prettier owns formatting (`npm run format`), which
+is why `indent`/`quotes`/`semi` were removed from the configs on 2026-09-29.
+
+CI (`.github/workflows/ci.yml`) runs **lint + type-check + tests** for both packages on every push to
+`main` and on every pull request — including Dependabot PRs, so dependency bumps are validated
+before they reach `main`.
+
 ### 4. Install the extension
 
 > **Version note**: the extension is at **v3.2.1** (MV3) for Chromium browsers. Incompatible with any v1.x install — remove the old version before loading this one.
@@ -398,6 +414,23 @@ Der Production-Backend läuft auf der **oracle-vm** als Docker-Container (`ki-us
 | **Frontend dist** | `/opt/ki-usage-tracker-frontend/dist/` | Apache DocumentRoot |
 | **Apache vHost** | `/etc/httpd/conf.d/ki-usage-tracker.wolfinisoftware.de.conf` | ProxyPass `/api/` → `127.0.0.1:3001` |
 | **Server-Scraper** | `/opt/ki-usage-tracker/server-scraper/` | Playwright, systemd-Timer `ki-usage-scraper.timer` |
+
+**SQLite-Härtung (2026-09-29):** `database/sqlite.ts::applyConnectionPragmas()` setzt pro Verbindung `journal_mode=WAL`, `busy_timeout=10000` und `synchronous=NORMAL` (plus `foreign_keys=ON`). Das ist Absicht: node-sqlite3-Defaults sind `journal_mode=delete` + Busy-Timeout **0**, und dieselbe Datei wird von **zwei** Prozessen geschrieben (API-Container + Host-Agent `benchmark/agent.js`, beide UID 1000) — ohne die Pragmas blockiert ein Leser alle Schreiber und der zweite Schreiber verliert seinen Request mit `SQLITE_BUSY`. Beim Start loggt der Service `[db] journal_mode=wal busy_timeout=10000 synchronous=NORMAL`; fehlt die Zeile, läuft ein alter Build.
+
+**Deploy ohne Repo-Drift (Hotfix-Pfad, 2026-09-29):** Auf der VM liegt unter `/opt/ki-usage-tracker/backend/` nur der **kompilierte** `dist/` (kein `src/`, kein `Dockerfile`) — ein „echter" Rebuild würde also die gesamte Drift zwischen Repo-`main` und dem laufenden Image (Juni) mitdeployen. Für einen gezielten Fix deshalb:
+
+```bash
+# 1. laufende Datei herausziehen, patchen, Derivat-Image bauen (nur diese Datei neu)
+docker cp ki-usage-tracker:/app/dist/<pfad>.js /tmp/fix/<datei>.js
+# … patchen …
+docker tag localhost/ki-usage-tracker:latest localhost/ki-usage-tracker:pre-<fix>-<datum>
+printf 'FROM localhost/ki-usage-tracker:latest\nCOPY <datei>.js /app/dist/<pfad>.js\n' > /tmp/fix/Dockerfile
+docker build -t localhost/ki-usage-tracker:latest /tmp/fix
+docker cp /tmp/fix/<datei>.js ki-usage-tracker:/app/dist/<pfad>.js   # greift schon bei `docker restart`
+docker restart ki-usage-tracker
+```
+
+Rollback: `docker tag localhost/ki-usage-tracker:pre-<fix>-<datum> localhost/ki-usage-tracker:latest` + Container neu erstellen. Die Repo-Quelle wird parallel gefixt, damit der nächste echte Build den Zustand reproduziert.
 
 **Docker-Kommandos:**
 ```bash

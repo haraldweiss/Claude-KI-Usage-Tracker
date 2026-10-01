@@ -428,7 +428,7 @@ export default function InsightsBlock(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const cancelled = false;
     const load = async (): Promise<void> => {
       try {
         const [summary, total, planRes, keyRes] = await Promise.all([

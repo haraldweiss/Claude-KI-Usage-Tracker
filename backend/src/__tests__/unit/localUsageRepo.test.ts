@@ -219,6 +219,30 @@ describe('listAllActiveProviderUserIds', () => {
     const ids = entries.map((e) => e.row.provider_user_id).sort();
     expect(ids).toEqual(['active-1']);
   });
+
+  it('skips rows without a provider_user_id', async () => {
+    // A row with an empty id makes the provider API answer HTTP 400, which used
+    // to log a warning on every 15-minute sync tick (15,604 times since June
+    // 2026 for production row id=40) — such rows must not be selected.
+    await upsertProviderServiceConfig(101, {
+      service_url: 'x', service_token_enc: 'e', enabled: 1,
+    });
+    await addProviderUserId(101, 'active-1');
+    await runQuery(
+      `INSERT INTO provider_service_user_ids
+         (user_id, provider_user_id, label, enabled, created_at, updated_at)
+       VALUES (101, '', 'other', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`
+    );
+    await runQuery(
+      `INSERT INTO provider_service_user_ids
+         (user_id, provider_user_id, label, enabled, created_at, updated_at)
+       VALUES (101, '   ', 'whitespace', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`
+    );
+
+    const entries = await listAllActiveProviderUserIds();
+    const ids = entries.map((e) => e.row.provider_user_id).sort();
+    expect(ids).toEqual(['active-1']);
+  });
 });
 
 describe('updateProviderUserIdSyncStatus', () => {

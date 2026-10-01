@@ -64,10 +64,14 @@ export interface PendingPlanChange {
   note: string | null;
 }
 
-// Augment Express Request to include req.user (set by auth middleware)
+// Augment Express Request to include req.user (set by auth middleware).
+// `declare global { namespace … }` is the standard TypeScript pattern for this —
+// the namespace rule is about ES modules vs. legacy namespaces, which does not
+// apply to a global type augmentation.
 import 'express';
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: User;

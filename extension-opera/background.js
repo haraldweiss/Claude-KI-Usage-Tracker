@@ -19,56 +19,27 @@ function getAuthHeaders(token) {
 }
 
 async function getConfiguredProviders(apiBase, apiToken) {
-  const response = await fetch(`${apiBase.replace(/\/+$/, '')}/settings/providers`, { headers: getAuthHeaders(apiToken) });
+  const response = await fetch(`${apiBase.replace(/\/+$/, '')}/settings/providers`, {
+    headers: getAuthHeaders(apiToken)
+  });
   if (!response.ok) throw new Error(`provider configuration request failed (${response.status})`);
   const data = await response.json();
   return getConfiguredProviderKeys(data?.providers);
 }
 
+async function getConfiguredProvidersFromStorage() {
+  const { api_token, api_base } = await chrome.storage.local.get(['api_token', 'api_base']);
+  return getConfiguredProviders(api_base || DEFAULT_API_BASE, api_token);
+}
+
 // Read all cookies from known domains and return as Playwright-compatible JSON
-async function getAllCookies() {
-  const DOMAIN_VARIANTS = [
-    'claude.ai', 'www.claude.ai',
-    'platform.claude.com', 'www.platform.claude.com',
-    'opencode.ai', 'www.opencode.ai',
-    'z.ai', 'www.z.ai',
-    'chatgpt.com', 'www.chatgpt.com',
-    'platform.openai.com', 'www.platform.openai.com',
-    'auth.claude.ai', 'api.claude.ai',
-    'account.anthropic.com',
-    'app.cline.bot', 'www.app.cline.bot',
-  ];
+async function getAllCookies(providerKeys) {
+  const domainVariants = getCookieDomains(providerKeys);
   const result = [];
   const seen = new Set();
-  
-  // First try: get ALL cookies without domain filter (needs host_permission for all)
-  try {
-    const allCookies = await chrome.cookies.getAll({});
-    console.log('[cookies] ALL cookies (no filter): ' + allCookies.length);
-    if (allCookies.length > 0) {
-      const byDomain = {};
-      for (const c of allCookies) {
-        if (!byDomain[c.domain]) byDomain[c.domain] = [];
-        byDomain[c.domain].push(c.name);
-      }
-      for (const [d, names] of Object.entries(byDomain)) {
-        console.log('[cookies]   ' + d + ': ' + names.join(', '));
-      }
-    }
-  } catch (e) {
-    console.log('[cookies] getAll({}) ERROR: ' + e.message);
-  }
-  
-  // Second try: per-domain queries — try with URL format first, then domain
-  const URLS = [
-    'https://claude.ai/',
-    'https://platform.claude.com/',
-    'https://opencode.ai/',
-    'https://z.ai/',
-    'https://chatgpt.com/',
-    'https://platform.openai.com/',
-  ];
-  for (const url of URLS) {
+
+  for (const domain of domainVariants) {
+    const url = `https://${domain}/`;
     try {
       const cookies = await chrome.cookies.getAll({ url });
       for (const c of cookies) {
@@ -101,7 +72,7 @@ async function getAllCookies() {
   }
   
   // Also try with domain format (old approach)
-  for (const domain of DOMAIN_VARIANTS) {
+  for (const domain of domainVariants) {
     try {
       const cookies = await chrome.cookies.getAll({ domain });
       for (const c of cookies) {
@@ -131,8 +102,7 @@ async function getAllCookies() {
       console.log('[cookies] getAll({domain:' + domain + '}) ERROR: ' + e.message);
     }
   }
-  console.log('[cookies] found ' + result.length + ' cookies across all domains');
-  if (result.length > 0) console.log('[cookies] sample:', result.slice(0, 3).map(c => c.name + '@' + c.domain).join(', '));
+  console.log('[cookies] found ' + result.length + ' cookies across ' + domainVariants.length + ' configured domains');
   return result;
 }
 
@@ -144,7 +114,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message.type === 'GET_COOKIES') {
-    getAllCookies()
+    getConfiguredProvidersFromStorage().then(getAllCookies)
       .then((c) => sendResponse(c))
       .catch((e) => sendResponse({ error: e.message }));
     return true;
@@ -162,7 +132,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message.type === 'DEBUG_COOKIES') {
-    getAllCookies().then((c) => {
+    getConfiguredProvidersFromStorage().then(getAllCookies).then((c) => {
       console.log('[cookies] DEBUG: ' + c.length + ' cookies');
       console.log('[cookies] by domain:', [...new Set(c.map(x => x.domain))].join(', '));
     });
@@ -192,7 +162,12 @@ async function exportCookiesToServer() {
   const uploadUrl = server_scraper_url || 'https://ki-usage-tracker.wolfinisoftware.de/api/cookies/upload';
 
   try {
-    const cookies = await getAllCookies();
+    const configuredProviders = await getConfiguredProvidersFromStorage();
+    if (configuredProviders.size === 0) {
+      console.log('[cookies] export skipped: no providers are enabled in Provider-Übersicht');
+      return;
+    }
+    const cookies = await getAllCookies(configuredProviders);
     if (cookies.length === 0) {
       console.log('[cookies] export skipped: 0 cookies');
       return;
@@ -219,11 +194,6 @@ async function exportCookiesToServer() {
 
 // Auto-export on startup (deferred so SW is fully initialized)
 setTimeout(() => {
-  getAllCookies().then((c) => {
-    console.log('[cookies] startup: ' + c.length + ' cookies');
-    if (c.length > 0) console.log('[cookies] domains:', [...new Set(c.map(x => x.domain))].join(', '));
-    else console.log('[cookies] startup: NO COOKIES FOUND — check permissions');
-  });
   exportCookiesToServer();
 }, 2000);
 
@@ -289,20 +259,6 @@ async function syncHardSources() {
   } catch (error) {
     return { success: false, results: [], error: error.message };
   }
-  const originalCreateTab = chrome.tabs.create.bind(chrome.tabs);
-  chrome.tabs.create = (options) => {
-    const url = options?.url || '';
-    const provider = url.includes('/claude-code/') ? 'claude_code'
-      : url.includes('platform.claude.com') ? 'anthropic_api'
-      : url.includes('z.ai') ? 'zai'
-      : url.includes('chatgpt.com') ? 'codex'
-      : url.includes('opencode.ai') ? 'opencode_go'
-      : url.includes('cline.bot') ? 'cline'
-      : null;
-    return provider && !configuredProviders.has(provider)
-      ? Promise.reject(new Error('not_configured'))
-      : originalCreateTab(options);
-  };
 
   const results = [];
   const startTs = Date.now();
@@ -323,6 +279,7 @@ async function syncHardSources() {
   }
 
   // 1. Anthropic Console (platform.claude.com/settings/keys)
+  if (configuredProviders.has('anthropic_api')) {
   try {
     const tab = await chrome.tabs.create({
       url: 'https://platform.claude.com/settings/keys',
@@ -346,8 +303,10 @@ async function syncHardSources() {
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'console', ok: false, error: e.message }); }
+  } else { results.push({ source: 'console', ok: true, skipped: true, reason: 'not_configured' }); }
 
   // 2. z.ai (my-plan + usage)
+  if (configuredProviders.has('zai')) {
   try {
     const tab = await chrome.tabs.create({
       url: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan',
@@ -389,8 +348,10 @@ async function syncHardSources() {
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'zai', ok: false, error: e.message }); }
+  } else { results.push({ source: 'zai', ok: true, skipped: true, reason: 'not_configured' }); }
 
   // 3. Codex (ChatGPT usage limits)
+  if (configuredProviders.has('codex')) {
   try {
     const tab = await chrome.tabs.create({
       url: 'https://chatgpt.com/codex/settings/usage',
@@ -422,8 +383,10 @@ async function syncHardSources() {
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'codex', ok: false, error: e.message }); }
+  } else { results.push({ source: 'codex', ok: true, skipped: true, reason: 'not_configured' }); }
 
   // 4. Claude Code
+  if (configuredProviders.has('claude_code')) {
   try {
     const tab = await chrome.tabs.create({
       url: 'https://platform.claude.com/claude-code/usage',
@@ -447,8 +410,10 @@ async function syncHardSources() {
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'claude_code', ok: false, error: e.message }); }
+  } else { results.push({ source: 'claude_code', ok: true, skipped: true, reason: 'not_configured' }); }
 
   // 5. OpenCode Go
+  if (configuredProviders.has('opencode_go')) {
   try {
     const tab = await chrome.tabs.create({
       url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/go',
@@ -464,7 +429,15 @@ async function syncHardSources() {
           for (const label of labels) {
             const re = new RegExp(label + '[\\s\\S]{0,200}?(\\d+)\\s*%', 'i');
             const m = text.match(re);
-            if (m) return parseInt(m[1], 10);
+            if (m) {
+              const val = parseInt(m[1], 10);
+              // If the matched text indicates 'Remaining' or 'Verbleibend', invert to used%
+              const matchText = m[0];
+              if (/remaining|verbleibend/i.test(matchText)) {
+                return 100 - val;
+              }
+              return val;
+            }
           }
           return null;
         }
@@ -499,8 +472,52 @@ async function syncHardSources() {
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'opencode_go', ok: false, error: e.message }); }
+  } else { results.push({ source: 'opencode_go', ok: true, skipped: true, reason: 'not_configured' }); }
 
-  // 6. Cline (app.cline.bot subscription — plan name + usage limits)
+
+  // 6. OpenCode API usage (pay-as-you-go — per-key aggregates + grand total)
+  if (configuredProviders.has('opencode_api')) {
+  try {
+    const tab = await chrome.tabs.create({
+      url: 'https://opencode.ai/workspace/wrk_01KSKQJKEA4AQ3KV75MPTVNR3R/usage',
+      active: true
+    });
+    await new Promise(r => setTimeout(r, 8000));
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const text = document.body?.innerText || '';
+        const costRe = /(?:Gesamt|Total|Grand)\s*(?:Kosten|Cost)\s*[:\$]\s*([\d.]+)/i;
+        const tokensRe = /(?:Gesamt|Total)\s*(?:Tokens?)\s*[:\$]?\s*([\d.,]+)/i;
+        const requestsRe = /(?:Gesamt|Total)\s*(?:Anfragen|Requests?)\s*[:\$]?\s*([\d.,]+)/i;
+        const costMatch = text.match(costRe);
+        const tokensMatch = text.match(tokensRe);
+        const requestsMatch = text.match(requestsRe);
+        const rows = [...document.querySelectorAll('table tbody tr')].map(tr => {
+          const cells = [...tr.querySelectorAll('td')].map(td => td.textContent?.trim());
+          return cells.filter(c => c);
+        }).filter(r => r.length >= 2);
+        return {
+          grand_cost_usd: costMatch ? parseFloat(costMatch[1]) : null,
+          total_tokens: tokensMatch ? parseInt(tokensMatch[1].replace(/[^0-9]/g, '')) : null,
+          total_requests: requestsMatch ? parseInt(requestsMatch[1].replace(/[^0-9]/g, '')) : null,
+          rows_preview: rows.slice(0, 5),
+          text_preview: text.substring(0, 800),
+        };
+      }
+    }).catch(() => null);
+    if (inj?.result) {
+      await postSource('opencode_api_sync', 'OpenCode API (Extension)', inj.result);
+      results.push({ source: 'opencode_api', ok: true });
+    } else {
+      results.push({ source: 'opencode_api', ok: false, error: 'no_data', preview: '' });
+    }
+    await chrome.tabs.remove(tab.id);
+  } catch (e) { results.push({ source: 'opencode_api', ok: false, error: e.message }); }
+  } else { results.push({ source: 'opencode_api', ok: true, skipped: true, reason: 'not_configured' }); }
+
+  // 6b. Cline (app.cline.bot subscription — plan name + usage limits)
+  if (configuredProviders.has('cline')) {
   try {
     const tab = await chrome.tabs.create({
       url: 'https://app.cline.bot/dashboard/subscription',
@@ -569,8 +586,9 @@ async function syncHardSources() {
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'cline', ok: false, error: e.message }); }
+  } else { results.push({ source: 'cline', ok: true, skipped: true, reason: 'not_configured' }); }
 
-  // 7. OpenRouter (credits page + usage stats)
+// 7. OpenRouter (credits page + usage stats)
   if (configuredProviders.has('openrouter')) {
   try {
     const tab = await chrome.tabs.create({
@@ -583,8 +601,8 @@ async function syncHardSources() {
       target: { tabId: tab.id },
       func: () => {
         const text = document.body?.innerText || '';
-        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\s]*[€$]?\s*([\d.,]+)/i)
-          || text.match(/[€$]\s*([\d.,]+)\s*(?:credits?|EUR|USD)/i);
+        const creditMatch = text.match(/(?:credits?|balance|guthaben)[:\s]*[$€]?\s*([\d.,]+)/i)
+          || text.match(/[$€]\s*([\d.,]+)\s*(?:credits?|EUR|USD)/i);
         const modelMatch = text.match(/(\d+)\s*(?:models?|modelle)/i);
         return {
           credits_remaining: creditMatch ? parseFloat(creditMatch[1].replace(',', '.')) : null,
@@ -599,24 +617,26 @@ async function syncHardSources() {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const from = thirtyDaysAgo.toISOString();
     const to = now.toISOString();
-    await chrome.tabs.update(tab.id, { url: 'https://openrouter.ai/activity?from=' + from + '&to=' + to + '&date_preset=past_30_days' });
+    await chrome.tabs.update(tab.id, { url: `https://openrouter.ai/activity?from=${from}&to=${to}&date_preset=past_30_days` });
     await new Promise(r => setTimeout(r, 10000));
     const [usageInj] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
         const text = document.body?.innerText || '';
-        const totalMatch = text.match(new RegExp('(?:total|gesamt|spend|ausgaben)[:\\\\s]*\\$?([\\d.,]+)', 'i'))
+        // Use string-based regex to avoid escaping issues in background script
+        const totalMatch = text.match(new RegExp('(?:total|gesamt|spend|ausgaben)[:\\s]*\\$?([\\d.,]+)', 'i'))
           || text.match(new RegExp('\\$\\s*([\\d.,]+)\\s*(?:total|gesamt)', 'i'));
-        const tokenMatch = text.match(new RegExp('(?:tokens?|token)[:\\\\s]*([\\d.,]+)', 'i'));
-        const reqMatch = text.match(new RegExp('(?:requests?|anfragen)[:\\\\s]*([\\d.,]+)', 'i'));
+        const tokenMatch = text.match(new RegExp('(?:tokens?|token)[:\\s]*([\\d.,]+)', 'i'));
+        const reqMatch = text.match(new RegExp('(?:requests?|anfragen)[:\\s]*([\\d.,]+)', 'i'));
+        // Try to find model breakdown table rows
         const rows = [...document.querySelectorAll('table tbody tr, [role="row"]')].map(r => 
           [...r.querySelectorAll('td, [role="cell"]')].map(c => c.textContent?.trim())
-        ).filter(r => r.length >= 3);
+        ).filter(r => r.length >= 2);
         return {
           total_cost_usd: totalMatch ? parseFloat(totalMatch[1].replace(',', '.')) : null,
           total_tokens: tokenMatch ? parseInt(tokenMatch[1].replace(/,/g, ''), 10) : null,
           total_requests: reqMatch ? parseInt(reqMatch[1].replace(/,/g, ''), 10) : null,
-          model_rows: rows.slice(0, 20),
+          model_rows: rows.slice(0, 30),
         };
       }
     }).catch(() => null);
@@ -636,12 +656,8 @@ async function syncHardSources() {
   } catch (e) { results.push({ source: 'openrouter', ok: false, error: e.message }); }
   } else { results.push({ source: 'openrouter', ok: true, skipped: true, reason: 'not_configured' }); }
 
-  chrome.tabs.create = originalCreateTab;
-  const normalized = results.map((result) => result.error === 'not_configured'
-    ? { ...result, ok: true, skipped: true, reason: 'not_configured' }
-    : result);
-  console.log('[sync-hard] results:', JSON.stringify(normalized));
-  return { success: true, results: normalized };
+  console.log('[sync-hard] results:', JSON.stringify(results));
+  return { success: true, results };
 }
 
 async function fetchMonthlyStats() {

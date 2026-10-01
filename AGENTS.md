@@ -87,7 +87,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 ### 3.3 Cost math is user-trust-critical
 - All currency conversions go through `frankfurter.app` daily; cache the rate.
 - `formatEur` / `formatUsd` in extension popup: always `isFinite()` guard before format. Past bug surfaced `NaN€` when a scraper returned undefined.
-- "Grand total" in `OverviewTab` must include **all seven sources** (claude.ai, console, Claude Code, OpenCode Go, z.ai GLM Coding Plan, Codex, OpenAI API) — if you add an 8th source, add it to the sum (and to `getSpendingTotal`'s `grand_total_eur`).
+- "Grand total" in `OverviewTab` must include **all nine sources** (claude.ai, console, Claude Code, OpenCode Go, z.ai GLM Coding Plan, Codex, OpenAI API) — if you add an 8th source, add it to the sum (and to `getSpendingTotal`'s `grand_total_eur`).
 
 ### 3.4 Validators / XSS
 - **Don't** use `.escape()` on user input in `express-validator`. React auto-escapes on render; `.escape()` corrupts legitimate characters in stored notes. Removed in `92bc43f`.

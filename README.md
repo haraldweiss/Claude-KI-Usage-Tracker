@@ -1,6 +1,6 @@
 # KI Usage Tracker
 
-A web application + browser extension that tracks the **real cost** of using AI across eight sources — claude.ai subscription, Anthropic Console API keys, Claude Code, OpenCode Go, z.ai GLM Coding Plan, ChatGPT Codex, OpenAI API usage, and Cline coding assistant — and surfaces it as a single number on a unified dashboard with proactive alerts.
+A web application + browser extension that tracks the **real cost** of using AI across nine sources — claude.ai subscription, Anthropic Console API keys, Claude Code, OpenCode Go, z.ai GLM Coding Plan, ChatGPT Codex, OpenAI API usage, and Cline coding assistant — and surfaces it as a single number on a unified dashboard with proactive alerts.
 
 **Status**: ✅ Phase 5 — Multi-Source Cost Tracker (live on VPS, Plan-B architecture, multi-user auth)
 
@@ -72,7 +72,7 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 - **Frontend**: React + TypeScript + Vite, Tailwind CSS. Same-origin XHRs in production; dev server uses Vite proxy.
 - **Extension**: Chrome MV3 (v3.2.1), configurable Backend URL + API Token in the popup. Auto-sync: Hard-Sources (Tabs) alle 15min via chrome.alarms + Server-Scraper (Playwright) alle 1h via systemd timer. Manuell: **🔐 Sync geschützte Quellen** + Cookie-Export.
 - **Server-Scraper**: Playwright TypeScript scrapers running on the VPS via systemd timer (every 1h). Handles 3 sources (Codex, OpenAI API, Claude.ai) using cookies auto-exported from the extension.
-- **Hybrid sync**: 3 sources scraped server-side (1h Takt, Cookie-Export) + 4 sources scraped in-extension (httponly cookies encrypted by macOS Keychain — console, claude-code, z.ai, opencode). Sync-Kadenzen: Server-Scraper 1h · Extension Hard-Sync 15min · Popup-Refresh 15min · Handoff-Check 1h.
+- **Hybrid sync**: 3 sources scraped server-side (1h Takt, Cookie-Export) + 5 sources scraped in-extension (httponly cookies encrypted by macOS Keychain — console, claude-code, z.ai, opencode-go, opencode-api). Sync-Kadenzen: Server-Scraper 1h · Extension Hard-Sync 15min · Popup-Refresh 15min · Handoff-Check 1h.
 - **Proxy tunnel**: SOCKS5 via SSH reverse tunnel (microsocks on Mac + ssh -R) to route Playwright traffic through the residential IP, bypassing Cloudflare challenges.
 - **VPS deployment**: Apache reverse-proxy + systemd unit + Let's Encrypt TLS + magic-link auth + automated health monitoring with email alerts.
 
@@ -128,9 +128,9 @@ The scripts auto-detect when launched from a worktree and point the backend at t
 
 | Variant | Directory | Engine | Popup | Scraping | Notes |
 |---------|-----------|--------|-------|----------|-------|
-| **Chrome / Edge / Opera** | `extension/` (shared) | Chromium MV3 | HTML + JS | `chrome.scripting` + `chrome.cookies` | 8 cost sources, progress bars, usage details |
+| **Chrome / Edge / Opera** | `extension/` (shared) | Chromium MV3 | HTML + JS | `chrome.scripting` + `chrome.cookies` | 9 cost sources, progress bars, usage details |
 | **Firefox** | `extension-firefox/` | Gecko MV2 | HTML + JS | `browser.tabs.executeScript` | Gleiche Features wie Chrome, MV2-adaptiert |
-| **Pale Moon** | `extension-palemoon/` | Goanna/UXP | XUL + JS | XPCOM `nsICookieManager` | 8 cost sources, usage % details, XUL-nativ |
+| **Pale Moon** | `extension-palemoon/` | Goanna/UXP | XUL + JS | XPCOM `nsICookieManager` | 9 cost sources, usage % details, XUL-nativ |
 
 #### Chrome / Edge / Opera
 1. Open `chrome://extensions` (bzw. `edge://extensions` / `opera://extensions`).
@@ -156,7 +156,7 @@ The scripts auto-detect when launched from a worktree and point the backend at t
 ### 5. Trigger your first sync
 Log into the services you have enabled in **Settings → Provider-Übersicht**. The selected plan is the source of truth: an active subscription stays selected (and therefore stays in the monthly costs) until it is cancelled; providers without a selected plan are skipped. For pay-as-you-go APIs, select **API Usage** — it enables cost tracking without a monthly subscription charge. The **server-scraper** (every 1h) handles Codex, OpenAI API, and Claude.ai automatically. For the protected sources (Anthropic Console, Claude Code, z.ai, OpenCode Go), open the extension popup and click **🔐 Sync geschützte Quellen** — it opens only the enabled provider tabs, scrapes data, and posts to the backend.
 
-> **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all seven scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
+> **Note:** When a scraper finds no existing tab it opens a new one as an **active, visible tab** to pass Cloudflare's bot-detection (hidden tabs trigger anti-bot challenges). Each scraper closes its own tab after the scrape. When "↻ Sync alle" is used, a single tab is shared across all nine scrapers and closed once at the end. Re-open the popup if it dismisses during this window.
 
 For ad-hoc runs from the service-worker console:
 ```javascript

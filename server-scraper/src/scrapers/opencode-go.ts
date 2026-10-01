@@ -79,7 +79,12 @@ export async function scrapeOpenCodeGo(): Promise<ScraperResult> {
           const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
           const pctMatch = text.match(pctRe);
           if (!pctMatch) continue;
-          const pct = parseInt(pctMatch[1], 10);
+          let pct = parseInt(pctMatch[1], 10);
+          const matchText = pctMatch[0];
+          // If the matched text indicates 'Remaining' or 'Verbleibend', invert to used%
+          if (/remaining|verbleibend/i.test(matchText)) {
+            pct = 100 - pct;
+          }
           const matchEnd = (pctMatch.index ?? 0) + pctMatch[0].length;
 
           // Try reset in matched body first

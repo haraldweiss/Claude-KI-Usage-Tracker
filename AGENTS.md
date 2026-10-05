@@ -7026,4 +7026,21 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **Manuell offen:** Firefox-Extension in `about:debugging`/`about:addons` neu laden; Extension-Reload testen (Popup → „Sync geschützte Quellen").
 
+### 2026-10-05 — ChatGPT/Codex-Karte stand seit 2026-07-12 still (opencode)
+
+**Symptom:** Dashboard-ChatGPT-Karte zeigte wochen-/monatealte Werte. ChatGPT-Page zeigt live z.B. „5-hour limit · Resets in 2h 34m · 31% left / Weekly limit · Resets in 6d 21h · 89% left".
+
+**Root Cause:** `chatgpt.com/codex/settings/usage` nutzt jetzt **kurze Labels** (`5-hour limit`, `Weekly limit`) mit **relativen** Reset-Angaben (`Resets in 2h 34m`). Unser Parser verlangte die langen Labels (`5 hour usage limit`, `Weekly usage limit`) **und** eine Monats-Karte → jeder `codex_sync` lieferte `usage_cards_not_found`. Letzter Datenpunkt user 1: `2026-07-12 18:22:56`. User 2 (server-scraper) hat codex zusätzlich auf `plan_valid_until=2026-07-22` (expired) → füllte die Lücke nicht.
+
+**Fix (Commit `04caec8`, deployed):**
+- `usage-parser-codex.js` (4 Varianten): akzeptiert dt. Langform, alte englische Form **und** die neuen kurzen Labels; monthly optional; relative Resets (`in 2h 34m`, `in 6d 21h`) → Timestamp.
+- Wait-Loop in `background.js` (4 Varianten): kurze Labels akzeptiert, monthly nicht mehr Pflicht.
+- Regressionstest (exakte Live-Page) ergänzt; 7/15 pass (8 vorbestehende ENOENT).
+- `planPricingService.ts` Seed `ChatGPT Plus` 18.50 → **23 €**; Prod-DB ebenfalls auf 23 gesetzt (`source='manual'`).
+- `server-scraper/src/scrapers/codex.ts` auf `*_remaining_pct`-Feldnamen + sauberen `plan_name` vereinheitlicht (Backend liest diese).
+
+**Deploy:** Backend-Dist per `docker cp` + `docker restart ki-usage-tracker` (healthy, `[db] journal_mode=wal…` im Log); `server-scraper/src/scrapers/codex.ts` per rsync. Frontend unverändert.
+
+**Offen:** user 2 codex bleibt expired → server-scraper überspringt es weiterhin (Cloudflare-blockiert ohnehin). Extension muss neu geladen und „Sync geschützte Quellen" muss laufen, damit die Karte frische Werte zeigt. `plan_pricing` ist global → 23 € gilt für alle codex-aktiven User.
+
 

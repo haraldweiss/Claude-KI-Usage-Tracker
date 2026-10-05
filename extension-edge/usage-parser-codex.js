@@ -14,6 +14,19 @@ function parseCodexLocalizedNumber(value) {
 
 function parseCodexResetDate(value) {
   if (!value) return null;
+  // Relative countdowns from the current UI: "in 2h 34m", "in 6d 21h".
+  var relDays = value.match(/in\s+(\d+)\s*d(?:ays?)?\s*(?:(\d+)\s*h(?:ours?)?)?/i);
+  if (relDays) {
+    var daysMs = Number(relDays[1]) * 86400000 + (relDays[2] ? Number(relDays[2]) * 3600000 : 0);
+    return new Date(Date.now() + daysMs).toISOString();
+  }
+  var relHours = value.match(/in\s+(\d+)\s*h(?:ours?)?\s*(?:(\d+)\s*m(?:in(?:ute)?s?)?)?/i);
+  if (relHours) {
+    var hoursMs = Number(relHours[1]) * 3600000 + (relHours[2] ? Number(relHours[2]) * 60000 : 0);
+    return new Date(Date.now() + hoursMs).toISOString();
+  }
+  var relMinutes = value.match(/in\s+(\d+)\s*m(?:in(?:ute)?s?)?/i);
+  if (relMinutes) return new Date(Date.now() + Number(relMinutes[1]) * 60000).toISOString();
   var german = value.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})/);
   if (german) {
     return new Date(
@@ -33,14 +46,22 @@ function codexLabelNumber(text, labels) {
   return match ? parseCodexLocalizedNumber(match[1]) : null;
 }
 
+// Labels vary between the German long form ("5 Stunden Nutzungsgrenze"),
+// the older English form ("5 hour usage limit") and the current terse UI
+// ("5-hour limit", "Weekly limit", "Monthly limit"). Accept all of them.
+var CODEX_5H_LABEL =
+  '5\\s*[-–—]?\\s*(?:Std\\.?|Stunden|hours?)(?:\\s*(?:Nutzungsgrenze|usage limit|limit))?';
+var CODEX_WEEKLY_LABEL =
+  '(?:Wöchentliches?\\s+Nutzungslimit|Wöchentlich|Weekly(?:\\s+usage)?\\s+limit|Weekly)';
+var CODEX_MONTHLY_LABEL =
+  '(?:Monatliches?\\s+Nutzungslimit|Monatlich|Monthly(?:\\s+usage)?\\s+limit|Monthly)';
+
 function codexLimit(text, labelPattern) {
-  var nextLabel =
-    '5\\s*(?:Stunden|hour)\\s*(?:Nutzungsgrenze|usage limit)|' +
-    'Wöchentliches Nutzungslimit|Weekly usage limit|' +
-    'Monatliches Nutzungslimit|Monthly usage limit|' +
-    'Verbleibende Credits|Credits remaining|Nutzungsaufschlüsselung|Usage breakdown';
   var percent = text.match(new RegExp('(?:' + labelPattern + ')[\\s\\S]{0,100}?([0-9]{1,3}(?:[.,][0-9]+)?)\\s*%', 'i'));
-  var reset = text.match(new RegExp('(?:' + labelPattern + ')[\\s\\S]{0,180}?(?:Zurücksetzungen?|Resets?)\\s+([^\\n]+?)(?=\\s+(?:' + nextLabel + ')|$)', 'i'));
+  // Reset text sits on its own line in the current UI ("Resets in 2h 34m")
+  // and after the label on the same line in the older UI
+  // ("... Zurücksetzungen 22.06.2026 04:36"). Capture the rest of that line.
+  var reset = text.match(new RegExp('(?:' + labelPattern + ')[\\s\\S]{0,180}?(?:Zurücksetzungen?|Resets?)\\s+([^\\n]+)', 'i'));
   return {
     remaining_pct: percent ? parseCodexLocalizedNumber(percent[1]) : null,
     reset_at: reset ? parseCodexResetDate(reset[1].trim()) : null
@@ -49,9 +70,9 @@ function codexLimit(text, labelPattern) {
 
 function parseCodexUsageText(rawText) {
   var text = typeof rawText === 'string' ? rawText.replace(/\u00a0/g, ' ').trim() : '';
-  var fiveHour = codexLimit(text, '5\\s*(?:Stunden|hour)\\s*(?:Nutzungsgrenze|usage limit)');
-  var weekly = codexLimit(text, '(?:Wöchentliches Nutzungslimit|Weekly usage limit)');
-  var monthly = codexLimit(text, '(?:Monatliches Nutzungslimit|Monthly usage limit)');
+  var fiveHour = codexLimit(text, CODEX_5H_LABEL);
+  var weekly = codexLimit(text, CODEX_WEEKLY_LABEL);
+  var monthly = codexLimit(text, CODEX_MONTHLY_LABEL);
 
   if (
     !Number.isFinite(fiveHour.remaining_pct) ||

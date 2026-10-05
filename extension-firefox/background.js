@@ -405,9 +405,8 @@ async function syncHardSources() {
         func: () => document.body?.innerText || ''
       }).catch(() => []);
       text = inj?.result || text;
-      if (/5\s*(?:Stunden|hour)\s*(?:Nutzungsgrenze|usage limit)/i.test(text) &&
-          /Wöchentliches Nutzungslimit|Weekly usage limit/i.test(text) &&
-          /Monatliches Nutzungslimit|Monthly usage limit/i.test(text)) {
+      if (/5\s*[-–—]?\s*(?:Std\.?|Stunden|hours?)/i.test(text) &&
+          /Wöchentliches?\s+Nutzungslimit|Wöchentlich|Weekly(?:\s+usage)?\s+limit|Weekly/i.test(text)) {
         break;
       }
       await new Promise(r => setTimeout(r, 500));

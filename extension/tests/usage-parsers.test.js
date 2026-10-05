@@ -241,3 +241,28 @@ test('detects missing Anthropic Console workspace discovery as no workspaces', (
   assert.equal(isNoWorkspaceDiscovery(['no workspace links found via observer']), true);
   assert.equal(isNoWorkspaceDiscovery(['inject: permission denied']), false);
 });
+
+test('parses current terse Codex layout ("5-hour limit" / "Weekly limit")', () => {
+  const { parseCodexUsageText } = loadParser('usage-parser-codex.js');
+  const result = parseCodexUsageText(`
+    Your plan
+    Your subscription is managed through ChatGPT. Go to Settings > Billing on Web to manage or cancel your plan
+    ChatGPT Plus
+    €23 / month
+    Plan limits
+    Shared across Codex, Work, Workspace Agents, and ChatGPT for Excel. Chat conversations are not included.
+    5-hour limit
+    Resets in 2h 34m
+    31% left
+    Weekly limit
+    Resets in 6d 21h
+    89% left
+  `);
+  assert.equal(result.success, true);
+  assert.equal(result.data.five_hour_remaining_pct, 31);
+  assert.equal(result.data.weekly_remaining_pct, 89);
+  assert.equal(result.data.monthly_remaining_pct, null);
+  assert.equal(result.data.plan_name, 'ChatGPT Plus');
+  assert.ok(result.data.five_hour_reset_at, 'relative 5h reset should become a timestamp');
+  assert.ok(result.data.weekly_reset_at, 'relative weekly reset should become a timestamp');
+});

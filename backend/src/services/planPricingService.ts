@@ -33,7 +33,7 @@ const SEED_PLANS: Array<Omit<PlanPricingRow, 'last_updated'>> = [
   // these serve as a reference until the ChatGPT plan name is extracted from
   // the analytics page.
   { plan_name: 'ChatGPT Go', monthly_eur: 7.5, min_seats: 1, source: 'tier_default' },
-  { plan_name: 'ChatGPT Plus', monthly_eur: 18.5, min_seats: 1, source: 'tier_default' },
+  { plan_name: 'ChatGPT Plus', monthly_eur: 23, min_seats: 1, source: 'tier_default' },
   { plan_name: 'ChatGPT Pro', monthly_eur: 92, min_seats: 1, source: 'tier_default' },
   { plan_name: 'ChatGPT Pro (20x)', monthly_eur: 185, min_seats: 1, source: 'tier_default' },
 // Cline coding assistant subscription. User sets the actual price in settings;

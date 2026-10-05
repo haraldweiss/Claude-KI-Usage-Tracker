@@ -13,32 +13,34 @@ const CODEX_URL = 'https://chatgpt.com/codex/settings/usage';
 
 function extractCodexUsage(): Record<string, unknown> | null {
   const body = document.body.innerText || '';
-
-  // Plan name
-  const planMatch = body.match(/(?:Plan|Abo|Subscription)[:\s]+([A-Za-z0-9\s]+)/i);
-  const planName = planMatch ? planMatch[1].trim() : null;
-
-  // Usage percentages — look for patterns like "5h 82%" or "Weekly 38%"
   const usage: Record<string, unknown> = {};
-  if (planName) usage.plan_name = planName;
 
-  // 5h/Weekly limits
-  const fiveHourMatch = body.match(/(?:5h|5\s*hours?|Std\.?)[^0-9]*?(\d{1,3})\s*%/i);
-  if (fiveHourMatch) usage.five_hour_pct = parseInt(fiveHourMatch[1]);
+  // Plan name: prefer the explicit "ChatGPT <tier>" header (current UI),
+  // fall back to the older "Plan: <tier>" label.
+  const planMatch = body.match(/ChatGPT\s+(Pro|Plus|Go|Free)\b/i)
+    || body.match(/(?:Plan|Abo|Subscription)\s*[:\-]?\s*(Pro|Plus|Go|Free)\b/i);
+  if (planMatch) {
+    const tier = planMatch[1];
+    usage.plan_name = 'ChatGPT ' + tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
+  }
 
-  const weeklyMatch = body.match(/(?:Woche?|Weekly|wöchentlich)[^0-9]*?(\d{1,3})\s*%/i);
-  if (weeklyMatch) usage.weekly_pct = parseInt(weeklyMatch[1]);
-
-  // Credits
-  const creditMatch = body.match(/(?:Credits?|Guthaben|Credits? limit)[^0-9]*?(\d{1,3})\s*%/i);
-  if (creditMatch) usage.credit_pct = parseInt(creditMatch[1]);
-
-  // Free remaining (e.g., "5h 99% frei")
-  const freeMatch = body.match(/(\d{1,3})\s*%\s*frei/i);
-  if (freeMatch) usage.free_pct = parseInt(freeMatch[1]);
+  // Remaining percentages. Labels vary across locales / UI versions:
+  //   "5-hour limit", "5 hour usage limit", "5 Stunden Nutzungsgrenze"
+  //   "Weekly limit", "Weekly usage limit", "Wöchentliches Nutzungslimit"
+  //   "Monthly limit", "Monthly usage limit", "Monatliches Nutzungslimit"
+  const pct = (label: string): number | null => {
+    const m = body.match(new RegExp('(?:' + label + ')[\\s\\S]{0,100}?([0-9]{1,3})\\s*%', 'i'));
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const fiveHour = pct('5\\s*[-–—]?\\s*(?:Std\\.?|Stunden|hours?)(?:\\s*(?:Nutzungsgrenze|usage limit|limit))?');
+  if (fiveHour != null) usage.five_hour_remaining_pct = fiveHour;
+  const weekly = pct('(?:Wöchentliches?\\s+Nutzungslimit|Wöchentlich|Weekly(?:\\s+usage)?\\s+limit|Weekly)');
+  if (weekly != null) usage.weekly_remaining_pct = weekly;
+  const monthly = pct('(?:Monatliches?\\s+Nutzungslimit|Monatlich|Monthly(?:\\s+usage)?\\s+limit|Monthly)');
+  if (monthly != null) usage.monthly_remaining_pct = monthly;
 
   console.log('[codex] extracted:', JSON.stringify(usage));
-  return usage;
+  return Object.keys(usage).length > 0 ? usage : null;
 }
 
 export async function scrape(page: Page, config: ScraperConfig): Promise<ScraperResult> {

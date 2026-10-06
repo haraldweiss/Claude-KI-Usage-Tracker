@@ -7043,4 +7043,22 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **Offen:** user 2 codex bleibt expired → server-scraper überspringt es weiterhin (Cloudflare-blockiert ohnehin). Extension muss neu geladen und „Sync geschützte Quellen" muss laufen, damit die Karte frische Werte zeigt. `plan_pricing` ist global → 23 € gilt für alle codex-aktiven User.
 
+### 2026-10-05 — WIP-Reste abgeschlossen: OpenCode-Qualifier, formatResetHint, Popup-Preise (opencode)
+
+**Kontext:** Nach dem Codex-Fix lagen uncommittete Reste aus einer früheren Session im Baum. Geprüft, ergänzt, in 3 logische Commits getrennt und gepusht (`f8d8430`, `077a9c0`, `17ed38b`).
+
+| Commit | Inhalt | Dateien |
+|---|---|---|
+| `f8d8430` | OpenCode-Go „remaining"-Qualifier steht **nach** dem `%` („96% remaining") → Prüfung um ~60 Zeichen nach dem Match erweitert, sonst `Math.max(0, 100-val)` | `extension*/*background.js` (4), `server-scraper/src/scrapers/opencode-go.ts` |
+| `077a9c0` | `formatResetHint` aus `OverviewTab` nach `utils/format` verschoben + Compound-Dauern („2d 10h", „10h 30m"); in `CombinedCostTab` verdrahtet; OpenCode-Go-Preis auf Dashboard-Karte; 7 Vitest-Fälle | `frontend/src/utils/format.ts`, `format.test.ts` (neu), `OverviewTab.tsx`, `CombinedCostTab.tsx` |
+| `17ed38b` | Popup-Preise aus `/pricing/plans` statt Hardcode (OpenCode Go 20/10) → gleiche `resolvePlanEur`-Logik wie Dashboard | `extension*/popup.js` (4), `extension-palemoon/content/popup.js` |
+
+**Verifiziert:** Frontend `type-check` ✓, Vitest **15 Dateien / 122 Tests** ✓, ESLint 0 Fehler / 26 Warnungen (Baseline) ✓; `node --check` aller Extension-Varianten ✓; `/pricing/plans` liefert `{ plans }` wie angenommen ✓. Prod-`plan_pricing`: OpenCode Go = **8.93 € (auto)** → Popup zeigt jetzt ~8.93 € statt 20 €.
+
+**Lokaler Env-Hinweis:** `frontend/node_modules` war älter als der ESLint-TS-Parser; `npm install --no-save @typescript-eslint/{parser,eslint-plugin}@^8` nötig, um `npm run lint` lokal laufen zu lassen (CI macht das via `npm ci`).
+
+**Deploy:** Frontend neu gebaut (`npm ci --legacy-peer-deps` → `npm run build`, Bundle `index-Bg8qYqtV.js`) und per `rsync --delete` nach `/opt/ki-usage-tracker-frontend/dist/` (Apache DocumentRoot); `server-scraper/src/scrapers/opencode-go.ts` per rsync. Backend unverändert.
+
+**Offen (andere Lane):** user 1 API-Token `ck_live_cdb39683…` (`~/.config/ki-tracker-token`, `ki-usage-benchmark-agent.service`) ist weiterhin **401** → Handoff-Skript + Benchmark-Agent auth-broken; Token-Rotation = Claude-Code-Lane (siehe 2026-10-01). user 2 codex bleibt absichtlich expired (Server-Pfad ist Cloudflare-blockiert).
+
 

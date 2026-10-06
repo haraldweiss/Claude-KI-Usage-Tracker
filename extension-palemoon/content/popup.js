@@ -136,9 +136,11 @@ function refreshStats() {
     var data = fetchWithAuthSync("/usage/summary?period=month");
     var providersData = fetchWithAuthSync("/settings/providers");
     var providers = (providersData && providersData.providers) || null;
+    var pricingData = fetchWithAuthSync("/pricing/plans");
+    var plans = (pricingData && pricingData.plans) || [];
 
     if (data) {
-      displayStats(data, providers);
+      displayStats(data, providers, plans);
       statusLabel.value = "✅ Aktualisiert: " + new Date().toLocaleString("de-DE");
     } else {
       statusLabel.value = "❌ Backend-Fehler";
@@ -168,7 +170,18 @@ function shouldShowProviderRow(providerKey, providerConfigs, hasData) {
   return true;
 }
 
-function displayStats(data, providers) {
+function resolvePlanEur(plans, planName) {
+  if (!planName) return null;
+  var norm = String(planName).toLowerCase().replace(/\s+/g, "");
+  for (var i = 0; i < (plans || []).length; i++) {
+    if (String(plans[i].plan_name).toLowerCase().replace(/\s+/g, "") === norm) {
+      return typeof plans[i].monthly_eur === "number" ? plans[i].monthly_eur : null;
+    }
+  }
+  return null;
+}
+
+function displayStats(data, providers, plans) {
   var cg = data && data.combined;
   if (!cg) {
     document.getElementById("grand-total-label").value = "Keine Daten";
@@ -182,7 +195,15 @@ function displayStats(data, providers) {
     ? Number(cg.claude_ai.cost_eur || cg.claude_ai.total_eur || 0) + Number((cg.claude_ai.meta && cg.claude_ai.meta.spending_eur) || 0)
     : 0;
   var anthropicApiEur = Number(cg.anthropic_api && cg.anthropic_api.cost_eur_equivalent || 0);
-  var opencodeGoEur = (cg.opencode_go && cg.opencode_go.plan_name === "OpenCode Go") ? 20 : 10;
+  var ogConfig = null;
+  if (providers) {
+    for (var provIdx = 0; provIdx < providers.length; provIdx++) {
+      if (providers[provIdx].key === "opencode_go") { ogConfig = providers[provIdx]; break; }
+    }
+  }
+  var ogPlanName = (ogConfig && ogConfig.plan_name) || (cg.opencode_go && cg.opencode_go.plan_name) || "OpenCode Go";
+  var opencodeGoEur = resolvePlanEur(plans, ogPlanName);
+  if (opencodeGoEur == null) opencodeGoEur = 20;
   var opencodeApiEur = cg.opencode_api
     ? Number(cg.opencode_api.total_cost_usd || 0) * rate
     : 0;

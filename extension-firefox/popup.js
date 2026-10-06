@@ -82,9 +82,9 @@ async function loadStats() {
   errorContainer.innerHTML = '';
 
   try {
-    const [stats, providers] = await Promise.all([fetchMonthlyStats(), fetchProviders()]);
+    const [stats, providers, plans] = await Promise.all([fetchMonthlyStats(), fetchProviders(), fetchPlanPricing()]);
     if (stats) {
-      displayStats(stats, providers);
+      displayStats(stats, providers, plans);
       // Check for ≥90% limits
       checkHandoffAlerts();
       loadingEl.style.display = 'none';
@@ -119,6 +119,16 @@ async function fetchProviders() {
     return data.providers;
   } catch {
     return null;
+  }
+}
+
+async function fetchPlanPricing() {
+  try {
+    const data = await fetchWithAuth('/pricing/plans');
+    if (!data || !Array.isArray(data.plans)) return [];
+    return data.plans;
+  } catch {
+    return [];
   }
 }
 
@@ -252,7 +262,19 @@ function shouldShowProviderRow(providerKey, providerConfigs, hasData) {
   return true;
 }
 
-function displayStats(stats, providers) {
+/**
+ * Resolve a plan's monthly EUR price from the plan-pricing table
+ * (same lookup the dashboard uses via subscriptionEur). Returns null
+ * when the plan isn't found so callers can apply their own fallback.
+ */
+function resolvePlanEur(plans, planName) {
+  if (!planName) return null;
+  const norm = String(planName).toLowerCase().replace(/\s+/g, '');
+  const plan = (plans || []).find((p) => String(p.plan_name).toLowerCase().replace(/\s+/g, '') === norm);
+  return plan && typeof plan.monthly_eur === 'number' ? plan.monthly_eur : null;
+}
+
+function displayStats(stats, providers, plans) {
   const cg = stats?.combined;
   if (!cg) { showError('Keine Daten vom Backend.'); return; }
 
@@ -262,7 +284,9 @@ function displayStats(stats, providers) {
   const opencodeApiEur = Number(cg?.opencode_api?.total_eur ?? 0);
   const codexEur = Number(cg?.codex?.plan_cost_eur ?? cg?.codex?.total_eur ?? 0);
   const openaiApiEur = Number(cg?.openai_api?.cost_usd ?? 0) * 0.92;
-  const opencodeGoEur = (cg?.opencode_go?.plan_name === 'OpenCode Go') ? 20 : 10;
+  const ogConfig = (providers || []).find((p) => p.key === 'opencode_go');
+  const ogPlanName = ogConfig?.plan_name || cg?.opencode_go?.plan_name || 'OpenCode Go';
+  const opencodeGoEur = resolvePlanEur(plans, ogPlanName) ?? 20;
   const zaiEur = 15;
   // Cline — plan-based subscription. Resolve the plan price from the plan_pricing
   // table via the backend combined.ccline.plan_name, or fall back to a reasonable

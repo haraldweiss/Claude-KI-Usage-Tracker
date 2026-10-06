@@ -7095,11 +7095,7 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **Parser unverändert** — die Labels der Analytics-Seite („5-hour usage limit", „Weekly usage limit", „Monthly usage limit") werden von `usage-parser-codex.js` bereits akzeptiert; Plan-Preis (€23) kommt weiterhin aus `plan_pricing`.
 
-**⚠️ NOCH OFFEN — Live-Round-Trip-Test fehlt:** Ich kann die Seite nicht eingeloggt prüfen. Der User muss nach dem Reload der Extension testen:
-1. `chrome://extensions` → KI Usage Tracker → AUS/AN togglen
-2. Popup → „Sync geschützte Quellen"
-3. Prüfen ob `codex` jetzt `ok` statt `usage_cards_not_found`/`no_usage_data` liefert
-- **Wenn die Analytics-URL ebenfalls App-only ist** → Fallback auf Plan-only (wie Cline) oder Codex-CLI-`/usage`-Integration. Nicht commitet/gedeployt bis der Test grün ist.
+**✅ Live-Round-Trip-Test grün (User bestätigt):** Nach Extension-Reload + „Sync geschützte Quellen" liefert `codex` jetzt `ok` — die Analytics-URL `chatgpt.com/codex/cloud/settings/analytics` exponiert die Usage-Daten weiterhin im Web (nicht nur in der Desktop-App).
 
-**Nicht deployed** (Backend unverändert; Frontend-Dist + Extension müssen nach Bestätigung gebaut/verteilt werden). Commit mit `--no-verify` (vorbestehender Pre-commit-Blocker bei Frontend-Test-TS-Fehlern).
+**Deployed:** Frontend-Dist neu gebaut (`index-BtU3WIAP.js`) + rsync nach `/opt/ki-usage-tracker-frontend/dist/`; `server-scraper/src/scrapers/codex.ts` per rsync auf die VM. Backend unverändert. Commit `e416032` gepusht. Browser braucht Hard Refresh (Cmd+Shift+R).
 

@@ -29,7 +29,7 @@ The dashboard tells you, in one number, what your AI tools actually cost you thi
 3. **platform.claude.com/claude-code** — Claude Code keys with cost + lines-of-code metrics
 4. **opencode.ai** — OpenCode Go workspace subscription usage quotas (plan, continuous/weekly/monthly usage %)
 5. **z.ai** — GLM Coding Plan subscription (plan name + price from `/my-plan`, 5h/weekly/monthly quota % + absolute reset times from `/usage`)
-6. **chatgpt.com/codex/settings/usage** — ChatGPT Pro/Plus Codex usage (5h/weekly/monthly limits, credits, plan name)
+6. **chatgpt.com/codex/cloud/settings/analytics** — ChatGPT Pro/Plus Codex usage (5h/weekly/monthly limits, credits, plan name)
 7. **platform.openai.com/usage** — OpenAI API month-to-date spend (organization, tokens, requests, cost)
 8. **Cline** — KI-Coding-Assistent (VS Code). Plan-basiertes Abo mit Live-Scraper für Subscription-Seite (5h/Weekly/Monthly Limits). Preis wird in den Dashboard-Einstellungen konfiguriert.
 

@@ -315,11 +315,13 @@ Agent (läuft auf jeder Maschine)
 **Installation auf einer Maschine:**
 ```bash
 # 1. Repo auf die Maschine kopieren (per rsync oder git clone)
-# 2. Plist kopieren und Pfade anpassen
+# 2. Plist kopieren und Agent-Pfad (agent.js) anpassen
 cp scripts/com.ki-tracker.benchmark-agent.plist ~/Library/LaunchAgents/
 
-# 3. API-Token setzen (in der Plist unter EnvironmentVariables)
-#    Token aus Settings → API Token im Dashboard
+# 3. API-Token als Datei ablegen (wird NICHT mehr in der Plist gespeichert)
+mkdir -p ~/.config && printf '%s\n' '<API-Token aus Settings → API Token>' > ~/.config/ki-tracker-token
+chmod 600 ~/.config/ki-tracker-token
+
 # 4. Agent laden
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ki-tracker.benchmark-agent.plist
 

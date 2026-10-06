@@ -8,7 +8,8 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/node</string>
+        <string>/usr/bin/env</string>
+        <string>node</string>
         <string>/Library/WebServer/Documents/KI Usage tracker/benchmark/agent.js</string>
     </array>
 
@@ -16,15 +17,17 @@
     <true/>
 
     <key>KeepAlive</key>
-    <dict>
-        <key>ThrottleInterval</key>
-        <integer>60</integer>
-    </dict>
+    <true/>
+
+    <!-- ThrottleInterval is a TOP-LEVEL key. Nesting it inside KeepAlive
+         makes launchd reject the job with EX_CONFIG (78). -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
 
     <key>EnvironmentVariables</key>
     <dict>
-        <key>BENCHMARK_TOKEN</key>
-        <string>ck_live_9497a473a10cb5cb71c109d736bfdf2d8d1c424e89b2009a161cd1e8b9421065</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>BENCHMARK_BACKEND</key>
         <string>https://ki-usage-tracker.wolfinisoftware.de</string>
     </dict>

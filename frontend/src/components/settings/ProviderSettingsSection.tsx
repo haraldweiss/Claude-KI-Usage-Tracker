@@ -58,7 +58,7 @@ const PROVIDER_ALLOWED_PLAN_GROUPS: Record<string, string[]> = {
 const PROVIDER_META: Record<string, { icon: string; color: string; group: string; scrapeUrl?: string }> = {
   opencode_go:     { icon: '⚡', color: 'bg-emerald-600', group: 'free', scrapeUrl: 'https://opencode.ai/workspace/…/go' },
   claude_ai:       { icon: '☁️', color: 'bg-orange-500', group: 'subscription', scrapeUrl: 'https://claude.ai/settings/usage' },
-  codex:           { icon: '💬', color: 'bg-green-600', group: 'subscription', scrapeUrl: 'https://chatgpt.com/codex/settings/usage' },
+  codex:           { icon: '💬', color: 'bg-green-600', group: 'subscription', scrapeUrl: 'https://chatgpt.com/codex/cloud/settings/analytics' },
   zai:             { icon: '🧠', color: 'bg-purple-600', group: 'subscription', scrapeUrl: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan' },
   cline:           { icon: '🤖', color: 'bg-violet-500', group: 'subscription', scrapeUrl: '' },
   openrouter:      { icon: '🔀', color: 'bg-fuchsia-600', group: 'api', scrapeUrl: 'https://openrouter.ai/credits' },

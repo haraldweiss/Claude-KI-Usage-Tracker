@@ -354,7 +354,7 @@ async function syncHardSources() {
   if (configuredProviders.has('codex')) {
   try {
     const tab = await chrome.tabs.create({
-      url: 'https://chatgpt.com/codex/settings/usage',
+      url: 'https://chatgpt.com/codex/cloud/settings/analytics',
       active: true
     });
     await new Promise(r => setTimeout(r, 12000));

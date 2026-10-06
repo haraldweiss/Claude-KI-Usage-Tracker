@@ -1,7 +1,7 @@
 /**
  * ChatGPT Codex scraper.
  *
- * Scrapes codex usage analytics from chatgpt.com/codex/settings/usage.
+ * Scrapes codex usage analytics from chatgpt.com/codex/cloud/settings/analytics.
  * Extracts: plan name, 5h limit %, weekly limit %, credit usage.
  *
  * Requires: logged-in session to chatgpt.com.
@@ -9,7 +9,7 @@
 import type { Page } from 'playwright';
 import type { ScraperResult, ScraperConfig } from '../types.js';
 
-const CODEX_URL = 'https://chatgpt.com/codex/settings/usage';
+const CODEX_URL = 'https://chatgpt.com/codex/cloud/settings/analytics';
 
 function extractCodexUsage(): Record<string, unknown> | null {
   const body = document.body.innerText || '';

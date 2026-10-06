@@ -28,16 +28,19 @@ function extractCodexUsage(): Record<string, unknown> | null {
   //   "5-hour limit", "5 hour usage limit", "5 Stunden Nutzungsgrenze"
   //   "Weekly limit", "Weekly usage limit", "Wöchentliches Nutzungslimit"
   //   "Monthly limit", "Monthly usage limit", "Monatliches Nutzungslimit"
-  const pct = (label: string): number | null => {
+  // NOTE: no nested named functions here — esbuild/tsx injects a `__name`
+  // helper for them, which is undefined inside page.evaluate().
+  const labelPatterns: Array<[string, string]> = [
+    ['five_hour_remaining_pct', '5\\s*[-–—]?\\s*(?:Std\\.?|Stunden|hours?)(?:\\s*(?:Nutzungsgrenze|usage limit|limit))?'],
+    ['weekly_remaining_pct', '(?:Wöchentliches?\\s+Nutzungslimit|Wöchentlich|Weekly(?:\\s+usage)?\\s+limit|Weekly)'],
+    ['monthly_remaining_pct', '(?:Monatliches?\\s+Nutzungslimit|Monatlich|Monthly(?:\\s+usage)?\\s+limit|Monthly)'],
+  ];
+  for (let i = 0; i < labelPatterns.length; i++) {
+    const key = labelPatterns[i][0];
+    const label = labelPatterns[i][1];
     const m = body.match(new RegExp('(?:' + label + ')[\\s\\S]{0,100}?([0-9]{1,3})\\s*%', 'i'));
-    return m ? parseInt(m[1], 10) : null;
-  };
-  const fiveHour = pct('5\\s*[-–—]?\\s*(?:Std\\.?|Stunden|hours?)(?:\\s*(?:Nutzungsgrenze|usage limit|limit))?');
-  if (fiveHour != null) usage.five_hour_remaining_pct = fiveHour;
-  const weekly = pct('(?:Wöchentliches?\\s+Nutzungslimit|Wöchentlich|Weekly(?:\\s+usage)?\\s+limit|Weekly)');
-  if (weekly != null) usage.weekly_remaining_pct = weekly;
-  const monthly = pct('(?:Monatliches?\\s+Nutzungslimit|Monatlich|Monthly(?:\\s+usage)?\\s+limit|Monthly)');
-  if (monthly != null) usage.monthly_remaining_pct = monthly;
+    if (m) usage[key] = parseInt(m[1], 10);
+  }
 
   console.log('[codex] extracted:', JSON.stringify(usage));
   return Object.keys(usage).length > 0 ? usage : null;

@@ -7077,4 +7077,6 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **Deploy:** `benchmark/full-suite-test.cjs`, `scripts/com.ki-tracker.benchmark-agent.plist`, `README.md` im Repo; VM-Files per rsync; `/etc/systemd/system/ki-usage-benchmark-agent.service` + `/etc/ki-usage-tracker/scraper.env` auf der VM aktualisiert.
 
+**Server-Scraper (`codex.ts`) Laufzeitbug gefixt:** Nach dem Aufheben der Expiry läuft der Server-Codex-Scraper erstmals wieder — und traf `page.evaluate: ReferenceError: __name is not defined`. Ursache: die neue verschachtelte `pct`-Arrow-Funktion wird von esbuild/tsx mit dem `__name`-Helper instrumentiert, der im Browser-Kontext fehlt. Fix: verschachtelte Funktionen vermeiden (Schleife über Label-Paare). Danach `=== Summary: 8 ✅, 1 ❌ ===` (nur `opencode_go_sync: login_required`); `codex_sync: skipped: no_usage_data` (keine frischen chatgpt-Cookies auf der VM → erwartet, Extension-Pfad user 1 liefert die Karte).
+
 

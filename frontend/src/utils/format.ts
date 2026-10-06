@@ -45,6 +45,64 @@ export function formatAbsoluteResetHint(raw: string | null | undefined): string 
   return `Reset: ${new Date(ts).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}`;
 }
 
+/**
+ * Convert a raw relative reset hint into a German label. Handles:
+ *   - compound compact durations from OpenCode Go ("2d 10h", "3d 1h", "10h 30m")
+ *   - short codes ("1T", "4h", "30m")
+ *   - prose ("ca. 4 Std.", "etwa 1 Tag", "in 30 Minuten") from claude.ai
+ *   - calendar times ("Do., 00:00", "Thu., 00:00")
+ * Returns undefined for null/empty so callers can hide the hint row entirely.
+ */
+export function formatResetHint(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  // Compound compact format: "2d 10h", "3d 1h", "4d 0h"
+  const dh = trimmed.match(/^(\d+)\s*d\s*(\d+)\s*h$/i);
+  if (dh) {
+    const days = parseInt(dh[1], 10);
+    const hours = parseInt(dh[2], 10);
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days} ${days === 1 ? 'Tag' : 'Tagen'}`);
+    if (hours > 0) parts.push(`${hours} Std.`);
+    if (parts.length > 0) return `Reset in ${parts.join(' ')}`;
+  }
+
+  // Compound hours + minutes: "10h 30m", "1h 5m"
+  const hm = trimmed.match(/^(\d+)\s*h\s*(\d+)\s*m$/i);
+  if (hm) {
+    const hours = parseInt(hm[1], 10);
+    const minutes = parseInt(hm[2], 10);
+    const parts: string[] = [];
+    if (hours > 0) parts.push(`${hours} Std.`);
+    if (minutes > 0) parts.push(`${minutes} Min.`);
+    if (parts.length > 0) return `Reset in ${parts.join(' ')}`;
+  }
+
+  // Short code format: "4h", "1T", "30m"
+  const short = trimmed.match(/^(\d+)\s*([a-zA-Z])/);
+  if (short) {
+    const n = parseInt(short[1], 10);
+    const unit = short[2].toLowerCase();
+    if (unit === 't' || unit === 'd') return `Reset in ${n} ${n === 1 ? 'Tag' : 'Tagen'}`;
+    if (unit === 'h') return `Reset in ${n} Std.`;
+    if (unit === 'm') return `Reset in ${n} Min.`;
+  }
+
+  // Calendar-time format from claude.ai weekly: "Do., 00:00", "Thu., 00:00"
+  // Accept one or two punctuation chars so "Do., 00:00" (abbr. + period + comma)
+  // matches as well as "Do. 00:00" and "Thu, 00:00".
+  if (/^[A-Za-zÄÖÜäöü]+[.,]{1,2}\s*\d{1,2}:\d{2}/.test(trimmed)) {
+    return `Reset: ${trimmed}`;
+  }
+
+  // Prose format from claude.ai: already contains "Std.", "Tag", "Minuten" etc.
+  // Strip common prefixes like "ca.", "etwa", "in" for cleaner display.
+  const cleaned = trimmed.replace(/^(ca\.?\s*|etwa\s*|in\s*)/i, '').trim();
+  return `Reset in ${cleaned}`;
+}
+
 export function subscriptionEur(plans: PlanPricingRow[], planName: string | null | undefined): number {
   if (!planName) return 0;
   const norm = planName.toLowerCase().replace(/\s+/g, '');

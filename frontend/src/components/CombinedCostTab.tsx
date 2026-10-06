@@ -12,7 +12,7 @@ import {
   SpendingTotal,
   type ProviderInfo
 } from '../types/api';
-import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
+import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, formatResetHint, subscriptionEur } from '../utils/format';
 import ApiKeysDetailTable from './ApiKeysDetailTable';
 
 export default function CombinedCostTab(): React.ReactElement {
@@ -398,9 +398,9 @@ export default function CombinedCostTab(): React.ReactElement {
                     style={{ width: `${Math.min(100, opencodeGo.continuous_pct)}%` }}
                   />
                 </div>
-                {opencodeGo.continuous_reset_in && (
+                {formatResetHint(opencodeGo.continuous_reset_in) && (
                   <p className="mt-1 text-xs text-gray-500">
-                    Reset in {opencodeGo.continuous_reset_in}
+                    {formatResetHint(opencodeGo.continuous_reset_in)}
                   </p>
                 )}
               </div>
@@ -417,9 +417,9 @@ export default function CombinedCostTab(): React.ReactElement {
                     style={{ width: `${Math.min(100, opencodeGo.weekly_pct)}%` }}
                   />
                 </div>
-                {opencodeGo.weekly_reset_in && (
+                {formatResetHint(opencodeGo.weekly_reset_in) && (
                   <p className="mt-1 text-xs text-gray-500">
-                    Reset in {opencodeGo.weekly_reset_in}
+                    {formatResetHint(opencodeGo.weekly_reset_in)}
                   </p>
                 )}
               </div>
@@ -436,9 +436,9 @@ export default function CombinedCostTab(): React.ReactElement {
                     style={{ width: `${Math.min(100, opencodeGo.monthly_pct)}%` }}
                   />
                 </div>
-                {opencodeGo.monthly_reset_in && (
+                {formatResetHint(opencodeGo.monthly_reset_in) && (
                   <p className="mt-1 text-xs text-gray-500">
-                    Reset in {opencodeGo.monthly_reset_in}
+                    {formatResetHint(opencodeGo.monthly_reset_in)}
                   </p>
                 )}
               </div>

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { getSummary, getSpendingTotal, getPlanPricing, getProviders } from '../services/api';
 import LocalUsageCard from './LocalUsageCard';
 import { formatResetDateDisplay } from '../utils/resetDateDisplay';
-import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, subscriptionEur } from '../utils/format';
+import { formatEur, formatUsd, formatRelativeTime, formatAbsoluteResetHint, formatResetHint, subscriptionEur } from '../utils/format';
 import { CombinedSpendBreakdown, OpenCodeGoSpend, ZaiSpend, ClineSpend, type PlanPricingRow, SpendingTotal, type ProviderInfo } from '../types/api';
 
 /** Days remaining in the current month, including today. */
@@ -16,33 +16,6 @@ function daysRemainingInMonth(): number {
 
 function dayOfMonth(): number {
   return new Date().getDate();
-}
-
-/**
- * Convert raw reset hint into a German label. Handles both short codes
- * ("1T", "4h", "30m") from OpenCode Go and prose ("ca. 4 Std.", "etwa 1 Tag",
- * "in 30 Minuten") from claude.ai. Returns undefined for null/empty so the
- * ProgressRow hides the hint row entirely.
- */
-function formatResetHint(raw: string | null | undefined): string | undefined {
-  if (!raw) return undefined;
-  // Short code format: "4h", "1T", "30m"
-  const short = raw.match(/^(\d+)\s*([a-zA-Z])/);
-  if (short) {
-    const n = parseInt(short[1], 10);
-    const unit = short[2].toLowerCase();
-    if (unit === 't' || unit === 'd') return `Reset in ${n} ${n === 1 ? 'Tag' : 'Tagen'}`;
-    if (unit === 'h') return `Reset in ${n} Std.`;
-    if (unit === 'm') return `Reset in ${n} Min.`;
-  }
-  // Calendar-time format from claude.ai weekly: "Do., 00:00", "Thu., 00:00"
-  if (/^[A-Za-zÄÖÜäöü]+[.,]\s*\d{1,2}:\d{2}/.test(raw.trim())) {
-    return `Reset: ${raw.trim()}`;
-  }
-  // Prose format from claude.ai: already contains "Std.", "Tag", "Minuten" etc.
-  // Strip common prefixes like "ca.", "etwa", "in" for cleaner display
-  const cleaned = raw.replace(/^(ca\.?\s*|etwa\s*|in\s*)/i, '').trim();
-  return `Reset in ${cleaned}`;
 }
 
 interface ProgressProps {
@@ -354,6 +327,9 @@ export default function OverviewTab(): React.ReactElement {
             <div className="mt-2 text-xl font-bold text-gray-900">
               {opencodeGo.plan_name ?? 'OpenCode Go'}
             </div>
+            {opencodeGoEur > 0 && (
+              <div className="text-sm text-gray-600">{formatEur(opencodeGoEur)} / Monat</div>
+            )}
             <div className="mt-3 space-y-2">
               {opencodeGo.continuous_pct != null && (
                 <div>

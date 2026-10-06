@@ -466,10 +466,13 @@ async function syncHardSources() {
             const m = text.match(re);
             if (m) {
               const val = parseInt(m[1], 10);
-              // If the matched text indicates 'Remaining' or 'Verbleibend', invert to used%
-              const matchText = m[0];
-              if (/remaining|verbleibend/i.test(matchText)) {
-                return 100 - val;
+              // opencode.ai renders the *remaining* percentage ("96% remaining" /
+              // "96% verbleibend") with the qualifier AFTER the "%". The lazy body
+              // match stops at the first "%", so also check the text following it.
+              const matchEnd = (m.index ?? 0) + m[0].length;
+              const after = text.slice(matchEnd, matchEnd + 60);
+              if (/(?:remaining|verbleibend|übrig|restlich)/i.test(m[0] + ' ' + after)) {
+                return Math.max(0, 100 - val);
               }
               return val;
             }

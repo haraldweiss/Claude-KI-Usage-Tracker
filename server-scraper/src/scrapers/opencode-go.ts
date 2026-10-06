@@ -80,12 +80,14 @@ export async function scrapeOpenCodeGo(): Promise<ScraperResult> {
           const pctMatch = text.match(pctRe);
           if (!pctMatch) continue;
           let pct = parseInt(pctMatch[1], 10);
-          const matchText = pctMatch[0];
-          // If the matched text indicates 'Remaining' or 'Verbleibend', invert to used%
-          if (/remaining|verbleibend/i.test(matchText)) {
-            pct = 100 - pct;
-          }
           const matchEnd = (pctMatch.index ?? 0) + pctMatch[0].length;
+          // opencode.ai renders the *remaining* percentage ("96% remaining" /
+          // "96% verbleibend") with the qualifier AFTER the "%". The lazy body
+          // match stops at the first "%", so also check the text following it.
+          const afterPct = text.slice(matchEnd, matchEnd + 60);
+          if (/(?:remaining|verbleibend|übrig|restlich)/i.test(pctMatch[0] + ' ' + afterPct)) {
+            pct = Math.max(0, 100 - pct);
+          }
 
           // Try reset in matched body first
           let reset = pctMatch[0].match(resetRe)?.[1]?.trim() ?? null;

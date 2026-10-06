@@ -837,7 +837,7 @@ const steps = [
 | `extension/manifest.json` | v3.0.0, permissions: `storage` + `cookies`, minimale host_permissions |
 | `extension/popup.html` | Vereinfacht — Cookies-Button immer sichtbar, API-Token-Eingabe |
 | `extension/popup.js` | Render-Funktionen, fetch von `/api/usage/summary?period=month`, Cookie-Export |
-| Backend API-Token | `ck_live_b333fda15624bd1b089ff185ac5153c193924a954c05adcc` (rotierbar im Dashboard) |
+| Backend API-Token | wird **nie im Repo** gespeichert — siehe `~/.config/ki-tracker-token` bzw. `/etc/ki-usage-tracker/scraper.env` |
 
 **Alte Extension-Scraper:** nach `extension-scrapers-bak/` verschoben (Backup, falls Server-Scraper nicht startet).
 
@@ -915,7 +915,7 @@ ssh -R 40000:localhost:1080 oracle-vm
 ```
 /etc/systemd/system/ki-usage-scraper.service
   ExecStart: tsx src/index.ts (alle 8 Scraper)
-  API_TOKEN=ck_live_f2969d64fb2be544cf909eb9cbffb24dd07bc45940ece0475cba7c625c316f0c (user_id=2)
+  API_TOKEN=<rotated 2026-10-06; liegt in /etc/ki-usage-tracker/scraper.env> (user_id=2)
   PLAYWRIGHT_PROXY_URL=socks5://127.0.0.1:40000
 /etc/systemd/system/ki-usage-scraper.timer
   OnCalendar=0/2:00 (alle 2h), RandomizedDelaySec=180
@@ -1110,7 +1110,7 @@ Der neue `monthly_remaining_pct`-Checker im `usage-parser-codex.js` war zu stren
 4. Popup zeigt rote Warnung mit Kopier-Button für den CLI-Befehl
 
 **Token:** liegt in `~/.config/ki-tracker-token` (chmod 600). User-ID 1 (anubclaw).
-Token zuletzt rotiert am 2026-06-25: `ck_live_9497a473a10cb5cb71c109d736bfdf2d8d1c424e89b2009a161cd1e8b9421065`
+Token zuletzt rotiert am 2026-06-25 (Wert nicht mehr im Repo; siehe `~/.config/ki-tracker-token`).
 
 **Neue Sync-Kadenzen:**
 | Quelle | Mechanismus | Intervall |
@@ -7059,6 +7059,22 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **Deploy:** Frontend neu gebaut (`npm ci --legacy-peer-deps` → `npm run build`, Bundle `index-Bg8qYqtV.js`) und per `rsync --delete` nach `/opt/ki-usage-tracker-frontend/dist/` (Apache DocumentRoot); `server-scraper/src/scrapers/opencode-go.ts` per rsync. Backend unverändert.
 
-**Offen (andere Lane):** user 1 API-Token `ck_live_cdb39683…` (`~/.config/ki-tracker-token`, `ki-usage-benchmark-agent.service`) ist weiterhin **401** → Handoff-Skript + Benchmark-Agent auth-broken; Token-Rotation = Claude-Code-Lane (siehe 2026-10-01). user 2 codex bleibt absichtlich expired (Server-Pfad ist Cloudflare-blockiert).
+**Offen (andere Lane):** user 1 API-Token `ck_live_cdb39683…` (`~/.config/ki-tracker-token`, `ki-usage-benchmark-agent.service`) ist weiterhin **401** → Handoff-Skript + Benchmark-Agent auth-broken; Token-Rotation = Claude-Code-Lane (siehe 2026-10-01). user 2 codex bleibt absichtlich expired (Server-Pfad ist Cloudflare-blockiert). → **Erledigt am 2026-10-06, siehe nächster Eintrag.**
+
+### 2026-10-06 — Token-Fix (benchmark/handoff) + Codex-Expiry aufgehoben + Secret-Leak bereinigt (opencode)
+
+**Codex wieder aktiv:** `provider_config.codex.plan_valid_until` für user 2 von `2026-07-22` auf NULL gesetzt (user 1 war schon NULL). `GET /summary` (user 2) → `combined.codex.plan_cost_eur = 23`. ChatGPT ist wieder abonniert.
+
+**user-1-Token repariert (ohne Rotation):** Der aktive user-1-Token ist `ck_live_15b2…` (id=19, „Browser Extension", zuletzt heute benutzt). Der Wert in `~/.config/ki-tracker-token` (`ck_live_cdb39683…`, id=18) war längst widerrufen → 401. Statt zu rotieren (das hätte den aktiven Extension-Token widerrufen, denn `idx_one_active_token_per_user` erlaubt nur **einen** aktiven Token/User) wurde der gültige Token aus dem Chrome-LevelDB (`…/Local Extension Settings/mmaoadmodmfaipblbpiijdjfbagbhojg/`) rekonstruiert (sha256-Prefix `f20c68df1aca` verifiziert) und in die Datei geschrieben. → 200 für summary + `/api/benchmarks/pending-run` + `/api/handoff/check`.
+
+**Benchmark-Agent (Mac) war seit Wochen spawn-failed (EX_CONFIG 78):** Zwei Ursachen im launchd-Plist: (1) `ProgramArguments[0] = /opt/homebrew/bin/node` **existiert nicht** (node liegt unter `/opt/homebrew/opt/node@24/bin/node`); (2) `ThrottleInterval` war **innerhalb** von `KeepAlive` verschachtelt (muss top-level sein) → launchd verwarf den Job. Plist korrigiert: `/usr/bin/env node` + `PATH`, `KeepAlive=true`, `ThrottleInterval` top-level, Token aus Plist entfernt (Fallback `~/.config/ki-tracker-token`). Agent läuft jetzt (PID, exit 0, keine 401).
+
+**Oracle-VM-Agent:** Token in `/home/opc/.config/ki-tracker-token` (opc:opc 600) abgelegt, `Environment=BENCHMARK_TOKEN` aus der Unit entfernt (jetzt Datei-Fallback), daemon-reload + restart → keine 401 mehr.
+
+**🔴 Secret-Leak im öffentlichen Repo bereinigt:** `ck_live_f2969…` (user 2, **live**) stand im Klartext in `AGENTS.md` **und** `benchmark/full-suite-test.cjs` (Repo ist PUBLIC). Rotiert: neuer user-2-Token via `createApiToken(2)` → in `/etc/ki-usage-tracker/scraper.env`; alter Token jetzt **401**. Redaction: `full-suite-test.cjs` liest den Token aus `KI_TRACKER_TOKEN`/`~/.config/ki-tracker-token`; die AGENTS.md-Zeilen wurden entschärft. **Hinweis:** die alten Werte stecken weiterhin in der **Git-History** (öffentlich) — die Rotation entwertet sie; ein History-Rewrite (force-push, Ruleset §3.5) wurde **nicht** durchgeführt.
+
+**Verifiziert:** user-2 new token 200 / old 401; user-1 token 200; Mac-Agent `launchctl list` PID + exit 0; VM-Agent `active` ohne 401; `plutil -lint` OK.
+
+**Deploy:** `benchmark/full-suite-test.cjs`, `scripts/com.ki-tracker.benchmark-agent.plist`, `README.md` im Repo; VM-Files per rsync; `/etc/systemd/system/ki-usage-benchmark-agent.service` + `/etc/ki-usage-tracker/scraper.env` auf der VM aktualisiert.
 
 

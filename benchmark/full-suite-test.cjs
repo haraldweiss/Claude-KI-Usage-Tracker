@@ -4,7 +4,11 @@ const os = require("os");
 
 const OLLAMA_BASE = "http://localhost:11434";
 const BACKEND_BASE = "http://localhost:3001";
-const AUTH = "Bearer ck_live_f2969d64fb2be544cf909eb9cbffb24dd07bc45940ece0475cba7c625c316f0c";
+// Token aus KI_TRACKER_TOKEN oder ~/.config/ki-tracker-token — niemals ein
+// Live-Token im Repo ablegen (das Repo ist öffentlich).
+const TOKEN = process.env.KI_TRACKER_TOKEN
+  || (() => { try { return fs.readFileSync(os.homedir() + "/.config/ki-tracker-token", "utf8").trim(); } catch { return ""; } })();
+const AUTH = "Bearer " + TOKEN;
 const PROMPT = "Explain why renewable energy is important for economic development in 2-3 sentences.";
 
 const MODELS = [

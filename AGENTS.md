@@ -24,7 +24,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
   3. `platform.claude.com/claude-code` — Claude Code keys + LOC metrics
   4. `opencode.ai` — OpenCode Go workspace subscription (added 2026-05-27)
   5. `z.ai/manage-apikey/coding-plan` — GLM Coding Plan subscription (added 2026-06-14)
-  6. `chatgpt.com/codex/cloud/settings/analytics` — ChatGPT Pro/Plus Codex usage (added 2026-06-22; URL updated 2026-10-06)
+  6. `chatgpt.com/settings/usage?tab=overview` — ChatGPT Pro/Plus Codex usage (added 2026-06-22; URL updated 2026-10-06)
   7. `platform.openai.com/usage` — OpenAI API month-to-date spend (added 2026-06-22)
   8. `openrouter.ai/credits` — OpenRouter credits balance + 30-day activity usage (added 2026-07-23)
 - Three components: **backend** (Express 5 + SQLite3), **frontend** (React + Vite + Recharts), **extension** (Chrome MV3 + 4 Browser-Varianten: Edge, Opera, Firefox, Pale Moon)
@@ -7085,9 +7085,9 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **User-Befund:** Die ChatGPT-Usage-Daten („Settings > Usage", „Shared across Codex, Work, Workspace Agents, and ChatGPT for Excel", 5-hour/weekly limits) sind **nicht mehr über die Website** erreichbar, sondern nur noch in der ChatGPT-**Desktop-App**. Der alte Scraper-URL `chatgpt.com/codex/settings/usage` liefert daher kein Usage-Data mehr.
 
-**Gewählter Ansatz (User):** Zuerst die alternative Web-URL `chatgpt.com/codex/cloud/settings/analytics` ausprobieren (laut älteren Guides die Codex-Analytics-Seite auf dem Web).
+**Gewählter Ansatz (User):** Zuerst die alternative Web-URL `chatgpt.com/settings/usage?tab=overview` ausprobieren (laut älteren Guides die Codex-Analytics-Seite auf dem Web).
 
-**Geändert (6 aktive Dateien, URL-Swap `chatgpt.com/codex/settings/usage` → `chatgpt.com/codex/cloud/settings/analytics`):**
+**Geändert (6 aktive Dateien, URL-Swap `chatgpt.com/codex/settings/usage` → `chatgpt.com/settings/usage?tab=overview`):**
 - `extension/background.js` (Chrome), `extension-edge/background.js`, `extension-opera/background.js`, `extension-firefox/background.js` — Codex-Schritt in `syncHardSources()` (Tab-URL)
 - `server-scraper/src/scrapers/codex.ts` — `CODEX_URL` + Kommentar
 - `frontend/src/components/settings/ProviderSettingsSection.tsx` — `scrapeUrl` für die codex-Karte
@@ -7095,7 +7095,13 @@ Forces `react-router` to 8.3.0 via nested install in `node_modules/react-router-
 
 **Parser unverändert** — die Labels der Analytics-Seite („5-hour usage limit", „Weekly usage limit", „Monthly usage limit") werden von `usage-parser-codex.js` bereits akzeptiert; Plan-Preis (€23) kommt weiterhin aus `plan_pricing`.
 
-**✅ Live-Round-Trip-Test grün (User bestätigt):** Nach Extension-Reload + „Sync geschützte Quellen" liefert `codex` jetzt `ok` — die Analytics-URL `chatgpt.com/codex/cloud/settings/analytics` exponiert die Usage-Daten weiterhin im Web (nicht nur in der Desktop-App).
+**✅ Live-Round-Trip-Test grün (User bestätigt):** Nach Extension-Reload + „Sync geschützte Quellen" liefert `codex` jetzt `ok` — die Analytics-URL `chatgpt.com/settings/usage?tab=overview` exponiert die Usage-Daten weiterhin im Web (nicht nur in der Desktop-App).
 
 **Deployed:** Frontend-Dist neu gebaut (`index-BtU3WIAP.js`) + rsync nach `/opt/ki-usage-tracker-frontend/dist/`; `server-scraper/src/scrapers/codex.ts` per rsync auf die VM. Backend unverändert. Commit `e416032` gepusht. Browser braucht Hard Refresh (Cmd+Shift+R).
 
+
+### 2026-10-07 — ChatGPT quota collection accuracy
+
+Codex quota sync must read the Usage **Overview**, not Analytics: Analytics percentages represent historical usage or individual chats. Accept only explicit remaining/left/verbleibend values within each quota card; do not borrow the next card's percentage. The dashboard converts remaining capacity to used capacity once, formats percentages to one decimal, and labels the configured ChatGPT plan. Plan limits are shared across agentic products; ordinary Chat conversations are excluded.
+
+Verification: 124 frontend tests, frontend type-check/build and nine focused Codex parser tests. The full extension suite has eight pre-existing failures from missing unrelated parser/scraper files. A real extension reload → sync → dashboard round trip remains required after release; previously scraped incorrect snapshots are not rewritten. The fix is prepared on codex/chatgpt-dashboard-accuracy, not deployed.

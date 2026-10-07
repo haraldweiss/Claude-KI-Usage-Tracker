@@ -744,3 +744,9 @@ Veröffentlicht unter der [GNU AGPL v3.0](LICENSE) — © 2026 Harald Weiss.
 Die AGPL stellt sicher, dass auch netzbasierte Bereitstellungen den Quellcode
 ihrer Modifikationen weitergeben müssen. Ideen und Konzepte sind durch keine
 Lizenz schützbar.
+
+### ChatGPT quota accuracy
+
+The extension reads current remaining quota from `https://chatgpt.com/settings/usage?tab=overview`. Historical Analytics percentages are not current quota. The dashboard shows the **used** share (`100 − remaining`) of the shared agentic plan limits; ordinary Chat conversations are excluded. Percentages use at most one decimal, and the card follows the configured Plus/Pro plan.
+
+After updating, reload the unpacked extension and run a fresh protected-source sync. Old incorrectly scraped snapshots remain visible until replaced by a successful sync. OpenRouter's rolling 30-day spend is carried into the forecast unchanged and explicitly labelled; it is not extrapolated as month-to-date spend.

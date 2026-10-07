@@ -266,3 +266,26 @@ test('parses current terse Codex layout ("5-hour limit" / "Weekly limit")', () =
   assert.ok(result.data.five_hour_reset_at, 'relative 5h reset should become a timestamp');
   assert.ok(result.data.weekly_reset_at, 'relative weekly reset should become a timestamp');
 });
+
+test('rejects Codex historical used percentages on the analytics page', () => {
+  const { parseCodexUsageText } = loadParser('usage-parser-codex.js');
+  assert.equal(parseCodexUsageText('Top chats\n% of 5h limit\n% of weekly limit\n2.14%\nPlan usage history\n5-hour limits\n% of limit used\n71.8%\nWeekly limits\n22.2%').success, false);
+});
+test('does not borrow a percentage from the next quota card', () => {
+  const { parseCodexUsageText } = loadParser('usage-parser-codex.js');
+  assert.equal(parseCodexUsageText('5-hour limit\nUnavailable\nWeekly limit\n99% left').success, false);
+});
+test('reads current quota cards and credits in number-first layout', () => {
+  const { parseCodexUsageText } = loadParser('usage-parser-codex.js');
+  const result = parseCodexUsageText('5-hour limit\nResets in 5h 0m\n98% left\nWeekly limit\nResets in 6d 15h\n99% left\n12.5 credits remaining Current balance');
+  assert.equal(result.data.five_hour_remaining_pct,98);
+  assert.equal(result.data.weekly_remaining_pct,99);
+  assert.equal(result.data.credits_remaining,12.5);
+});
+test('Codex spelled-out five-hour reset is not another quota heading', () => {
+  const { parseCodexUsageText } = loadParser('usage-parser-codex.js');
+  const result = parseCodexUsageText('5-hour limit\nResets in 5 hours\n98% left\nWeekly limit\n99% left');
+  assert.equal(result.success,true);
+  assert.equal(result.data.five_hour_remaining_pct,98);
+  assert.ok(result.data.five_hour_reset_at);
+});

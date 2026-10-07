@@ -57,11 +57,15 @@ var CODEX_MONTHLY_LABEL =
   '(?:Monatliches?\\s+Nutzungslimit|Monatlich|Monthly(?:\\s+usage)?\\s+limit|Monthly)';
 
 function codexLimit(text, labelPattern) {
-  var percent = text.match(new RegExp('(?:' + labelPattern + ')[\\s\\S]{0,100}?([0-9]{1,3}(?:[.,][0-9]+)?)\\s*%', 'i'));
-  // Reset text sits on its own line in the current UI ("Resets in 2h 34m")
-  // and after the label on the same line in the older UI
-  // ("... Zurücksetzungen 22.06.2026 04:36"). Capture the rest of that line.
-  var reset = text.match(new RegExp('(?:' + labelPattern + ')[\\s\\S]{0,180}?(?:Zurücksetzungen?|Resets?)\\s+([^\\n]+)', 'i'));
+  var label = new RegExp('(?:' + labelPattern + ')(?![a-z])', 'i').exec(text);
+  var card = label ? text.slice(label.index + label[0].length) : '';
+  var nextLabel = new RegExp('(?:' + '5\\s*[-–—]?\\s*(?:Std\\.?|Stunden|hours?)\\s*(?:Nutzungsgrenze|usage limit|limit)' + '|' + CODEX_WEEKLY_LABEL + '|' + CODEX_MONTHLY_LABEL + ')', 'i').exec(card);
+  if (nextLabel) card = card.slice(0, nextLabel.index);
+  card = card.slice(0, 180);
+  // Analytics contains historical used percentages. Only explicit remaining
+  // capacity belongs in the quota snapshot, and never borrow another card.
+  var percent = card.match(/([0-9]{1,3}(?:[.,][0-9]+)?)\s*%\s*(?:left|remaining|verbleibend)\b/i);
+  var reset = card.match(/(?:Zurücksetzungen?|Resets?)\s+([^\n]+)/i);
   return {
     remaining_pct: percent ? parseCodexLocalizedNumber(percent[1]) : null,
     reset_at: reset ? parseCodexResetDate(reset[1].trim()) : null
@@ -105,7 +109,10 @@ function parseCodexUsageText(rawText) {
       weekly_reset_at: weekly.reset_at,
       monthly_remaining_pct: monthly.remaining_pct,
       monthly_reset_at: monthly.reset_at,
-      credits_remaining: codexLabelNumber(text, 'Verbleibende Credits|Credits remaining'),
+      credits_remaining: codexLabelNumber(text, 'Verbleibende Credits|Credits remaining') ?? (function() {
+        var match = text.match(/([0-9][0-9.,]*)\s+credits remaining\b/i);
+        return match ? parseCodexLocalizedNumber(match[1]) : null;
+      })(),
       interactions: codexLabelNumber(text, 'Interaktionen|Interactions') || 0,
       interactions_by_model: [],
       interactions_by_surface: [],

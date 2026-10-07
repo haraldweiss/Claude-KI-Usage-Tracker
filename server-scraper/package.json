@@ -12,7 +12,7 @@
     "login:openai": "tsx src/login.ts openai-api",
     "login:opencode": "tsx src/login.ts opencode-go",
     "login:zai": "tsx src/login.ts zai",
-    "build": "tsc"
+    "build": "tsc && node -e \"require('node:fs').copyFileSync('src/scrapers/usage-parser-codex.cjs','dist/scrapers/usage-parser-codex.cjs')\""
   },
   "dependencies": {
     "playwright": "^1.52.0",

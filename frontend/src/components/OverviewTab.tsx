@@ -25,14 +25,14 @@ interface ProgressProps {
 }
 
 function ProgressRow({ label, pct, hint }: ProgressProps): React.ReactElement {
-  const value = typeof pct === 'number' ? Math.max(0, Math.min(100, pct)) : null;
+  const value = typeof pct === 'number' && Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null;
   const color =
     value === null ? 'bg-gray-200' : value < 50 ? 'bg-emerald-500' : value < 80 ? 'bg-amber-500' : 'bg-red-500';
   return (
     <div>
       <div className="flex justify-between text-sm">
         <span className="text-gray-700">{label}</span>
-        <span className="font-medium text-gray-900">{value === null ? '—' : `${value}%`}</span>
+        <span className="font-medium text-gray-900">{value === null ? '—' : `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(value)} %`}</span>
       </div>
       <div className="mt-1 h-2 bg-gray-100 rounded overflow-hidden">
         <div className={`h-full ${color}`} style={{ width: `${value ?? 0}%` }} />
@@ -145,6 +145,7 @@ export default function OverviewTab(): React.ReactElement {
   const zaiEur = providerCountsThisMonth('zai')
     ? subscriptionEur(plans, configuredPlan('zai', zai?.plan_name))
     : 0;
+  const chatGptPlan = configuredPlan('codex', combined?.codex?.plan_name) || 'ChatGPT';
   const chatGptEur = providerCountsThisMonth('codex')
     ? subscriptionEur(plans, configuredPlan('codex', combined?.codex?.plan_name))
     : 0;
@@ -201,7 +202,7 @@ export default function OverviewTab(): React.ReactElement {
     : currentDailyRate;
 
   const forecastVariable = variableSoFar + daysLeft * dailyRate;
-  const forecastTotal = planEur + opencodeGoEur + zaiEur + chatGptEur + clineEur + forecastVariable;
+  const forecastTotal = planEur + opencodeGoEur + zaiEur + chatGptEur + clineEur + openRouterEur + forecastVariable;
 
   // Limit forecast: at this weekly rate, when does the user hit 100%?
   const weeklyAllPct = meta?.weekly_all_models_pct ?? null;
@@ -217,7 +218,7 @@ export default function OverviewTab(): React.ReactElement {
     openAiApiEur > 0 ? `OpenAI API ${formatEur(openAiApiEur)}` : null,
     opencodeGoEur > 0 ? `OpenCode Go ${formatEur(opencodeGoEur)}` : null,
     zaiEur > 0 ? `z.ai ${formatEur(zaiEur)}` : null,
-    chatGptEur > 0 ? `ChatGPT Plus ${formatEur(chatGptEur)}` : null,
+    chatGptEur > 0 ? `${chatGptPlan} ${formatEur(chatGptEur)}` : null,
     clineEur > 0 ? `Cline ${formatEur(clineEur)}` : null,
     openRouterEur > 0 ? `OpenRouter ≈ ${formatEur(openRouterEur)}` : null,
   ].filter((item): item is string => item !== null);
@@ -401,7 +402,7 @@ export default function OverviewTab(): React.ReactElement {
           return (
           <div className="bg-white rounded-lg shadow p-5">
             <div className="flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wide">
-              ChatGPT Plus
+              {chatGptPlan}
               {!providerActive('codex') && (() => {
                 const codexProvider = providers.find(p => p.key === 'codex');
                 const vu = codexProvider?.plan_valid_until;
@@ -414,12 +415,13 @@ export default function OverviewTab(): React.ReactElement {
               })()}
             </div>
             <div className="mt-2 text-xl font-bold text-gray-900">
-              ChatGPT Plus
+              {chatGptPlan}
             </div>
             <div className="mt-1 text-sm text-gray-600">{formatEur(chatGptEur)} / Monat</div>
+            <p className="mt-1 text-xs text-gray-500">Verbrauchter Anteil der gemeinsamen Planlimits; Chat-Unterhaltungen sind nicht enthalten.</p>
             <div className="mt-3 space-y-2">
               {fiveHrUsed != null && (
-                <ProgressRow label="5-Std.-Limit" pct={fiveHrUsed} />
+                <ProgressRow label="5-Std.-Limit" pct={fiveHrUsed} hint={codexMeta?.five_hour_reset_at ? formatAbsoluteResetHint(codexMeta.five_hour_reset_at) : undefined} />
               )}
               {weeklyUsed != null && (
                 <ProgressRow label="Wöchentlich" pct={weeklyUsed} hint={codexMeta?.weekly_reset_at ? formatAbsoluteResetHint(codexMeta.weekly_reset_at) : undefined} />
@@ -678,6 +680,8 @@ export default function OverviewTab(): React.ReactElement {
           {formatEur(dailyRate)} · {daysLeft} Tage verbleiben.
         </p>
         <p className="mt-1 text-xs text-gray-500">
+          {chatGptEur > 0 && <>{chatGptPlan} ({formatEur(chatGptEur)}) ist fix. </>}
+          {openRouterEur > 0 && <>OpenRouter ({formatEur(openRouterEur)}, 30 Tage) wird unverändert übernommen. </>}
           {isSmoothed ? (
             <>
               Geglättete Hochrechnung: in den ersten {SMOOTHING_DAYS} Tagen mit der Tagesrate der
@@ -743,7 +747,7 @@ export default function OverviewTab(): React.ReactElement {
           <span>OpenCode Go-Sync: {formatRelativeTime(opencodeGo.last_synced)}</span>
         )}
         {chatGptEur > 0 && (
-          <span>ChatGPT Plus: {formatEur(chatGptEur)}/Monat</span>
+          <span>{chatGptPlan}: {formatEur(chatGptEur)}/Monat</span>
         )}
         {zai?.last_synced && (
           <span>z.ai-Sync: {formatRelativeTime(zai.last_synced)}</span>

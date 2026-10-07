@@ -394,7 +394,7 @@ async function syncHardSources() {
   // 3. Codex (ChatGPT usage limits)
   try {
     const tab = await chrome.tabs.create({
-      url: 'https://chatgpt.com/codex/cloud/settings/analytics',
+      url: 'https://chatgpt.com/settings/usage?tab=overview',
       active: true
     });
     await new Promise(r => setTimeout(r, 12000));

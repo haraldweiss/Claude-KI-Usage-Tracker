@@ -113,3 +113,33 @@ describe('OverviewTab', () => {
     expect(await screen.findByText(/Anthropic API/)).toBeInTheDocument();
   });
 });
+
+
+describe('ChatGPT quota accuracy', () => {
+  it('renders remaining capacity as rounded used percentages for the configured plan', async () => {
+    vi.mocked(getSummary).mockResolvedValueOnce({ combined: { codex: {
+      plan_name: 'ChatGPT Pro', five_hour_remaining_pct: 71.8,
+      weekly_remaining_pct: 99, five_hour_reset_at: '2026-10-08T12:00:00Z'
+    } } } as any);
+    vi.mocked(getPlanPricing).mockResolvedValueOnce({plans:[{plan_name:'ChatGPT Pro',monthly_eur:200,source:'manual',last_updated:'2026-10-07'}]});
+    vi.mocked(getProviders).mockResolvedValueOnce({providers:[{key:'codex',plan_name:'ChatGPT Pro'}]} as any);
+    render(<OverviewTab />);
+    expect(await screen.findByText('28,2 %')).toBeInTheDocument();
+    expect(screen.getByText('1 %')).toBeInTheDocument();
+    expect(screen.queryByText('28.200000000000003%')).not.toBeInTheDocument();
+    expect(screen.getAllByText('ChatGPT Pro').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/ChatGPT Plus/)).not.toBeInTheDocument();
+  });
+  it('keeps fixed ChatGPT fees and the displayed rolling OpenRouter spend in the forecast', async () => {
+    vi.mocked(getSummary).mockResolvedValueOnce({combined:{
+      codex:{plan_name:'ChatGPT Pro',five_hour_remaining_pct:98,weekly_remaining_pct:99},
+      openrouter:{total_cost_usd:10},exchange_rate:{usd_to_eur:0.9}
+    }} as any);
+    vi.mocked(getPlanPricing).mockResolvedValueOnce({plans:[{plan_name:'ChatGPT Pro',monthly_eur:200,source:'manual',last_updated:'2026-10-07'}]});
+    vi.mocked(getProviders).mockResolvedValueOnce({providers:[{key:'codex',plan_name:'ChatGPT Pro'},{key:'openrouter',plan_name:'API Usage'}]} as any);
+    render(<OverviewTab />);
+    expect(await screen.findByText(/≈ 209,00/)).toBeInTheDocument();
+    expect(screen.getByText(/OpenRouter.*30 Tage.*unverändert/)).toBeInTheDocument();
+  });
+
+});

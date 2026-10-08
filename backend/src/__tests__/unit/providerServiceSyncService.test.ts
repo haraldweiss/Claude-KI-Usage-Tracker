@@ -56,6 +56,19 @@ afterEach(async () => {
 });
 
 describe('syncProviderServiceEvents', () => {
+  it('uses and persists opaque cursors for equal-timestamp pages', async () => {
+    const ts = '2026-05-01T12:00:00';
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({
+      events: [makeEvent(1, ts)], next_since: ts, next_cursor: `${ts}|1`, has_more: true,
+    }) }).mockResolvedValueOnce({ ok: true, json: async () => ({
+      events: [makeEvent(2, ts)], next_since: ts, next_cursor: `${ts}|2`, has_more: false,
+    }) });
+    expect((await syncProviderServiceEvents(201)).newEvents).toBe(2);
+    const secondUrl = new URL(fetchMock.mock.calls[1][0] as string);
+    expect(secondUrl.searchParams.get('cursor')).toBe(`${ts}|1`);
+    expect(secondUrl.searchParams.has('since')).toBe(false);
+    expect((await listProviderUserIds(201))[0].last_sync_cursor).toBe(`${ts}|2`);
+  });
   it('pulls events in a single page and inserts them', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,

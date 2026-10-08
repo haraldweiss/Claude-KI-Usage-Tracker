@@ -34,6 +34,28 @@ beforeEach(async () => {
 });
 
 describe('POST /api/usage/track — console cost sources', () => {
+  it('keeps distinct console keys and replaces only the resynced key', async () => {
+    const body = { model: 'Anthropic API', input_tokens: 0, output_tokens: 0,
+      source: 'anthropic_console_sync', workspace: 'Default', cost_usd: 5 };
+    for (const suffix of ['key-a', 'key-b']) {
+      await request(app).post('/api/usage/track').set('Cookie', adminCookie)
+        .send({ ...body, key_id_suffix: suffix, key_name: suffix }).expect(201);
+    }
+    await request(app).post('/api/usage/track').set('Cookie', adminCookie)
+      .send({ ...body, key_id_suffix: 'key-a', key_name: 'key-a', cost_usd: 7 }).expect(201);
+    const rows = await allQuery<{ cost_usd: number }>(
+      "SELECT cost_usd FROM usage_records WHERE source = 'anthropic_console_sync' ORDER BY cost_usd");
+    expect(rows.map(r => r.cost_usd)).toEqual([5, 7]);
+  });
+
+  it('rejects preview-only console snapshots without erasing spend', async () => {
+    const body = { model: 'Anthropic API', input_tokens: 0, output_tokens: 0,
+      source: 'anthropic_console_sync', cost_usd: 5, key_id_suffix: 'key-a' };
+    await request(app).post('/api/usage/track').set('Cookie', adminCookie).send(body).expect(201);
+    await request(app).post('/api/usage/track').set('Cookie', adminCookie)
+      .send({ ...body, cost_usd: undefined, response_metadata: { text_preview: 'Loading...' } }).expect(422);
+    expect((await allQuery('SELECT * FROM usage_records')).length).toBe(1);
+  });
   it('accepts anthropic_console_cost_day and stores model name', async () => {
     const res = await request(app)
       .post('/api/usage/track')

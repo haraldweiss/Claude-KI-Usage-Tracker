@@ -96,12 +96,12 @@ export async function scrapeClaudeCode(): Promise<ScraperResult> {
 
           const spendRaw = (cells[spendIdx]?.textContent || '').trim();
           const spendMatch = spendRaw.match(/[\d.,]+/);
-          const cost_usd = spendMatch ? parseFloat(spendMatch[0].replace(',', '.')) : 0;
+          const cost_usd = spendMatch ? __usageNumber(spendMatch[0]) ?? 0 : 0;
 
           const linesRaw = linesIdx >= 0 ? (cells[linesIdx]?.textContent || '').trim() : '0';
           const lines = parseInt(linesRaw.replace(/[^\d]/g, ''), 10) || 0;
 
-          const key_id_suffix = name.length >= 4 ? name.slice(-4) : name;
+          const key_id_suffix = name; // Keep full identity; four-character suffixes can collide.
           rows.push({ name, role, cost_usd, lines, key_id_suffix });
         }
         if (rows.length > 0) break;
@@ -137,6 +137,8 @@ export async function scrapeClaudeCode(): Promise<ScraperResult> {
           conversation_id: `server-scraper-${startTs}-${row.key_id_suffix}`,
           workspace: 'Claude Code',
           cost_usd: row.cost_usd,
+          key_name: row.name,
+          key_id_suffix: row.key_id_suffix,
           response_metadata: {
             role: row.role,
             lines_accepted: row.lines,

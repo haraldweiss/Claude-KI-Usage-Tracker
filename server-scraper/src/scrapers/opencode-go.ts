@@ -76,10 +76,10 @@ export async function scrapeOpenCodeGo(): Promise<ScraperResult> {
       // Helper: extract percentage for a section label
       const extractPctAndReset = (labels: string[]) => {
         for (const label of labels) {
-          const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+)\\s*%`, 'i');
+          const pctRe = new RegExp(`${label}[\\s\\S]{0,200}?(\\d+(?:[.,]\\d+)?)\\s*%`, 'i');
           const pctMatch = text.match(pctRe);
           if (!pctMatch) continue;
-          let pct = parseInt(pctMatch[1], 10);
+          let pct = parseFloat(pctMatch[1].replace(',', '.'));
           const matchEnd = (pctMatch.index ?? 0) + pctMatch[0].length;
           // opencode.ai renders the *remaining* percentage ("96% remaining" /
           // "96% verbleibend") with the qualifier AFTER the "%". The lazy body

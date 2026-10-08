@@ -1,3 +1,4 @@
+import { parseOpenAiUsage } from '../usage-parsers.js';
 import { postUsage } from '../api.js';
 import { getContext, saveCookies } from '../browser.js';
 import type { ScraperResult } from '../types.js';
@@ -19,34 +20,8 @@ export async function scrapeOpenAiApi(): Promise<ScraperResult> {
     await page.goto(OPENAI_USAGE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(5000);
 
-    const data = await page.evaluate(() => {
-      const text = document.body?.innerText || '';
-      const result: Record<string, number | string | null> = {};
-
-      // MTD spend: "$N.NN" or "N.NN $"
-      const spendMatch = text.match(/\$?(\d+[.,]\d+)\s*(?:MTD|\$)?/);
-      if (spendMatch) result.cost_usd = parseFloat(spendMatch[1].replace(',', '.'));
-
-      // Total tokens
-      const tokenMatch = text.match(/(\d+[.,]?\d*)\s*(K|M)?\s*[Tt]okens/);
-      if (tokenMatch) {
-        let val = parseFloat(tokenMatch[1].replace(',', '.'));
-        if (tokenMatch[2]?.toUpperCase() === 'K') val *= 1000;
-        if (tokenMatch[2]?.toUpperCase() === 'M') val *= 1_000_000;
-        result.total_tokens = Math.round(val);
-      }
-
-      // Total requests
-      const reqMatch = text.match(/(\d+[.,]?\d*)\s*(K|M)?\s*[Rr]equests/);
-      if (reqMatch) {
-        let val = parseFloat(reqMatch[1].replace(',', '.'));
-        if (reqMatch[2]?.toUpperCase() === 'K') val *= 1000;
-        if (reqMatch[2]?.toUpperCase() === 'M') val *= 1_000_000;
-        result.requests = Math.round(val);
-      }
-
-      return result;
-    });
+    const data = parseOpenAiUsage(await page.locator('body').innerText());
+    if (!data) return { success: false, source: 'openai_api_sync', skipped: true, reason: 'no_verified_spend' };
 
     await saveCookies(context, COOKIE_KEY);
 

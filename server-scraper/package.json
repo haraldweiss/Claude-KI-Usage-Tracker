@@ -12,6 +12,7 @@
     "login:openai": "tsx src/login.ts openai-api",
     "login:opencode": "tsx src/login.ts opencode-go",
     "login:zai": "tsx src/login.ts zai",
+    "test": "node --import tsx --test src/*.test.ts",
     "build": "tsc && node -e \"require('node:fs').copyFileSync('src/scrapers/usage-parser-codex.cjs','dist/scrapers/usage-parser-codex.cjs')\""
   },
   "dependencies": {
@@ -19,5 +20,9 @@
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "esbuild": "^0.28.1"
   }
 }

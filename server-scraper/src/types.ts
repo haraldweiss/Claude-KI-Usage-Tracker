@@ -27,6 +27,8 @@ export interface UsageTrackPayload {
   source: string;
   conversation_id: string;
   workspace?: string;
+  key_name?: string | null;
+  key_id_suffix?: string | null;
   response_metadata?: Record<string, unknown>;
   cost_usd?: number;
 }

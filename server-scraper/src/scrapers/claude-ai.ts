@@ -48,11 +48,11 @@ export async function scrapeClaudeAi(contextCookies?: boolean): Promise<ScraperR
       }
 
       // Percentage values
-      const pcts = [...text.matchAll(/(\d+)\s*%/g)];
-      const pctValues = pcts.map((m) => parseInt(m[1], 10));
+      const pcts = [...text.matchAll(/(\d+(?:[.,]\d+)?)\s*%/g)];
+      const pctValues = pcts.map((m) => parseFloat(m[1].replace(',', '.')));
       if (pctValues.length >= 1) result.session_pct = pctValues[0];
-      if (pctValues.length >= 2) result.weekly_pct = pctValues[1];
-      if (pctValues.length >= 3) result.monthly_pct = pctValues[2];
+      if (pctValues.length >= 2) result.weekly_all_models_pct = pctValues[1];
+      if (pctValues.length >= 3) result.weekly_sonnet_pct = pctValues[2];
 
       // Reset time hints
       const resetMatch = text.match(/[Rr]eset\s+in\s+(\d+)\s*[hH]/);
@@ -64,6 +64,10 @@ export async function scrapeClaudeAi(contextCookies?: boolean): Promise<ScraperR
 
       return result;
     });
+
+    if (data.session_pct == null && data.weekly_all_models_pct == null) {
+      return { success: false, source: 'claude_official_sync', skipped: true, reason: 'no_usage_data' };
+    }
 
     // Save cookies after successful login
     await saveCookies(context, COOKIE_KEY);

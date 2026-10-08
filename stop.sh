@@ -70,8 +70,8 @@ stop_port "Backend " "$BACKEND_PORT"
 stop_port "Frontend" "$FRONTEND_PORT"
 
 # Kill any leftover dev processes that aren't bound to the port (e.g. from
-# a previous worktree where multiple nodemons piled up — only one ever owns
+# a previous worktree where multiple backend watchers piled up — only one ever owns
 # the port, the rest sit idle but keep the file watch alive).
-stop_pattern "Backend " "nodemon.*src/server.ts"
+stop_pattern "Backend " "(nodemon|tsx.*watch).*src/server.ts"
 stop_pattern "Frontend" "node.*frontend/node_modules/.bin/vite"
 echo ""

@@ -115,10 +115,12 @@ Or use the convenience scripts that handle both at once:
 ```bash
 ./start.sh      # Open both in new Terminal windows (macOS) / fall back to background mode
 ./status.sh     # Show what's running and from which directory
-./stop.sh       # Stop both, plus any zombie nodemon/vite processes
+./stop.sh       # Stop both, plus any zombie backend watcher/vite processes
 ```
 
 The scripts auto-detect when launched from a worktree and point the backend at the main repo's SQLite file so test runs and dev runs share the same data.
+
+Backend development uses `tsx watch` to restart when TypeScript or JSON files under `backend/src` change. Jest type definitions match Jest 30. This removes the vulnerable `braces` dependency without a package override or a local fork.
 
 ### Tests & CI
 
@@ -668,8 +670,8 @@ A systematic code review was performed in May 2026, fixing the following issues:
 
 | Issue | Solution |
 |---|---|
-| Port 3000 already in use | Run `./stop.sh` (kills both port-bound and stale nodemon/vite processes), then `./start.sh`. |
-| Multiple nodemon zombies | `./status.sh` shows them; `./stop.sh` cleans them up. |
+| Port 3000 already in use | Run `./stop.sh` (kills both port-bound and stale backend watcher/vite processes), then `./start.sh`. |
+| Multiple backend watcher zombies | `./status.sh` shows them; `./stop.sh` cleans them up. |
 | "No data" in dashboard | Trigger a sync manually from the extension popup or the service-worker console. Check `chrome://extensions` → service worker for errors. |
 | ❌ Claude.ai sync error | Make sure you are **logged into claude.ai** in the browser. If a new tab is needed, the scraper opens one as an active tab — Cloudflare blocks hidden/background tabs. Check the service-worker console for `[autoSync] executeScript fehlgeschlagen, Tab-URL:` to see where the tab actually landed. |
 | `sqlite3` GLIBC error on VPS | The pre-built binary needs glibc ≥ 2.38; on Rocky 9 run `npm rebuild sqlite3 --build-from-source` once. |

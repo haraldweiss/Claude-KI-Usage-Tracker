@@ -44,8 +44,8 @@ export async function trackUsage(
       success_status = 'unknown',
       response_metadata = null,
       workspace = null,
-      key_name = null,
-      key_id_suffix = null,
+      key_name: suppliedKeyName = null,
+      key_id_suffix: suppliedKeyId = null,
       cost_usd = null
     } = req.body as UsageTrackRequest & {
       workspace?: string | null;
@@ -59,40 +59,22 @@ export async function trackUsage(
       return;
     }
 
-    // Dedupe: at most one snapshot per day per source — delete today's stale
-    // rows for this source before inserting fresh ones.
-    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'zai_sync', 'opencode_api_sync', 'anthropic_console_cost_day', 'anthropic_console_cost_month', 'codex_sync', 'openai_api_sync', 'cline_sync'] as const;
-    if ((SYNC_SOURCES as readonly string[]).includes(source)) {
-      await runQuery(
-        `DELETE FROM usage_records
-         WHERE source = ?
-           AND date(timestamp) = date('now')
-           AND user_id = ?`,
-        [source, req.user!.id]
-      );
+    const meta = response_metadata && typeof response_metadata === 'object'
+      ? response_metadata as Record<string, unknown> : {};
+    const keyedSource = ['anthropic_console_sync', 'claude_code_sync', 'opencode_api_sync'].includes(source);
+    const key_name = suppliedKeyName ?? (typeof meta.key_name === 'string' ? meta.key_name : keyedSource ? rawModel : null);
+    const key_id_suffix = suppliedKeyId ?? (keyedSource ? key_name : null);
+    if (['anthropic_console_sync', 'claude_code_sync', 'opencode_api_sync', 'openai_api_sync'].includes(source)
+        && (typeof cost_usd !== 'number' || !Number.isFinite(cost_usd) || cost_usd < 0)) {
+      res.status(422).json({ success: false, error: 'A verified numeric cost_usd is required for billing snapshots' });
+      return;
     }
-
-    // OpenCode Go sync: same dedupe pattern as claude_official_sync — keep
-    // at most one snapshot per day.
-    if (source === 'opencode_go_sync') {
+    const SYNC_SOURCES = ['claude_official_sync', 'opencode_go_sync', 'anthropic_console_sync', 'claude_code_sync', 'zai_sync', 'opencode_api_sync', 'anthropic_console_cost_day', 'anthropic_console_cost_month', 'codex_sync', 'openai_api_sync', 'cline_sync', 'openrouter_sync'];
+    if (SYNC_SOURCES.includes(source)) {
       await runQuery(
-        `DELETE FROM usage_records
-         WHERE source = 'opencode_go_sync'
-           AND date(timestamp) = date('now')
-           AND user_id = ?`,
-        [req.user!.id]
-      );
-    }
-
-    // Console scraping: DELETE old rows for today before inserting fresh ones.
-    // Each sync replaces the entire day's snapshot per user.
-    if (source === 'anthropic_console_sync') {
-      await runQuery(
-        `DELETE FROM usage_records
-         WHERE source = 'anthropic_console_sync'
-           AND date(timestamp) = date('now')
-           AND user_id = ?`,
-        [req.user!.id]
+        `DELETE FROM usage_records WHERE source = ? AND date(timestamp) = date('now') AND user_id = ?
+         ${keyedSource ? "AND COALESCE(workspace, '') = ? AND COALESCE(key_id_suffix, key_name, '') = ?" : ''}`,
+        keyedSource ? [source, req.user!.id, workspace ?? '', key_id_suffix ?? ''] : [source, req.user!.id]
       );
     }
 
@@ -560,23 +542,29 @@ export async function getSummary(
     }
 
     const opencodeApiByKey = await allQuery<OpenCodeApiKeyRow>(
-      `SELECT key_name, SUM(input_tokens) as input_tokens,
-              SUM(output_tokens) as output_tokens, SUM(cost_usd) as cost_usd
-       FROM usage_records
+      `SELECT key_name, input_tokens, output_tokens, cost_usd
+       FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY key_name ORDER BY timestamp DESC, id DESC) AS rn
+             FROM usage_records
        WHERE source = 'opencode_api_sync'
          AND user_id = ?
          AND datetime(timestamp) >= datetime(${windowStartExpr})
-         AND response_metadata LIKE '%per_key_aggregate%'
-       GROUP BY key_name
+         AND response_metadata LIKE '%per_key_aggregate%')
+       WHERE rn = 1
        ORDER BY cost_usd DESC`,
       [req.user!.id]
     );
 
-    const opencodeApiTotalInput = opencodeApiByKey.reduce((s, r) => s + (r.input_tokens || 0), 0);
-    const opencodeApiTotalOutput = opencodeApiByKey.reduce((s, r) => s + (r.output_tokens || 0), 0);
-    const opencodeApiTotalCost = opencodeApiByKey.reduce((s, r) => s + (r.cost_usd || 0), 0);
+    const opencodeGrand = await getQuery<{ input_tokens: number; output_tokens: number; cost_usd: number }>(
+      `SELECT input_tokens, output_tokens, cost_usd FROM usage_records
+       WHERE source = 'opencode_api_sync' AND user_id = ?
+         AND datetime(timestamp) >= datetime(${windowStartExpr})
+         AND response_metadata LIKE '%grand_total%'
+       ORDER BY timestamp DESC, id DESC LIMIT 1`, [req.user!.id]);
+    const opencodeApiTotalInput = opencodeGrand?.input_tokens ?? opencodeApiByKey.reduce((s, r) => s + (r.input_tokens || 0), 0);
+    const opencodeApiTotalOutput = opencodeGrand?.output_tokens ?? opencodeApiByKey.reduce((s, r) => s + (r.output_tokens || 0), 0);
+    const opencodeApiTotalCost = opencodeGrand?.cost_usd ?? opencodeApiByKey.reduce((s, r) => s + (r.cost_usd || 0), 0);
 
-    const opencodeApi = opencodeApiByKey.length > 0 ? {
+    const opencodeApi = opencodeGrand || opencodeApiByKey.length > 0 ? {
       total_input_tokens: opencodeApiTotalInput,
       total_output_tokens: opencodeApiTotalOutput,
       total_cost_usd: opencodeApiTotalCost,
@@ -654,7 +642,8 @@ export async function getSummary(
       `SELECT cost_usd, response_metadata, timestamp
        FROM usage_records
        WHERE source = 'openai_api_sync' AND user_id = ?
-       ORDER BY timestamp DESC LIMIT 1`,
+         AND date(timestamp) >= date('now', 'start of month')
+       ORDER BY timestamp DESC, id DESC LIMIT 1`,
       [req.user!.id]
     );
     let openaiApiMeta: Record<string, unknown> | null = null;
@@ -669,6 +658,7 @@ export async function getSummary(
       cost_usd: number;
       total_input_tokens: number;
       total_output_tokens: number;
+      total_tokens: number | null;
       requests: number;
       last_synced: string | null;
     }
@@ -680,6 +670,7 @@ export async function getSummary(
       cost_usd: openaiApiRow[0].cost_usd || 0,
       total_input_tokens: (openaiApiMeta?.input_tokens as number) ?? (openaiApiMeta?.total_input_tokens as number) ?? 0,
       total_output_tokens: (openaiApiMeta?.output_tokens as number) ?? (openaiApiMeta?.total_output_tokens as number) ?? 0,
+      total_tokens: (openaiApiMeta?.total_tokens as number) ?? null,
       requests: (openaiApiMeta?.requests as number) ?? 0,
       last_synced: openaiApiRow[0].timestamp
     } : null;
@@ -1224,11 +1215,11 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
 
     // OpenCode API key usage — cumulative cost_usd from per-key aggregates.
     const opencodeApiCostRow = await getQuery<{ total_usd: number }>(
-      `SELECT SUM(cost_usd) as total_usd
-       FROM usage_records
-       WHERE source = 'opencode_api_sync'
-         AND user_id = ?
-         AND response_metadata LIKE '%per_key_aggregate%'`,
+      `SELECT SUM(cost_usd) as total_usd FROM (
+         SELECT cost_usd, ROW_NUMBER() OVER (PARTITION BY key_name ORDER BY timestamp DESC, id DESC) AS rn
+         FROM usage_records WHERE source = 'opencode_api_sync' AND user_id = ?
+           AND response_metadata LIKE '%per_key_aggregate%'
+       ) WHERE rn = 1`,
       [req.user!.id]
     );
     const opencodeApiTotalUsd = opencodeApiCostRow?.total_usd ?? 0;
@@ -1249,9 +1240,10 @@ export async function getSpendingTotal(req: Request, res: Response): Promise<voi
 
     // OpenAI API month-to-date cost
     const openaiApiCostRow = await getQuery<{ total_usd: number }>(
-      `SELECT SUM(cost_usd) as total_usd
-       FROM usage_records
-       WHERE source = 'openai_api_sync' AND user_id = ?`,
+      `SELECT SUM(cost_usd) as total_usd FROM (
+         SELECT cost_usd, ROW_NUMBER() OVER (PARTITION BY strftime('%Y-%m', timestamp) ORDER BY timestamp DESC, id DESC) AS rn
+         FROM usage_records WHERE source = 'openai_api_sync' AND user_id = ?
+       ) WHERE rn = 1`,
       [req.user!.id]
     );
     const openaiApiTotalUsd = openaiApiCostRow?.total_usd ?? 0;

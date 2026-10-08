@@ -2,6 +2,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parseUsageNumber } from './usage-parsers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const COOKIE_DIR = path.resolve(__dirname, '..', 'cookies');
@@ -49,6 +50,10 @@ export async function getContext(cookieKey?: string): Promise<BrowserContext> {
       timezoneId: 'Europe/Berlin',
     };
     context = await b.newContext(ctxOpts);
+    // tsx/esbuild inserts __name into serialized evaluate callbacks. Supply its
+    // identity behavior in the browser realm using plain JS, without re-transpilation.
+    await context.addInitScript('globalThis.__name = function (value) { return value; };');
+    await context.addInitScript(`globalThis.__usageNumber = ${parseUsageNumber.toString()};`);
 
     // Hide Playwright/webdriver automation indicators
     await context.addInitScript(() => {
@@ -68,13 +73,12 @@ export async function getContext(cookieKey?: string): Promise<BrowserContext> {
 
     // Load saved cookies. First try individual cookieKey file (login.ts format),
     // then fall back to the combined export file (extension export format).
-    if (cookieKey) {
-      await loadCookies(context, cookieKey);
-    }
+
     // Always try the exported cookies file as a supplement (idempotent if missing)
     await loadExportedCookies(context);
   }
 
+  if (cookieKey) await loadCookies(context, cookieKey);
   return context;
 }
 

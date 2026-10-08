@@ -29,7 +29,7 @@ export async function scrapeOpenRouter(): Promise<ScraperResult> {
       // Model count: "N models" or "N modelle"
       const modelMatch = text.match(/(\d+)\s*(?:models?|modelle)/i);
       return {
-        credits_remaining: creditMatch ? parseFloat(creditMatch[1].replace(',', '')) : null,
+        credits_remaining: creditMatch ? __usageNumber(creditMatch[1]) : null,
         model_count: modelMatch ? parseInt(modelMatch[1], 10) : null,
       };
     });
@@ -87,7 +87,7 @@ export async function scrapeOpenRouter(): Promise<ScraperResult> {
       }
 
       return {
-        total_cost_usd: totalMatch ? parseFloat(totalMatch[1].replace(',', '')) : null,
+        total_cost_usd: totalMatch ? __usageNumber(totalMatch[1]) : null,
         total_tokens: tokenMatch ? parseInt(tokenMatch[1].replace(/,/g, ''), 10) : null,
         total_requests: reqMatch ? parseInt(reqMatch[1].replace(/,/g, ''), 10) : null,
         model_rows: rows.slice(0, 50),
@@ -99,6 +99,9 @@ export async function scrapeOpenRouter(): Promise<ScraperResult> {
 
     // Merge credits + usage and post
     const combined = { ...creditsData, ...usageData };
+    if (combined.credits_remaining == null && combined.total_cost_usd == null) {
+      return { success: false, source: 'openrouter_sync', skipped: true, reason: 'no_verified_usage' };
+    }
     await postUsage({
       model: 'OpenRouter',
       input_tokens: 0,

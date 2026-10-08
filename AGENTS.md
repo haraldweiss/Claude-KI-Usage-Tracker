@@ -933,7 +933,7 @@ ssh -R 40000:localhost:1080 oracle-vm
 | `zai.ts` | z.ai coding plan | Extension | ✅ via 🔐 Sync |
 | `opencode-api-usage.ts` | opencode.ai usage table | Extension | ⏳ nicht getestet |
 
-**Cookies-Upstream:** Extension v3.2.1 exportiert Cookies via `chrome.cookies.getAll()`:
+**Cookies-Upstream:** Extension v3.2.2 exportiert Cookies via `chrome.cookies.getAll()`:
 - `background.js`: Auto-Upload bei Startup + alle 6h an `POST /api/cookies/upload`
 - `sameSite` normalisiert (no_restriction→None, strict→Strict, lax→Lax)
 - `expires` auf +24h gesetzt (kurzlebige Auth-Tokens)
@@ -7112,3 +7112,24 @@ Deployment verified 2026-10-07: frontend index-DHO3LQfp.js is served by the live
 ### 2026-10-08 — Remove vulnerable braces from backend development tools
 
 The backend uses `tsx watch --include src/**/*.ts --include src/**/*.json src/server.ts` instead of nodemon, and `@types/jest@^30.0.0` alongside Jest 30. Nodemon/chokidar3 and Jest29 types previously pulled in braces3.0.3 (GHSA-vfj7-8cjw-p6xm; no upstream patched version). Keep explicit src TypeScript/JSON watch patterns so edits to files not yet imported also restart the server. Lifecycle scripts recognize both legacy nodemon and tsx watch processes during migration. Verify `npm audit` reports zero vulnerabilities and `npm ls braces` has no installed entries.
+
+### 2026-10-08 — Provider-scraper/dashboard review: cursor sync, key-scoped dedup, robust parsing
+
+Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limit-Übergabe). Gegenstück im Gateway-Repo: `ai-provider-service` Haupt-Commit `a7610da`.
+
+**Backend (`fix(backend)`, `1074a06`):**
+- Usage-Sync folgt jetzt `next_cursor` (opaque `<iso>|<id>`) aus `/usage/events` und schickt ihn als `cursor` zurück; Legacy-`since` bleibt. Nicht-fortschreitender Cursor → Abbruch statt Endlosschleife.
+- Dedup ist **key-scoped**: Console/API-Snapshots werden per `(source, workspace, key)` ersetzt statt „den ganzen Tag der Source zu löschen" — verschiedene Keys koexistieren, ein Re-Sync ersetzt nur seine eigene Zeile.
+- Importierte Billing-Snapshots (`anthropic_console_sync`, `claude_code_sync`, `opencode_api_sync`, `openai_api_sync`) verlangen einen verifizierten numerischen `cost_usd` (sonst **422**), damit „Loading…"-Vorschauen keine Spend-Zeilen mehr löschen.
+- OpenCode-API per-Key-Aggregate per Fensterfunktion (latest row per key) + Grand-Total-Zeile; OpenAI month-to-date nimmt die neueste Zeile des Monats.
+
+**Server-Scraper (`fix(scraper)`, `18386b6`):**
+- Neu `usage-parsers.ts` (`parseUsageNumber`, `parseOpenAiUsage`): Dezimalkomma, Tausenderpunkte, K/M/B-Suffixe; OpenAI-Parser verlangt echtes Spend-Label + Währung (Prozente/Budgets zählen nicht). In `anthropic-console`, `claude-code`, `openai-api`, `openrouter` verdrahtet und via Init-Script (`browser.ts`, plus `__name`-Shim) für `page.evaluate` verfügbar.
+- `anthropic-console`/`claude-code` posten `key_name`/`key_id_suffix`, `opencode-api-usage` postet `key_name` (Grundlage fürs Backend-Dedup); `claude-code` behält den vollen Key-Namen (4-Zeichen-Suffixe kollidieren).
+- `openai-api`/`openrouter`/`claude-ai` überspringen den POST, wenn kein verifizierter Spend vorliegt.
+- `server-scraper` hat jetzt `npm test` (node:test via tsx) + deklariert `esbuild` (für `browser-evaluation.test.ts`). Tests: `usage-parsers.test.ts` + `browser-evaluation.test.ts` → **5 passed**.
+
+**Extension (`fix(extension)`, `eca4365`, `chore(extension)` `b129c9b`):** Console/Claude-Code-Tab-Scrapes posten keine preview-only Daten mehr (Server-Scraper verantwortlich), OpenCode-API postet Grand-Total nur mit finitem `cost_usd`, Prozent-Parsing akzeptiert Dezimalen. Version 3.2.1 → **3.2.2** (alle 4 Varianten).
+
+**Verified:** Backend jest ✓ (39 Suites, 315 Tests); server-scraper `npm test` ✓ (5).
+**Deploy:** Backend-`dist` via `docker cp` + `docker restart ki-usage-tracker`; Server-Scraper-`src/` per rsync nach `/opt/ki-usage-tracker/server-scraper/src/` (läuft via `tsx src/index.ts`). Extension: manueller Reload nötig (Store-Upload durch User).

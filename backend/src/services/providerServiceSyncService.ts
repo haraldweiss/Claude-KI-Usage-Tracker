@@ -43,6 +43,7 @@ interface RemotePage {
   events: RemoteEventDto[];
   count: number;
   next_since: string | null;
+  next_cursor?: string | null;
   has_more: boolean;
 }
 
@@ -63,7 +64,7 @@ async function syncOneId(
       const url = new URL('/usage/events', serviceUrl);
       url.searchParams.set('user_id', idRow.provider_user_id);
       url.searchParams.set('limit', String(PAGE_LIMIT));
-      if (cursor) url.searchParams.set('since', cursor);
+      if (cursor) url.searchParams.set(cursor.includes('|') ? 'cursor' : 'since', cursor);
 
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${token}` },
@@ -88,7 +89,9 @@ async function syncOneId(
         if (await insertEventIfNew(userId, row)) totalNew++;
       }
 
-      cursor = data.next_since ?? cursor;
+      const next = data.next_cursor ?? data.next_since ?? cursor;
+      if (data.has_more && next === cursor) throw new Error('Usage cursor did not advance');
+      cursor = next;
       if (!data.has_more) break;
     }
 

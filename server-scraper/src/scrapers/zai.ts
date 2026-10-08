@@ -109,10 +109,10 @@ export async function scrapeZai(): Promise<ScraperResult> {
       // Helper: percentage after a label
       const pctAfter = (labels: string[]) => {
         for (const label of labels) {
-          const re = new RegExp(label + '[\\s\\S]{0,40}?(\\d+)\\s*%', 'i');
+          const re = new RegExp(label + '[\\s\\S]{0,40}?(\\d+(?:[.,]\\d+)?)\\s*%', 'i');
           const m = text.match(re);
           if (m) {
-            const n = parseInt(m[1], 10);
+            const n = parseFloat(m[1].replace(',', '.'));
             if (isFinite(n)) return { pct: n, end: (m.index ?? 0) + m[0].length };
           }
         }
@@ -141,7 +141,7 @@ export async function scrapeZai(): Promise<ScraperResult> {
       return result;
     });
 
-    const data = { ...plan, ...usage, scraped_at: new Date().toISOString() };
+    const data: Record<string, unknown> = { ...plan, ...usage, scraped_at: new Date().toISOString() };
 
     if (data.five_hour_pct == null && data.weekly_pct == null && data.monthly_pct == null && !data.plan_name) {
       console.log('[zai] no usage/plan data found, skipping POST');

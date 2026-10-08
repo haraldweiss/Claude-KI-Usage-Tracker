@@ -61,7 +61,7 @@ export async function scrapeAnthropicConsole(): Promise<ScraperResult> {
             const cells = [...tr.querySelectorAll('td')].map((td) => (td.textContent || '').trim());
             if (!cells[nameIdx]) continue;
             const costRaw = cells[costIdx] || '0';
-            const cost_usd = parseFloat(costRaw.replace(/[^0-9.]/g, '')) || 0;
+            const cost_usd = __usageNumber(costRaw) ?? 0;
             result.push({
               key_name: cells[nameIdx],
               key_id_suffix: idIdx !== -1 ? cells[idIdx] : '',
@@ -82,6 +82,8 @@ export async function scrapeAnthropicConsole(): Promise<ScraperResult> {
             workspace: ws.name,
             conversation_id: `server-scraper-${startTs}-${ws.id}`,
             cost_usd: row.cost_usd,
+          key_name: row.key_name,
+          key_id_suffix: row.key_id_suffix,
           });
           totalPosted++;
         } catch (err) {

@@ -272,6 +272,7 @@ async function syncHardSources() {
           model, input_tokens: 0, output_tokens: 0,
           conversation_id: 'ext-sync-' + source + '-' + startTs,
           source, response_metadata: data,
+          ...(source === 'opencode_api_sync' ? { cost_usd: data.grand_cost_usd } : {}),
         }),
       });
       return r.ok;
@@ -298,8 +299,7 @@ async function syncHardSources() {
       }
     }).catch(() => null);
     if (inj?.result) {
-      await postSource('anthropic_console_sync', 'Anthropic Console (Extension)', inj.result);
-      results.push({ source: 'console', ok: true });
+      results.push({ source: 'console', ok: true, skipped: true, reason: 'preview_only_use_server_scraper' });
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'console', ok: false, error: e.message }); }
@@ -332,8 +332,8 @@ async function syncHardSources() {
       func: () => {
         const text = document.body?.innerText || '';
         const pct = (lbl) => {
-          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,80}?(\\d+)\\s*%', 'i'));
-          return m ? parseInt(m[1]) : null;
+          const m = text.match(new RegExp(lbl + '[\\s\\S]{0,80}?(\\d+(?:[.,]\\d+)?)\\s*%', 'i'));
+          return m ? parseFloat(m[1].replace(',', '.')) : null;
         };
         return {
           five_hour_pct: pct('5\\s*Hours?(?:\\s*Quota)?'),
@@ -404,8 +404,7 @@ async function syncHardSources() {
       }
     }).catch(() => null);
     if (inj?.result) {
-      await postSource('claude_code_sync', 'Claude Code (Extension)', inj.result);
-      results.push({ source: 'claude_code', ok: true });
+      results.push({ source: 'claude_code', ok: true, skipped: true, reason: 'preview_only_use_server_scraper' });
     }
     await chrome.tabs.remove(tab.id);
   } catch (e) { results.push({ source: 'claude_code', ok: false, error: e.message }); }
@@ -426,10 +425,10 @@ async function syncHardSources() {
         const planMatch = text.match(/(?:Du hast|You have)\s+(.+?)\s+(?:abonniert|subscribed)/i);
         function extractPct(labels) {
           for (const label of labels) {
-            const re = new RegExp(label + '[\\s\\S]{0,200}?(\\d+)\\s*%', 'i');
+            const re = new RegExp(label + '[\\s\\S]{0,200}?(\\d+(?:[.,]\\d+)?)\\s*%', 'i');
             const m = text.match(re);
             if (m) {
-              const val = parseInt(m[1], 10);
+              const val = parseFloat(m[1].replace(',', '.'));
               // opencode.ai renders the *remaining* percentage ("96% remaining" /
               // "96% verbleibend") with the qualifier AFTER the "%". The lazy body
               // match stops at the first "%", so also check the text following it.
@@ -509,8 +508,13 @@ async function syncHardSources() {
       }
     }).catch(() => null);
     if (inj?.result) {
-      await postSource('opencode_api_sync', 'OpenCode API (Extension)', inj.result);
-      results.push({ source: 'opencode_api', ok: true });
+      const data = inj.result;
+      if (Number.isFinite(data.grand_cost_usd)) {
+        const ok = await postSource('opencode_api_sync', 'OpenCode API (Alle Keys)', { ...data, type: 'grand_total' });
+        results.push({ source: 'opencode_api', ok });
+      } else {
+        results.push({ source: 'opencode_api', ok: true, skipped: true, reason: 'no_verified_spend' });
+      }
     } else {
       results.push({ source: 'opencode_api', ok: false, error: 'no_data', preview: '' });
     }
@@ -549,9 +553,9 @@ async function syncHardSources() {
           return match ? match[1].trim() : null;
         };
         const pct = (lbl) => {
-          const re = new RegExp(lbl + '[\\s\\S]{0,100}?(\\d+)\\s*%', 'i');
+          const re = new RegExp(lbl + '[\\s\\S]{0,100}?(\\d+(?:[.,]\\d+)?)\\s*%', 'i');
           const match = t.match(re);
-          return match ? parseInt(match[1], 10) : null;
+          return match ? parseFloat(match[1].replace(',', '.')) : null;
         };
         const resetIn = (lbl) => {
           const re = new RegExp(lbl + '[\\s\\S]{0,150}?Resets?\\s+in\\s+([^\\n]{1,60})', 'i');

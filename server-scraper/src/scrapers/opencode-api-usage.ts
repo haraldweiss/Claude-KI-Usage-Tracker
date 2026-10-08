@@ -139,7 +139,7 @@ async function scrapeUsagePage(page: import('playwright').Page): Promise<{
 
       const modelMatch = block.match(/[A-Z][a-z]{2}\s+\d{1,2},\s*\d{1,2}:\d{2}(?:\s*AM|PM)?\s+([A-Za-z0-9_.\-\/]+)/);
       const model2 = modelMatch ? modelMatch[1].trim() : '';
-      const numbers = block.match(/(\d{3,})/g) || [];
+      const numbers: string[] = block.match(/(\d{3,})/g) || [];
       const costMatch = block.match(/\$?(\d+\.\d+)/);
       const sessionMatch = block.match(/[0-9a-fA-F-]{8,}/);
 
@@ -216,7 +216,7 @@ async function switchToKeyAndScrape(
   keyName: string
 ): Promise<Array<{
   event_date: string; model: string; input_tokens: number; output_tokens: number;
-  cost_usd: number; session_id: string | null; key_name: string;
+  cost_usd: number; session_id: string | null; key_name: string | null;
 }>> {
   try {
     // Click the filter option
@@ -383,6 +383,7 @@ export async function scrapeOpenCodeApiUsage(): Promise<ScraperResult> {
           source: 'opencode_api_sync',
           conversation_id: `opencode-api-aggr-${sanitize(entry.key_name)}-${todayDateStr()}`,
           cost_usd: agg.total_cost,
+          key_name: entry.key_name,
           response_metadata: {
             type: 'per_key_aggregate',
             key_name: entry.key_name,

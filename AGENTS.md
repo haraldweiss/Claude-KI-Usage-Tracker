@@ -7132,4 +7132,22 @@ Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limi
 **Extension (`fix(extension)`, `eca4365`, `chore(extension)` `b129c9b`):** Console/Claude-Code-Tab-Scrapes posten keine preview-only Daten mehr (Server-Scraper verantwortlich), OpenCode-API postet Grand-Total nur mit finitem `cost_usd`, Prozent-Parsing akzeptiert Dezimalen. Version 3.2.1 → **3.2.2** (alle 4 Varianten).
 
 **Verified:** Backend jest ✓ (39 Suites, 315 Tests); server-scraper `npm test` ✓ (5).
-**Deploy:** Backend-`dist` via `docker cp` + `docker restart ki-usage-tracker`; Server-Scraper-`src/` per rsync nach `/opt/ki-usage-tracker/server-scraper/src/` (läuft via `tsx src/index.ts`). Extension: manueller Reload nötig (Store-Upload durch User).
+
+**Deploy (oracle-vm, 2026-10-08) — Hotfix-Pfad (kein Image-Rebuild, Drift-Vermeidung):**
+- Vor dem Schreiben geprüft: die im Container laufenden `usageController.js` /
+  `providerServiceSyncService.js` (Oct 5) unterscheiden sich **nur** um diese
+  Änderung → gezielter Datei-Copy statt vollem `dist`-Sync.
+- Backend lokal `npm run build`; `docker cp` der beiden kompilierten Dateien nach
+  `/app/dist/...` + `docker restart ki-usage-tracker`. Container `created
+  2026-09-30`, `RestartCount=0`, `/api/health` → `{"status":"ok"}`.
+  Startup-Log: `[provider-service-sync] user=1 …wolfini_de_web new=4` /
+  `…harald new=5` — der Cursor-Sync läuft live gegen das neue Gateway-Format.
+- Server-Scraper-`src/` per rsync (itemize-dry-run: nur die erwarteten Dateien,
+  keine Deletes) → `/opt/ki-usage-tracker/server-scraper/src/`. `tsx`-Smoke auf
+  der VM: `parseUsageNumber("1.234,56 €")=1234.56`.
+- `systemctl start ki-usage-scraper.service` → exit 0, `=== Summary: 7 ✅, 2 ❌ ===`
+  (`opencode_go_sync: login_required` vorbestehend; `openrouter_sync:
+  no_verified_usage` = neuer Guard greift korrekt, kein Crash/`__name`-Fehler).
+- **Extension:** manueller Reload nötig (v3.2.2, Store-Upload durch User).
+- Git: Branch `codex/provider-scraper-dashboard-review` (`1074a06`, `18386b6`,
+  `eca4365`, `b129c9b`, `6bb4aa2`) → `Merge:` `97b0c30` auf `main` → push.

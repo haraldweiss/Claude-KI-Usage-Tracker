@@ -70,7 +70,7 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 ### Architecture
 - **Backend**: Node.js + Express + TypeScript (strict mode), SQLite, additive migrations.
 - **Frontend**: React + TypeScript + Vite, Tailwind CSS. Same-origin XHRs in production; dev server uses Vite proxy.
-- **Extension**: Chrome MV3 (v3.2.1), configurable Backend URL + API Token in the popup. Auto-sync: Hard-Sources (Tabs) alle 15min via chrome.alarms + Server-Scraper (Playwright) alle 1h via systemd timer. Manuell: **🔐 Sync geschützte Quellen** + Cookie-Export.
+- **Extension**: Chrome MV3 (v3.2.2), configurable Backend URL + API Token in the popup. Auto-sync: Hard-Sources (Tabs) alle 15min via chrome.alarms + Server-Scraper (Playwright) alle 1h via systemd timer. Manuell: **🔐 Sync geschützte Quellen** + Cookie-Export.
 - **Server-Scraper**: Playwright TypeScript scrapers running on the VPS via systemd timer (every 1h). Handles 3 sources (Codex, OpenAI API, Claude.ai) using cookies auto-exported from the extension.
 - **Hybrid sync**: 3 sources scraped server-side (1h Takt, Cookie-Export) + 5 sources scraped in-extension (httponly cookies encrypted by macOS Keychain — console, claude-code, z.ai, opencode-go, opencode-api). Sync-Kadenzen: Server-Scraper 1h · Extension Hard-Sync 15min · Popup-Refresh 15min · Handoff-Check 1h.
 - **Proxy tunnel**: SOCKS5 via SSH reverse tunnel (microsocks on Mac + ssh -R) to route Playwright traffic through the residential IP, bypassing Cloudflare challenges.
@@ -140,7 +140,7 @@ before they reach `main`.
 
 ### 4. Install the extension
 
-> **Version note**: the extension is at **v3.2.1** (MV3) for Chromium browsers. Incompatible with any v1.x install — remove the old version before loading this one.
+> **Version note**: the extension is at **v3.2.2** (MV3) for Chromium browsers. Incompatible with any v1.x install — remove the old version before loading this one.
 
 #### Browser variants
 
@@ -215,7 +215,7 @@ The server-scraper runs on the VPS via systemd timer (`ki-usage-scraper.timer`, 
 | OpenAI API | `openai-api.ts` | ✅ MTD spend, tokens, requests |
 | Claude.ai | `claude-ai.ts` | ✅ Session spend (no active plan → 0) |
 
-Cookies are auto-exported from the Chrome extension (v3.2.1+) and uploaded to `POST /api/cookies/upload`. The backend saves them to `/opt/claudetracker-data/cookies/`, symlinked to the server-scraper's cookie directory.
+Cookies are auto-exported from the Chrome extension (v3.2.2+) and uploaded to `POST /api/cookies/upload`. The backend saves them to `/opt/claudetracker-data/cookies/`, symlinked to the server-scraper's cookie directory.
 
 **Proxy tunnel** (for Cloudflare bypass): The server-scraper runs through a SOCKS5 proxy that routes traffic via the Mac's residential IP.
 

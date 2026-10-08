@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "KI Usage Tracker",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "description": "Dashboard-Viewer f\u00fcr KI/LLM Kosten (Scraping l\u00e4uft server-seitig)",
   "browser_specific_settings": {
     "gecko": {

@@ -68,15 +68,15 @@ free_port() {
 
 # Also kill any stale dev-server processes that aren't currently bound to the
 # port (e.g. zombies from previous worktree starts). Without this, multiple
-# nodemon instances can pile up across worktree switches.
+# backend watcher instances can pile up across worktree switches.
 kill_stale_dev_processes() {
     local pids
-    pids=$(pgrep -f "nodemon.*src/server.ts" 2>/dev/null)
+    pids=$(pgrep -f "(nodemon|tsx.*watch).*src/server.ts" 2>/dev/null)
     if [ -n "$pids" ]; then
-        echo -e "${YELLOW}⚠${NC}  Killing stale nodemon backend pid(s) $pids"
+        echo -e "${YELLOW}⚠${NC}  Killing stale backend watcher pid(s) $pids"
         kill $pids 2>/dev/null
         sleep 1
-        kill -9 $(pgrep -f "nodemon.*src/server.ts" 2>/dev/null) 2>/dev/null
+        kill -9 $(pgrep -f "(nodemon|tsx.*watch).*src/server.ts" 2>/dev/null) 2>/dev/null
     fi
     pids=$(pgrep -f "node.*frontend/node_modules/.bin/vite" 2>/dev/null)
     if [ -n "$pids" ]; then

@@ -69,6 +69,6 @@ echo ""
 check "Backend " "$BACKEND_PORT" "http://localhost:$BACKEND_PORT"
 check "Frontend" "$FRONTEND_PORT" "http://localhost:$FRONTEND_PORT"
 
-warn_stale "Backend " "nodemon.*src/server.ts" "$BACKEND_PORT"
+warn_stale "Backend " "(nodemon|tsx.*watch).*src/server.ts" "$BACKEND_PORT"
 warn_stale "Frontend" "node.*frontend/node_modules/.bin/vite" "$FRONTEND_PORT"
 echo ""

@@ -244,6 +244,13 @@ Manuelle Aktualisierung: `rsync -a --include="*.md" --exclude="*" <memory-dir>/ 
 
 ## 7. Handoff zone (free-form, append-only)
 
+### 2026-10-26 — Repository maintenance files
+
+- Imported the supplied security/community policies where applicable and added Dependabot configuration against the actual manifest paths. See README community links.
+- Corrected the English README license to match the existing GNU AGPL v3.0 LICENSE and German section; no relicensing.
+- Validation: Dependabot JSON schema and manifest paths, actionlint for new workflows, and execution of each new workflow run step. No production deployment.
+
+
 <!-- Example:
 ### 2026-05-27 — OpenCode Go tracking landed
 - New extension pipeline: opencodeGoSync() scrapes plan name + usage % +

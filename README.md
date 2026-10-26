@@ -725,7 +725,7 @@ The architectural decision records in `docs/superpowers/specs/` document why the
 
 ## 📝 License
 
-MIT — see [LICENSE](./LICENSE).
+GNU AGPL v3.0 — see [LICENSE](./LICENSE).
 
 ---
 
@@ -754,3 +754,8 @@ The extension reads current remaining quota from `https://chatgpt.com/settings/u
 After updating, reload the unpacked extension and run a fresh protected-source sync. Old incorrectly scraped snapshots remain visible until replaced by a successful sync. OpenRouter's rolling 30-day spend is carried into the forecast unchanged and explicitly labelled; it is not extrapolated as month-to-date spend.
 
 The hourly server Codex scraper also reads Usage Overview and uses the same parser as the extension. Deploy both `server-scraper/src/scrapers/codex.ts` and `usage-parser-codex.cjs` together. The build script copies the parser into `dist/scrapers` for compiled deployments.
+
+
+## Community and maintenance
+
+[Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Dependency updates](.github/dependabot.yml).

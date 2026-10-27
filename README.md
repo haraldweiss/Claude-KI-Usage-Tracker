@@ -759,3 +759,8 @@ The hourly server Codex scraper also reads Usage Overview and uses the same pars
 ## Community and maintenance
 
 [Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Dependency updates](.github/dependabot.yml).
+
+Frontend tests use Vitest and `@vitest/ui` on the same release line. Version
+4.1.12 includes the `@vitest/mocker` security fixes; update both packages and the
+lockfile together. A Vitest 5 migration also needs compatible jest-dom matcher
+types, so upgrading only the test runner is insufficient.

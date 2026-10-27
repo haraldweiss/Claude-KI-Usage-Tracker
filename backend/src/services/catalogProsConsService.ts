@@ -232,7 +232,7 @@ export function parseProsCons(content: string): ProsCons {
     try {
       json = JSON.parse(match[0]);
     } catch (e) {
-      throw new Error(`JSON parse failed: ${(e as Error).message}`);
+      throw new Error(`JSON parse failed: ${(e as Error).message}`, { cause: e });
     }
   }
   const obj = json as { pros?: unknown; cons?: unknown };

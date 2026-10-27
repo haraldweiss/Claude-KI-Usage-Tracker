@@ -124,13 +124,16 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 
 ---
 
-### 3.9 `npm run lint` muss laufen (TypeScript-Parser + Prettier besitzt die Formatierung)
+### 3.9 `npm run lint` muss laufen (Flat Config, Prettier besitzt die Formatierung)
 
-- Beide ESLint-Configs (`.eslintrc.json` in `backend/` und `frontend/`) nutzten den **Standard-Parser (espree)** — jede `.ts`/`.tsx`-Datei endete in `Parsing error: Unexpected token :` (Backend 324, Frontend 59 „Probleme"). Seit 2026-09-29 setzen beide `parser: @typescript-eslint/parser` + `plugins: ["@typescript-eslint"]` und extenden `plugin:@typescript-eslint/recommended` (dafür sind `@typescript-eslint/parser`/`-eslint-plugin@^8` devDependencies).
-- **Keine Style-Regeln in ESLint:** `indent`/`quotes`/`semi` wurden entfernt — sie widersprechen dem Prettier-Format des Repos (387 der 392 Backend-Funde waren genau diese drei Regeln). Formatierung macht `prettier` (`extends: [… "prettier"]`), ESLint prüft Korrektheit.
-- `no-undef` ist aus (TypeScript übernimmt das), `@typescript-eslint/no-explicit-any` und `react/no-unescaped-entities` sind **warn** (deutsche UI-Texte mit `"`/`'` sind in JSX korrekt und sollen nicht erzwungen escaped werden).
-- Scripts: `npm run lint` (ohne `--fix`, CI-tauglich) und `npm run lint:fix`. **Nicht** wieder `eslint src --fix` ohne `--ext` verwenden — ohne `--ext` findet ESLint in `src/` keine `.ts`-Dateien und bricht mit „No files matching the pattern" ab.
-- CI (`.github/workflows/ci.yml`) führt jetzt **Lint + Type-Check + Tests** für Backend und Frontend aus. Stand: Backend 0 Fehler/3 Warnungen (39 Suites/312 Tests), Frontend 0 Fehler/26 Warnungen (14 Dateien/115 Tests).
+- Seit **2026-10-27** nutzen beide Pakete **Flat Config** (`backend/eslint.config.js`, `frontend/eslint.config.js`); die `.eslintrc.json` sind gelöscht. Grund: ESLint 9 deprecatet eslintrc, ESLint 10 liest es **gar nicht mehr** — die alten Dateien wären beim nächsten Major still wirkungslos geworden.
+- **Backend: ESLint 10.13.0** (`@eslint/js@10`, `typescript-eslint@8.72`). **Frontend: ESLint 9.39.5.** Das ist kein Versehen: `eslint-plugin-react` 7.37.5 deklariert `peerDependencies.eslint: "^3 || … || ^9.7"` — **keine** veröffentlichte Version unterstützt ESLint 10. Frontend-ESLint **nicht** einzeln auf 10 heben (Dependabot #70/#48 bleiben deshalb offen); erst wenn das React-Plugin nachzieht, beide zusammen bumpen.
+- `typescript-eslint` (Meta-Paket) ersetzt `@typescript-eslint/parser` + `-eslint-plugin`; beide Pakete sind aus den devDependencies entfernt (bleiben transitiv).
+- **Keine Style-Regeln in ESLint:** `eslint-config-prettier/flat` schaltet alle stilistischen Regeln ab — Formatierung macht `prettier`. ESLint prüft nur Korrektheit.
+- `no-undef` ist für `.ts`/`.tsx` aus (TypeScript übernimmt das); für reine JS-Dateien (z. B. `src/__tests__/setup.js`) liefert ein eigener Block die `globals`-Sets (`browser` + `node` + `jest`/`vitest`) — devDependency `globals`. `@typescript-eslint/no-explicit-any` und `react/no-unescaped-entities` bleiben **warn** (deutsche UI-Texte mit `"`/`'` in JSX).
+- Scripts sind **`eslint src`** — **ohne `--ext`**. Flat Config matcht über `files`-Globs; `--ext` gehört zum eslintrc-Modus. (Die alte Regel „ohne `--ext` findet ESLint nichts" gilt nur für eslintrc und ist überholt.)
+- ESLint 10 aktiviert `preserve-caught-error`: ein `catch (e)` + `throw new Error(...)` braucht `{ cause: e }` (gefixt in `src/services/catalogProsConsService.ts`, `parseProsCons`).
+- CI (`.github/workflows/ci.yml`) führt **Lint + Type-Check + Tests** für Backend und Frontend aus. Stand 2026-10-27: Backend 0 Fehler/3 Warnungen (39 Suites/315 Tests), Frontend 0 Fehler/34 Warnungen (15 Dateien/124 Tests). Die Frontend-Warnungen sind von 26 auf 34 gestiegen, weil `eslint-plugin-react` 7.37 zusätzliche `no-unescaped-entities`-Funde und „unused eslint-disable"-Hinweise meldet — keine Fehler.
 
 ### 3.10 Backend-`lib` bleibt auf ES2022 (nicht zurück auf ES2020)
 
@@ -7201,3 +7204,14 @@ Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limi
   frontend 15 files / 124 tests, type-check, lint and build; scraper tests/build.
   Existing lint warnings and Jest worker teardown warning remain non-failing.
   Fresh npm audits are checked for each component before merge.
+
+### 2026-10-27 — ESLint 8 → Flat Config (Backend 10, Frontend 9); #58 aufgelöst
+
+- **Ausgangslage:** Beide Pakete hingen auf ESLint 8.57.1 mit `.eslintrc.json`. ESLint 9 deprecatet eslintrc, **ESLint 10 liest es nicht mehr** — die Konfiguration wäre beim nächsten Major still wirkungslos geworden. Codex hatte #70 (eslint 10), #58/#48 (@eslint/js 10) als „keep separate/blocked" geparkt; die eigentliche Arbeit war die Flat-Config-Migration.
+- **Backend → ESLint 10.13.0** (`@eslint/js@10.0.1`, `typescript-eslint@8.72.1`, `eslint-config-prettier@10.1.8`). Neuer `eslint.config.js` ersetzt `.eslintrc.json`; `@typescript-eslint/parser` + `-eslint-plugin` als direkte devDependencies entfernt (das Meta-Paket `typescript-eslint` enthält beide).
+- **Frontend → ESLint 9.39.5, nicht 10.** `eslint-plugin-react` 7.37.5 (aktuellste Version) deklariert `peerDependencies.eslint: "^3 || … || ^9.7"`. ESLint 10 wäre nur mit `--legacy-peer-deps`/Override installierbar — inakzeptabel. **#70 und #48 bleiben offen**, bis das React-Plugin nachzieht; dann beide gemeinsam bumpen.
+- **ESLint 10-Fund:** `preserve-caught-error` (neu in `js.configs.recommended`) verlangte `{ cause: e }` in `parseProsCons` (`src/services/catalogProsConsService.ts`) — echter Codefix, kein Disable.
+- **Globals:** `no-undef` bleibt für TS aus; ein JS-Block (`**/*.{js,cjs,mjs}`) liefert `globals.browser` + `globals.node` + `globals.jest`/`vitest` (devDependency `globals`) — nötig für `src/__tests__/setup.js`.
+- **Scripts:** `eslint src` **ohne** `--ext` (Flat Config matcht über `files`; `--ext` war eslintrc-spezifisch).
+- **Verifiziert:** Backend `npm run lint` 0 Fehler/3 Warnungen, `tsc --noEmit` sauber, **39 Suites/315 Tests**; Frontend 0 Fehler/34 Warnungen (vorher 26 — mehr `no-unescaped-entities`/„unused disable"-Hinweise durch Plugin 7.37, keine Fehler), `type-check` sauber, **15 Dateien/124 Tests**. Beide CI-Jobs grün.
+- **PR:** dieser Commit; **#58 als superseded geschlossen**. #70/#48 dokumentiert blockiert.

@@ -132,6 +132,15 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - Scripts: `npm run lint` (ohne `--fix`, CI-tauglich) und `npm run lint:fix`. **Nicht** wieder `eslint src --fix` ohne `--ext` verwenden — ohne `--ext` findet ESLint in `src/` keine `.ts`-Dateien und bricht mit „No files matching the pattern" ab.
 - CI (`.github/workflows/ci.yml`) führt jetzt **Lint + Type-Check + Tests** für Backend und Frontend aus. Stand: Backend 0 Fehler/3 Warnungen (39 Suites/312 Tests), Frontend 0 Fehler/26 Warnungen (14 Dateien/115 Tests).
 
+### 3.10 Backend-`lib` bleibt auf ES2022 (nicht zurück auf ES2020)
+
+`backend/tsconfig.json` nutzt `"lib": ["ES2022"]` bei `"target": "ES2020"`. Grund: `@types/node` 26 deklariert `Array.prototype.at` (ES2022) — mit `lib: ES2020` bricht der Type-Check mit `TS2550: Property 'at' does not exist on type 'string[]'` ab, obwohl der Code korrekt ist (`src/controllers/localUsageController.ts`, Dependabot #69, 2026-10-27).
+
+- **Nur `lib` anheben, `target` nicht.** `target: ES2022` würde `useDefineForClassFields` auf `true` stellen und damit die Laufzeitsemantik von Klassenfeldern ändern; `lib` ist rein typseitig.
+- Alle ES2022-APIs laufen auf der Laufzeit (CI und Produktion: Node 22), deshalb ist das gefahrlos.
+- Für den nächsten `@types/node`-Sprung zuerst `npx tsc --noEmit` im Backend prüfen; bei Bedarf `lib` um die passende Jahreszahl erweitern — aber nicht die Datei neu formatieren (der `lib`-Array bleibt einzeilig).
+- Verifiziert 2026-10-27: `npx tsc --noEmit` ✓, `npm run lint` 0 Fehler/3 Warnungen, `npm test` 39 Suites/315 Tests ✓ — sowohl mit `@types/node` 20 (main) als auch 26 (#69).
+
 ---
 
 ## 4. Verification standards

@@ -80,7 +80,7 @@ The official Usage/Cost API requires an Admin Key (organization-level credential
 
 ## 📋 Prerequisites
 
-- **Node.js**: 20 LTS or newer (22.x is what runs on the VPS).
+- **Node.js**: Node 22 LTS >=22.22.2 or Node 24 LTS >=24.15.0 (22.x runs on the VPS).
 - **Chrome / Chromium / Brave / Edge / Opera**: for the browser extension (MV3).
 - **Firefox**: for the Firefox extension (MV2, `extension-firefox/`).
 - **Pale Moon**: for the Pale Moon extension (XUL/UXP, `extension-palemoon/`).
@@ -764,3 +764,8 @@ Frontend tests use Vitest and `@vitest/ui` on the same release line. Version
 4.1.12 includes the `@vitest/mocker` security fixes; update both packages and the
 lockfile together. A Vitest 5 migration also needs compatible jest-dom matcher
 types, so upgrading only the test runner is insufficient.
+
+The backend pins undici to the patched 8.x release line. Use the Node versions
+above and run tests, type-checks, lint and builds before accepting dependency
+updates. The scraper still uses TypeScript 5 because its browser-evaluation
+checks need the runtime compiler API that TypeScript 7 removes.

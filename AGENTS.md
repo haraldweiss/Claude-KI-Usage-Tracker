@@ -7158,3 +7158,17 @@ Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limi
 - **Extension:** manueller Reload nötig (v3.2.2, Store-Upload durch User).
 - Git: Branch `codex/provider-scraper-dashboard-review` (`1074a06`, `18386b6`,
   `eca4365`, `b129c9b`, `6bb4aa2`) → `Merge:` `97b0c30` auf `main` → push.
+
+### 2026-10-27 — Dependabot: Vitest mocker security backport
+
+- Alerts #141/#142 affect `frontend/package-lock.json` (`@vitest/mocker` <4.1.12).
+  Upgrade `vitest` and `@vitest/ui` together to ^4.1.12; the lockfile resolves all
+  three to 4.1.12. No production deployment is needed for this development tool.
+- Dependabot #65 updates only Vitest to 5.0.5, causing an npm peer conflict with
+  `@vitest/ui@4`. Updating both to 5 passes runtime tests but fails TypeScript
+  matcher augmentation (`toBeInTheDocument`, `toHaveAttribute`, `toHaveClass`).
+  Keep that major migration separate from the patched 4.x security backport.
+- Verified locally on Node 24.22.1: frontend 15 files / 124 tests pass, type-check
+  and build pass, lint has 0 errors (30 existing warnings). Backend baseline:
+  full tests, type-check and lint pass with local socket access outside sandbox.
+  Independent code/security/type review of the backport found no blockers.

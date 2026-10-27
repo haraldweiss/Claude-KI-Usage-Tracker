@@ -7172,3 +7172,23 @@ Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limi
   and build pass, lint has 0 errors (30 existing warnings). Backend baseline:
   full tests, type-check and lint pass with local socket access outside sandbox.
   Independent code/security/type review of the backport found no blockers.
+
+### 2026-10-27 — Dependency maintenance and refreshed security scan
+
+- GitHub closed #141/#142 after the security backport and surfaced #143–#155
+  (some duplicates already closed). Updated Nodemailer, body-parser, undici,
+  Happy DOM and Zod to patched releases. Preserve the undici ^8.12.2 override;
+  Node >=22.19.0 is required by the resolved undici 8.x runtime; frontend jsdom
+  requires Node 22 >=22.22.2 or Node 24 >=24.15.0. CI/local versions satisfy both.
+- Consolidated compatible backend/frontend/scraper and Actions updates after
+  testing the combined dependency sets. No application source changes or deploy.
+- Keep incompatible majors separate: #71 Babel 8 requires Babel core 8; #70
+  ESLint 10 conflicts with eslint-plugin-react; #58/#48 @eslint/js 10 conflicts
+  with ESLint 8; #69 Node 26 backend types expose Array.at without ES2022 lib;
+  #63 React 19 conflicts with React DOM 18; #65 Vitest 5 matcher types fail.
+  #59 TypeScript 7 removes the runtime compiler API used by browser-evaluation
+  tests (`ts.ScriptTarget.ES2022` is unavailable). Do not force peer installs.
+- Verification: backend 39 suites / 315 tests, type-check, lint and build;
+  frontend 15 files / 124 tests, type-check, lint and build; scraper tests/build.
+  Existing lint warnings and Jest worker teardown warning remain non-failing.
+  Fresh npm audits are checked for each component before merge.

@@ -103,7 +103,8 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - `frontend/package.json` hat einen npm override: `"overrides": { "react-router": "8.3.0" }`
 - **Nicht entfernen** bis `react-router-dom` eine v8-Version released (aktuell 7.18.1).
 - Der override erzwingt `react-router@8.3.0` (patched gegen RSC Mode CSRF Bypass).
-- Peer dependency warning (`react@>=19.2.7` required, wir haben `18.3.1`) wird akzeptiert — Build + Tests passen.
+- React/React DOM `19.3.1` erfüllen seit 2026-11-03 die Peer-Anforderung `>=19.2.7`; die frühere Warnung mit React 18 ist behoben. Build + Tests passen.
+- Mit React 19 muss Recharts 2.15.x ein passendes `react-is` verwenden: `overrides.recharts.react-is = "19.3.1"`. Bei jedem React-Update gemeinsam prüfen/aktualisieren. Der echte, ungemockte Chart-Test `RechartsCompatibility.test.tsx` muss direkte und Fragment-Kinder rendern; vorhandene Chart-Mocks erkennen diesen Versionsfehler nicht.
 - Wenn `react-router-dom@8.x` verfügbar wird: upgrade auf `react-router-dom@8.3.0+` und override entfernen.
 
 ### 3.7 Backend-Tests brauchen `pino-pretty` (devDependency) — CI muss grün bleiben
@@ -7215,3 +7216,21 @@ Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limi
 - **Scripts:** `eslint src` **ohne** `--ext` (Flat Config matcht über `files`; `--ext` war eslintrc-spezifisch).
 - **Verifiziert:** Backend `npm run lint` 0 Fehler/3 Warnungen, `tsc --noEmit` sauber, **39 Suites/315 Tests**; Frontend 0 Fehler/34 Warnungen (vorher 26 — mehr `no-unescaped-entities`/„unused disable"-Hinweise durch Plugin 7.37, keine Fehler), `type-check` sauber, **15 Dateien/124 Tests**. Beide CI-Jobs grün.
 - **PR:** dieser Commit; **#58 als superseded geschlossen**. #70/#48 dokumentiert blockiert.
+
+
+### 2026-11-03 — Dependabot dependency refresh and compatibility limits
+
+- Updated the backend runtime/tooling requests, paired React/React DOM 19.3.1 and types 19.3.0, paired Vitest/UI 5.1.0, jest-dom 7.0.1, and scraper Node types. The frontend tsconfig explicitly loads `@testing-library/jest-dom/vitest`; Vitest 5 no longer gets these matcher types from the Jest namespace. Preserve the existing react-router 8.3.0 security override. React 19 satisfies its peer requirement.
+- Fixed the high follow-redirects advisory (GHSA-mrwp-f3q8-3g9p) through a compatible lockfile update. Scoped minimatch >=9 to ^11.0.2 and backend glob >=9 to ^14.0.3; older callable minimatch consumers are intentionally untouched. No audit suppressions.
+- Backend TypeScript remains 5.9.3: ts-jest peers require <7 and its moduleResolution config needs migration. Scraper TypeScript 7 was tested and fails because its compiler API no longer exports createSourceFile/ScriptTarget/forEachChild used by browser-evaluation.test.ts; retain 5.9.3 until that test has a verified replacement. Babel preset-env 8 requires Babel core 8; the test transform uses Babel 7, so retain the supported 7.x line. Frontend ESLint 10/@eslint/js 10 remain blocked by eslint-plugin-react's peer range.
+- npm registry now reports development-only residuals absent from the GitHub open-alert snapshot: frontend minimatch <11.0.1 (12 propagated moderate entries, including callable minimatch3 in eslint-plugin-react); backend unpatched deepmerge4.3.1 (6 propagated low entries). Do not use npm audit fix --force: it proposes obsolete Jest/ESLint downgrades. Both production-only audits are clean. Revisit upstream fixes; do not claim full audits are clean.
+- Verified backend 39 suites/315 tests, frontend 16 files/126 tests, scraper 5 tests; type checks, lints (existing 3/34 warnings) and builds pass. SQLite rebuilt from source. Changes prepared in an isolated clone; production deployment is a separate coordinated step.
+
+
+### 2026-11-03 — React 19 chart compatibility follow-up
+
+- Specialist review found Recharts2.15.4 still resolving react-is18.3.1 under React19.3.1. Existing chart mocks hid the dependency defect. A real Recharts BarChart regression rendered 2 bars for direct children but 0 for a Fragment (expected 2), reproducing the break before the fix.
+- Scoped `overrides.recharts.react-is` to19.3.1, matching React/DOM. Both real-chart cases now render 2 bars; full frontend suite has126 tests in16 files. Keep this override synchronized with future React upgrades, as required by the upstream Recharts2.15 React19 compatibility guidance. No claim that the existing application's direct-child charts were visibly broken; this fixes the verified dependency combination.
+- **npm-ci follow-up (2026-11-03):** a `recharts` subtree override also covers Recharts' own `prop-types`, so the first version forced `prop-types`' nested `react-is` to 19.3.1 while it declares `^16.13.1`. npm 11 installed it locally, but CI's npm 10 (Node 22) rejected the lock with `Invalid: lock file's react-is@19.3.1 does not satisfy react-is@16.13.1` — green local tests, red `Frontend (vitest)` install. Restore the unscoped requirement inside the override and keep the lock entry at 16.13.1:
+  `"recharts": { "react-is": "19.3.1", "prop-types": { "react-is": "^16.13.1" } }`.
+  Validate lock changes with the CI toolchain (`npx npm@10.9.4 ci --dry-run`), not only the local npm major. Resolved versions after a clean `npm ci`: recharts/react-is **19.3.1**, prop-types/react-is **16.13.1**, root react-is **18.3.1** (dev, `pretty-format`).

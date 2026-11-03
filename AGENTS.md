@@ -7234,3 +7234,11 @@ Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limi
 - **npm-ci follow-up (2026-11-03):** a `recharts` subtree override also covers Recharts' own `prop-types`, so the first version forced `prop-types`' nested `react-is` to 19.3.1 while it declares `^16.13.1`. npm 11 installed it locally, but CI's npm 10 (Node 22) rejected the lock with `Invalid: lock file's react-is@19.3.1 does not satisfy react-is@16.13.1` — green local tests, red `Frontend (vitest)` install. Restore the unscoped requirement inside the override and keep the lock entry at 16.13.1:
   `"recharts": { "react-is": "19.3.1", "prop-types": { "react-is": "^16.13.1" } }`.
   Validate lock changes with the CI toolchain (`npx npm@10.9.4 ci --dry-run`), not only the local npm major. Resolved versions after a clean `npm ci`: recharts/react-is **19.3.1**, prop-types/react-is **16.13.1**, root react-is **18.3.1** (dev, `pretty-format`).
+
+### 2026-11-03 — Blocked majors closed with peer/API evidence
+
+- #98 (ESLint 10) and #48 (@eslint/js 10) closed: `eslint-plugin-react@7.37.5` declares `eslint ^3 … ^9.7`, so `Frontend (vitest)` failed after ~6 s inside `npm ci`.
+- #91 (TypeScript 7, backend) closed: `ts-jest@29.4.15` peers `typescript >=4.3 <7`.
+- #71 (Babel 8, backend) closed: `@babel/preset-env@8.0.7` requires `@babel/core ^8`, while the Jest transform runs Babel 7 via `babel-jest@30`.
+- #59 (TypeScript 7, server-scraper) closed: `typescript@7.0.2` no longer exports `createSourceFile`, `ScriptTarget` or `forEachChild` (checked against the published package), which `src/browser-evaluation.test.ts` uses. The green check on that PR predates the test.
+- Unchanged baselines: backend TypeScript 5.9.3, frontend ESLint 9.39.5 + @eslint/js 9.x, Babel 7. Reopen each update only together with its coordinated migration.

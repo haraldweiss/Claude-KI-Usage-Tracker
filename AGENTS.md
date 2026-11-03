@@ -103,7 +103,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - `frontend/package.json` hat einen npm override: `"overrides": { "react-router": "8.3.0" }`
 - **Nicht entfernen** bis `react-router-dom` eine v8-Version released (aktuell 7.18.1).
 - Der override erzwingt `react-router@8.3.0` (patched gegen RSC Mode CSRF Bypass).
-- Peer dependency warning (`react@>=19.2.7` required, wir haben `19.3.1`) wird akzeptiert — Build + Tests passen.
+- React/React DOM `19.3.1` erfüllen seit 2026-11-03 die Peer-Anforderung `>=19.2.7`; die frühere Warnung mit React 18 ist behoben. Build + Tests passen.
 - Wenn `react-router-dom@8.x` verfügbar wird: upgrade auf `react-router-dom@8.3.0+` und override entfernen.
 
 ### 3.7 Backend-Tests brauchen `pino-pretty` (devDependency) — CI muss grün bleiben

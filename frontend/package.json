@@ -48,6 +48,9 @@
   "overrides": {
     "react-router": "8.3.0",
     "js-yaml": ">= 4.3.2",
-    "minimatch@>=9": "^11.0.2"
+    "minimatch@>=9": "^11.0.2",
+    "recharts": {
+      "react-is": "19.3.1"
+    }
   }
 }

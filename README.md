@@ -776,3 +776,21 @@ checks need the runtime compiler API that TypeScript 7 removes.
 The frontend uses paired React/React DOM 19 and Vitest/UI 5. Recharts2.15 requires a matching react-is19 override; update it together with React. A real-chart regression checks direct and Fragment children because chart mocks cannot detect this incompatibility. Keep frontend ESLint on 9 while eslint-plugin-react lacks ESLint 10 support. Backend and scraper TypeScript remain 5.9.3 pending compiler/test-tool migration; Babel remains 7. The frontend TypeScript config loads the jest-dom Vitest entrypoint explicitly.
 
 Production dependency audits are clean after the follow-redirects patch. Full development audits still report minimatch in legacy lint/packaging consumers and unpatched deepmerge in backend Jest configuration. Scoped modern minimatch/glob overrides are tested; forcing minimatch 11 into consumers that call the old default function would break them. See AGENTS.md's 3 November handoff for exact limits and verification.
+
+### Coding-agent credential safety (2026-11-09)
+
+Local Claude permission rules and saved agent transcripts may contain literal
+credentials. Keep them outside Git; shared `.claude/settings.json` must use
+variable references rather than secrets. `Secret safety` CI rejects tracked local
+agent state and scans introduced commits with Gitleaks, including documentation,
+example files, and password-bearing commands. Existing history was audited
+separately; this CI job is not a claim that historical credentials are safe.
+If a credential was committed, revoke or rotate it before considering the leak
+resolved. Do not print secret values in scan logs, reviews, or handoffs.
+
+`backend/start.sh` requires `SECRETS_KEY` in the process environment and never
+overrides it. Load the existing 32-byte base64 key from the protected deployment
+environment. Generate a random key only for a new, empty installation; replacing
+a key for an existing database requires re-encrypting `service_token_enc` first.
+The previously published startup key was rotated on 2026-11-09 with the stored
+credential preserved. Public Git history still contains the retired value.

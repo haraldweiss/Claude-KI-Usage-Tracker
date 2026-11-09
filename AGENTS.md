@@ -711,7 +711,7 @@ Jun 1–Jun 22 Total spend $7.12 Input tokens 120K Output tokens 8K Requests 9 O
 **Bekannte Eigenheiten:**
 - `MKCOL` für neue Unterverzeichnisse gibt 405 wenn Parent nicht existiert — Apache erstellt den Parent beim ersten `PUT` automatisch, kein manueller Eingriff nötig
 - Obsidian "Abort! 50% ratio"-Safeguard beim ersten Sync: In Remotely Save Settings → File Change Skip Ratio temporär auf 100% setzen
-- ai-provider-service Token: `eJ-SBF3JBMTKPqaq737lWzw8cbDIY9R994WWZgclmq8` (liegt auch in `/opt/ai-provider-data/.env`)
+- ai-provider-service Token: load `SERVICE_TOKEN` from the protected deployment environment; never copy its value into notes.
 - Summary-Log: `/var/log/obsidian-summary.log`
 
 ---
@@ -7242,3 +7242,16 @@ Fortsetzung des von Codex begonnenen cross-repo „improvement pass" (Usage-Limi
 - #71 (Babel 8, backend) closed: `@babel/preset-env@8.0.7` requires `@babel/core ^8`, while the Jest transform runs Babel 7 via `babel-jest@30`.
 - #59 (TypeScript 7, server-scraper) closed: `typescript@7.0.2` no longer exports `createSourceFile`, `ScriptTarget` or `forEachChild` (checked against the published package), which `src/browser-evaluation.test.ts` uses. The green check on that PR predates the test.
 - Unchanged baselines: backend TypeScript 5.9.3, frontend ESLint 9.39.5 + @eslint/js 9.x, Babel 7. Reopen each update only together with its coordinated migration.
+
+### Coding-agent credential safety (2026-11-09)
+
+Local Claude permission rules and saved agent transcripts may contain literal
+credentials. Keep them outside Git; shared `.claude/settings.json` must use
+variable references rather than secrets. `Secret safety` CI rejects tracked local
+agent state and scans introduced commits with Gitleaks, including documentation,
+example files, and password-bearing commands. Existing history was audited
+separately; this CI job is not a claim that historical credentials are safe.
+If a credential was committed, revoke or rotate it before considering the leak
+resolved. Do not print secret values in scan logs, reviews, or handoffs.
+
+Related secret-safety CI changes: [wolfini_de_web](https://github.com/haraldweiss/wolfini_de_web/pull/258), [Claude-KI-Usage-Tracker](https://github.com/haraldweiss/Claude-KI-Usage-Tracker/pull/101), [ai-provider-service](https://github.com/haraldweiss/ai-provider-service/pull/55), [Bewerbungstracker](https://github.com/haraldweiss/Bewerbungstracker/pull/94).

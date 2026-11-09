@@ -75,3 +75,17 @@ benchmark/state.json
 
 # Pale Moon XPI build artifact
 ki-usage-tracker-palemoon.xpi
+
+# Local coding-agent approvals and transcripts can contain credentials.
+**/.claude/settings.local.json
+**/.claude/history.jsonl
+**/.claude/projects/
+**/.claude/transcripts/
+.specstory/
+.aider.chat.history.md
+.aider.input.history
+
+# Database backups may contain tokens and other private runtime data.
+*.sqlite.bak*
+*.sqlite3.bak*
+*.db.bak*

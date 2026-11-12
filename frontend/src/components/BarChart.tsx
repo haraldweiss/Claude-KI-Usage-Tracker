@@ -58,7 +58,7 @@ export default function BarChart({ data, title = 'Token Usage Over Time' }: BarC
               borderRadius: '0.5rem',
               padding: '8px'
             }}
-            label={{ fontSize: 12 }}
+            labelStyle={{ fontSize: 12 }}
           />
           <Bar
             dataKey="tokens"

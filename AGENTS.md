@@ -104,7 +104,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - **Nicht entfernen** bis `react-router-dom` eine v8-Version released (aktuell 7.18.1).
 - Der override erzwingt `react-router@8.3.0` (patched gegen RSC Mode CSRF Bypass).
 - React/React DOM `19.3.1` erfüllen seit 2026-11-03 die Peer-Anforderung `>=19.2.7`; die frühere Warnung mit React 18 ist behoben. Build + Tests passen.
-- Mit React 19 muss Recharts 2.15.x ein passendes `react-is` verwenden: `overrides.recharts.react-is = "19.3.1"`. Bei jedem React-Update gemeinsam prüfen/aktualisieren. Der echte, ungemockte Chart-Test `RechartsCompatibility.test.tsx` muss direkte und Fragment-Kinder rendern; vorhandene Chart-Mocks erkennen diesen Versionsfehler nicht.
+- Für den bisherigen Recharts-2-Zweig mit React 19 muss Recharts 2.15.x ein passendes `react-is` verwenden: `overrides.recharts.react-is = "19.3.1"`. Bei jedem React-Update gemeinsam prüfen/aktualisieren. Der echte, ungemockte Chart-Test `RechartsCompatibility.test.tsx` muss direkte und Fragment-Kinder rendern; vorhandene Chart-Mocks erkennen diesen Versionsfehler nicht.
 - Wenn `react-router-dom@8.x` verfügbar wird: upgrade auf `react-router-dom@8.3.0+` und override entfernen.
 
 ### 3.7 Backend-Tests brauchen `pino-pretty` (devDependency) — CI muss grün bleiben
@@ -7255,3 +7255,10 @@ If a credential was committed, revoke or rotate it before considering the leak
 resolved. Do not print secret values in scan logs, reviews, or handoffs.
 
 Related secret-safety CI changes: [wolfini_de_web](https://github.com/haraldweiss/wolfini_de_web/pull/258), [Claude-KI-Usage-Tracker](https://github.com/haraldweiss/Claude-KI-Usage-Tracker/pull/101), [ai-provider-service](https://github.com/haraldweiss/ai-provider-service/pull/55), [Bewerbungstracker](https://github.com/haraldweiss/Bewerbungstracker/pull/94).
+
+### 2026-11-12 — Recharts 3 migration (PR #106)
+
+- Retained React 19 and migrated Recharts to 3.10.1. Tooltip label font styling
+  uses `labelStyle`; the removed `label` prop fails the new TypeScript types.
+- Preserve real, unmocked chart tests for direct and Fragment children. They
+  verify rendering across chart-library upgrades rather than mocking the boundary.

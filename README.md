@@ -773,9 +773,22 @@ checks need the runtime compiler API that TypeScript 7 removes.
 
 ### Dependency compatibility (3 November 2026)
 
-The frontend uses paired React/React DOM 19 and Vitest/UI 5. Recharts2.15 requires a matching react-is19 override; update it together with React. A real-chart regression checks direct and Fragment children because chart mocks cannot detect this incompatibility. Keep frontend ESLint on 9 while eslint-plugin-react lacks ESLint 10 support. Backend and scraper TypeScript remain 5.9.3 pending compiler/test-tool migration; Babel remains 7. The frontend TypeScript config loads the jest-dom Vitest entrypoint explicitly.
+The frontend uses paired React/React DOM 19 and Vitest/UI 5. Recharts 3.10.1 is tested with React 19 and a matching react-is19 override; update it together with React. A real-chart regression checks direct and Fragment children because chart mocks cannot detect this incompatibility. Keep frontend ESLint on 9 while eslint-plugin-react lacks ESLint 10 support. Backend and scraper TypeScript remain 5.9.3 pending compiler/test-tool migration; Babel remains 7. The frontend TypeScript config loads the jest-dom Vitest entrypoint explicitly.
 
 Production dependency audits are clean after the follow-redirects patch. Full development audits still report minimatch in legacy lint/packaging consumers and unpatched deepmerge in backend Jest configuration. Scoped modern minimatch/glob overrides are tested; forcing minimatch 11 into consumers that call the old default function would break them. See AGENTS.md's 3 November handoff for exact limits and verification.
+
+### Dependabot maintenance (10 November 2026)
+
+Reviewed checkout 7.0.1, backend Helmet type definitions 4.0.0 and frontend jsdom
+31.0.0 updates pass their exact-head and combined-main CI. TypeScript 7 remains
+outside typescript-eslint 8.72.1's supported range below 6.1; Babel preset-react 8
+requires a coordinated Babel 8 migration. Recharts 3 is migrated in PR #106;
+the tooltip now uses `labelStyle`, and real chart rendering is verified.
+
+The owner-approved ruleset exception matches only `refs/heads/dependabot/**/*`,
+allowing Dependabot to rebase its nested branches. Main and all ordinary branches
+retain deletion and force-push protection. GitHub's effective branch rules and
+actual subsequent Dependabot rebases were verified after this change.
 
 ### Coding-agent credential safety (2026-11-09)
 

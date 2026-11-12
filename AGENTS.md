@@ -31,7 +31,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - **Express 5 migration (2026-09-08):** Upgraded from Express 4.22.2 → 5.2.1 via Dependabot PR #22. Code uses standard patterns (Router, res.json/status/send, bodyParser.json/urlencoded) — no breaking changes encountered. body-parser also bumped 1.20.6 → 2.3.0 (now uses static exports, improved ESM compatibility). qs bumped 6.15.3 → 6.16.0 (fixes array-limit bypass).
 - Hosted at `https://wolfinisoftware.de/claudetracker/` with magic-link auth + API tokens
 - Default branch: `main`, remote: `github.com:haraldweiss/Claude-KI-Usage-Tracker`
-- **GitHub ruleset active**: `non_fast_forward` blocks force-push. To force-push: temp disable via `gh api -X PUT repos/.../rulesets/16651604 --input <json with enforcement: disabled>`, push, re-enable.
+- **GitHub ruleset active**: `non_fast_forward` blocks force-push on main and ordinary branches. Only `refs/heads/dependabot/**/*` is excluded so Dependabot can refresh its own nested branches. Do not broaden the exclusion or disable protection for dependency maintenance.
 
 ---
 
@@ -96,6 +96,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 
 ### 3.5 Force-push to main
 - Blocked by ruleset `16651604` ("protect repo from force delete", rules: deletion + non_fast_forward).
+- Both rules still apply to main and ordinary branches. The owner-approved exclusion `refs/heads/dependabot/**/*` permits bot branch rebases/deletion only; preserve the nested matching pattern.
 - To rewrite history: PUT ruleset to `enforcement=disabled`, push, restore to `enforcement=active`. **Always restore in the same session.**
 - Never leave the ruleset disabled overnight.
 
@@ -7255,6 +7256,24 @@ If a credential was committed, revoke or rotate it before considering the leak
 resolved. Do not print secret values in scan logs, reviews, or handoffs.
 
 Related secret-safety CI changes: [wolfini_de_web](https://github.com/haraldweiss/wolfini_de_web/pull/258), [Claude-KI-Usage-Tracker](https://github.com/haraldweiss/Claude-KI-Usage-Tracker/pull/101), [ai-provider-service](https://github.com/haraldweiss/ai-provider-service/pull/55), [Bewerbungstracker](https://github.com/haraldweiss/Bewerbungstracker/pull/94).
+
+
+### 2026-11-10 — Dependabot PR review and nested branch rebase repair
+
+- Merged reviewed #102 (checkout 7.0.1), #109 (Helmet types 4.0.0 stub using the
+  runtime's bundled types) and #113 (jsdom 31.0.0); exact-head and combined-main
+  backend/frontend/secrets CI pass. No production deployment.
+- #111 TypeScript 7 fails npm ci: typescript-eslint 8.72.1 peers require <6.1.
+  #107 preset-react 8 requires Babel core 8 while the test transform uses 7.
+  #106 Recharts 3 fails type-check because Tooltip removed the label prop. Keep
+  these migrations separate; no forced peers or disabled checks.
+- Ruleset 16651604 targeted ~ALL with deletion/non_fast_forward and prevented
+  Dependabot from rebasing nested branches. With the owner's explicit approval,
+  excluded only refs/heads/dependabot/**/*; enforcement remains active, both rules
+  and bypass_actors=[] preserved. GitHub effective rules: main and ordinary codex
+  branch retain both rules; nested Dependabot branch has no rules from this set.
+  Subsequent #106/#111 bot rebases observed in git fetch. Original/readback JSON
+  retained in the local session audit directory under /private/tmp.
 
 ### 2026-11-12 — Recharts 3 migration (PR #106)
 

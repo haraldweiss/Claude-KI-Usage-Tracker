@@ -350,7 +350,8 @@ tail -f /tmp/benchmark-agent.log
 
 # 1. Frontend build + sync
 cd frontend && npm run build
-rsync -avz --delete dist/ oracle-vm:/opt/ki-usage-tracker-frontend/dist/
+rsync -avz dist/ oracle-vm:/tmp/tracker-frontend-dist/
+ssh oracle-vm 'sudo rsync -a --chown=root:root --chmod=D755,F644 --exclude=index.html /tmp/tracker-frontend-dist/ /opt/ki-usage-tracker-frontend/dist/ && sudo install -o root -g root -m 644 /tmp/tracker-frontend-dist/index.html /opt/ki-usage-tracker-frontend/dist/index.html && sudo restorecon -RF /opt/ki-usage-tracker-frontend/dist'
 
 # 2. Backend build + in Docker-Container kopieren
 cd ../backend && npm run build
@@ -807,3 +808,9 @@ environment. Generate a random key only for a new, empty installation; replacing
 a key for an existing database requires re-encrypting `service_token_enc` first.
 The previously published startup key was rotated on 2026-11-09 with the stored
 credential preserved. Public Git history still contains the retired value.
+
+### Native daily dependency deployment (2026-11-16)
+
+Oracle runs reviewed dependency deployments daily at **06:40 Europe/Berlin**, independently of the Mac; hourly GitHub inventory/compatible merges remain active for all repositories. Initially this repository's **frontend npm manifests/lockfile only** are eligible. Backend, scraper, extension, source changes and major/tooling migrations require manual review. The public frontend parent/tree is now **root:root**, directories0755/files0644, so manual deploys stage via /tmp and publish with sudo (commands above); preserve old assets and take a rollback copy before changing the entry. The native job rejects symlinks, conflicting asset paths and failed CI, relabels before publishing, and verifies public HTML/assets.
+
+Source4aade934 was manually rebuilt/deployed: frontend126 tests/type-check/lint/build; backend native ARM64 Docker build and isolated health canary; exact pre-start environment/mount/network/limit contract MATCH. Both public page and health200, container healthy/0restarts, SQLite WAL/busy_timeout retained. Old container ki-usage-tracker-before-20261116 is stopped/restart=no; protected rollback evidence is in /root/dependabot-deploy-20261116/. See [native runbook](https://github.com/haraldweiss/wolfini_de_web/blob/main/docs/daily-dependabot-maintenance.md).

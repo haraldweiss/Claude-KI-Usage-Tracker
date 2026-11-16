@@ -7281,3 +7281,8 @@ Related secret-safety CI changes: [wolfini_de_web](https://github.com/haraldweis
   uses `labelStyle`; the removed `label` prop fails the new TypeScript types.
 - Preserve real, unmocked chart tests for direct and Fragment children. They
   verify rendering across chart-library upgrades rather than mocking the boundary.
+
+### 2026-11-16 — Live dependency rebuild and native frontend profile
+
+- Source4aade934 frontend (Recharts3) rebuilt and deployed;126 tests/lint/type-check passed. Backend rebuilt on Oracle ARM64; synthetic no-network health canary passed, exact runtime contract compared before start. Live Express5.3.0 / Nodemailer10.3.1 / Pino10.4.0; publichealth200, healthy/0restarts, WAL/busy_timeout preserved. Old container retained stopped/restart=no.
+- Public frontend parent/tree is root-owned,0755/0644 for the owner-approved daily native job at06:40Europe/Berlin. Do not restore opc/apache write ownership or use direct unprivileged rsync into dist; stage to /tmp then publish with sudo (README). Initial automatic scope is frontend package.json/package-lock.json only; backend/scraper/extension/source/major updates remain manual. Never remove pending-failure evidence to force retry. Coordinator/runbook: wolfini_de_web docs/daily-dependabot-maintenance.md.

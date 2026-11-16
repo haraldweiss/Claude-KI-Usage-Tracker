@@ -351,7 +351,7 @@ tail -f /tmp/benchmark-agent.log
 # 1. Frontend build + sync
 cd frontend && npm run build
 rsync -avz dist/ oracle-vm:/tmp/tracker-frontend-dist/
-ssh oracle-vm 'sudo rsync -a --exclude=index.html /tmp/tracker-frontend-dist/ /opt/ki-usage-tracker-frontend/dist/ && sudo install -o root -g root -m 644 /tmp/tracker-frontend-dist/index.html /opt/ki-usage-tracker-frontend/dist/index.html && sudo restorecon -RF /opt/ki-usage-tracker-frontend/dist' 
+ssh oracle-vm 'sudo rsync -a --exclude=index.html /tmp/tracker-frontend-dist/ /opt/ki-usage-tracker-frontend/dist/ && sudo install -o root -g root -m 644 /tmp/tracker-frontend-dist/index.html /opt/ki-usage-tracker-frontend/dist/index.html && sudo restorecon -RF /opt/ki-usage-tracker-frontend/dist'
 
 # 2. Backend build + in Docker-Container kopieren
 cd ../backend && npm run build

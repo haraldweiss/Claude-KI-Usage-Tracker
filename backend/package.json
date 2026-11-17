@@ -32,8 +32,6 @@
     "sqlite3": "^6.0.1"
   },
   "devDependencies": {
-    "@babel/preset-env": "^7.29.2",
-    "@babel/preset-react": "^7.28.5",
     "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@types/bcrypt": "^6.0.0",

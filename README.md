@@ -774,16 +774,19 @@ checks need the runtime compiler API that TypeScript 7 removes.
 
 ### Dependency compatibility (3 November 2026)
 
-The frontend uses paired React/React DOM 19 and Vitest/UI 5. Recharts 3.10.1 is tested with React 19 and a matching react-is19 override; update it together with React. A real-chart regression checks direct and Fragment children because chart mocks cannot detect this incompatibility. Keep frontend ESLint on 9 while eslint-plugin-react lacks ESLint 10 support. Backend and scraper TypeScript remain 5.9.3 pending compiler/test-tool migration; Babel remains 7. The frontend TypeScript config loads the jest-dom Vitest entrypoint explicitly.
+The frontend uses paired React/React DOM 19 and Vitest/UI 5. Recharts 3.10.1 is tested with React 19 and a matching react-is19 override; update it together with React. A real-chart regression checks direct and Fragment children because chart mocks cannot detect this incompatibility. Keep frontend ESLint on 9 while eslint-plugin-react lacks ESLint 10 support. Backend and scraper TypeScript remain 5.9.3 pending compiler/test-tool migration. Unused direct Babel presets have been removed; Jest retains its supported transitive Babel 7 dependencies. The frontend TypeScript config loads the jest-dom Vitest entrypoint explicitly.
 
-Production dependency audits are clean after the follow-redirects patch. Full development audits still report minimatch in legacy lint/packaging consumers and unpatched deepmerge in backend Jest configuration. Scoped modern minimatch/glob overrides are tested; forcing minimatch 11 into consumers that call the old default function would break them. See AGENTS.md's 3 November handoff for exact limits and verification.
+The follow-redirects advisory is patched. As of 17 November, the frontend production audit is clean; backend production dependencies have 5 propagated high findings from the unpatched picomatch advisory. Full development audits still report minimatch in legacy lint/packaging consumers and unpatched deepmerge in backend Jest configuration. Scoped modern minimatch/glob overrides are tested; forcing minimatch 11 into consumers that call the old default function would break them. See AGENTS.md's 3 November handoff for exact limits and verification.
 
 ### Dependabot maintenance (10 November 2026)
 
 Reviewed checkout 7.0.1, backend Helmet type definitions 4.0.0 and frontend jsdom
-31.0.0 updates pass their exact-head and combined-main CI. TypeScript 7 remains
-outside typescript-eslint 8.72.1's supported range below 6.1; Babel preset-react 8
-requires a coordinated Babel 8 migration. Recharts 3 is migrated in PR #106;
+31.0.0 updates pass their exact-head and combined-main CI. Frontend TypeScript 7 now runs through the explicit `typescript-native` npm
+alias. Canonical TypeScript 6 remains installed for typescript-eslint's classic
+compiler API and supported peer range; `npm run build` includes the TypeScript 7
+check. Use `npm run type-check` rather than bare `npx tsc` in the frontend, where
+both compiler packages export a `tsc` binary. Unused backend Babel presets have
+been removed; ts-jest remains the actual test transform. Recharts 3 is migrated in PR #106;
 the tooltip now uses `labelStyle`, and real chart rendering is verified.
 
 The owner-approved ruleset exception matches only `refs/heads/dependabot/**/*`,
@@ -814,3 +817,12 @@ credential preserved. Public Git history still contains the retired value.
 Oracle runs reviewed dependency deployments daily at **06:40 Europe/Berlin**, independently of the Mac; hourly GitHub inventory/compatible merges remain active for all repositories. Initially this repository's **frontend npm manifests/lockfile only** are eligible. Backend, scraper, extension, source changes and major/tooling migrations require manual review. The public frontend parent/tree is now **root:root**, directories0755/files0644, so manual deploys stage via /tmp and publish with sudo (commands above); preserve old assets and take a rollback copy before changing the entry. The native job rejects symlinks, conflicting asset paths and failed CI, relabels before publishing, and verifies public HTML/assets.
 
 Source4aade934 was manually rebuilt/deployed: frontend126 tests/type-check/lint/build; backend native ARM64 Docker build and isolated health canary; exact pre-start environment/mount/network/limit contract MATCH. Both public page and health200, container healthy/0restarts, SQLite WAL/busy_timeout retained. Old container ki-usage-tracker-before-20261116 is stopped/restart=no; protected rollback evidence is in /root/dependabot-deploy-20261116/. See [native runbook](https://github.com/haraldweiss/wolfini_de_web/blob/main/docs/daily-dependabot-maintenance.md).
+
+
+Dependency maintenance (17 November 2026): frontend strict type checking uses
+TypeScript 7.0.2 via `npm run type-check`; ESLint uses its supported TypeScript
+6.0.3 API independently. No peer dependency bypass is needed. The removed
+`baseUrl` option is replaced by relative path mapping targets. Full development
+audits may report picomatch GHSA-fc5q-39xc-vjpf (all releases through 4.0.7,
+no published patch); do not apply incompatible major overrides or npm audit's
+suggested toolchain downgrades. Frontend production audit is clean; backend production audit reports 5 propagated high findings from that same picomatch advisory.

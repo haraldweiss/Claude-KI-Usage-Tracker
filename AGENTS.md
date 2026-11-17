@@ -131,6 +131,7 @@ If `user.email` is unset, empty, or fake — **stop, fix it, then proceed**.
 - Seit **2026-10-27** nutzen beide Pakete **Flat Config** (`backend/eslint.config.js`, `frontend/eslint.config.js`); die `.eslintrc.json` sind gelöscht. Grund: ESLint 9 deprecatet eslintrc, ESLint 10 liest es **gar nicht mehr** — die alten Dateien wären beim nächsten Major still wirkungslos geworden.
 - **Backend: ESLint 10.13.0** (`@eslint/js@10`, `typescript-eslint@8.72`). **Frontend: ESLint 9.39.5.** Das ist kein Versehen: `eslint-plugin-react` 7.37.5 deklariert `peerDependencies.eslint: "^3 || … || ^9.7"` — **keine** veröffentlichte Version unterstützt ESLint 10. Frontend-ESLint **nicht** einzeln auf 10 heben (Dependabot #70/#48 bleiben deshalb offen); erst wenn das React-Plugin nachzieht, beide zusammen bumpen.
 - `typescript-eslint` (Meta-Paket) ersetzt `@typescript-eslint/parser` + `-eslint-plugin`; beide Pakete sind aus den devDependencies entfernt (bleiben transitiv).
+- Frontend TypeScript 7 runs via the `typescript-native` npm alias and explicit `npm run type-check`; canonical TypeScript 6 is retained for the linter API. Never replace that script with bare `tsc` (both packages export the same binary name). `npm run build` includes the explicit TypeScript 7 check.
 - **Keine Style-Regeln in ESLint:** `eslint-config-prettier/flat` schaltet alle stilistischen Regeln ab — Formatierung macht `prettier`. ESLint prüft nur Korrektheit.
 - `no-undef` ist für `.ts`/`.tsx` aus (TypeScript übernimmt das); für reine JS-Dateien (z. B. `src/__tests__/setup.js`) liefert ein eigener Block die `globals`-Sets (`browser` + `node` + `jest`/`vitest`) — devDependency `globals`. `@typescript-eslint/no-explicit-any` und `react/no-unescaped-entities` bleiben **warn** (deutsche UI-Texte mit `"`/`'` in JSX).
 - Scripts sind **`eslint src`** — **ohne `--ext`**. Flat Config matcht über `files`-Globs; `--ext` gehört zum eslintrc-Modus. (Die alte Regel „ohne `--ext` findet ESLint nichts" gilt nur für eslintrc und ist überholt.)
@@ -7286,3 +7287,35 @@ Related secret-safety CI changes: [wolfini_de_web](https://github.com/haraldweis
 
 - Source4aade934 frontend (Recharts3) rebuilt and deployed;126 tests/lint/type-check passed. Backend rebuilt on Oracle ARM64; synthetic no-network health canary passed, exact runtime contract compared before start. Live Express5.3.0 / Nodemailer10.3.1 / Pino10.4.0; publichealth200, healthy/0restarts, WAL/busy_timeout preserved. Old container retained stopped/restart=no.
 - Public frontend parent/tree is root-owned,0755/0644 for the owner-approved daily native job at06:40Europe/Berlin. Do not restore opc/apache write ownership or use direct unprivileged rsync into dist; stage to /tmp then publish with sudo (README). Initial automatic scope is frontend package.json/package-lock.json only; backend/scraper/extension/source/major updates remain manual. Never remove pending-failure evidence to force retry. Coordinator/runbook: wolfini_de_web docs/daily-dependabot-maintenance.md.
+
+
+### 2026-11-17 — Frontend TypeScript 7 and removal of unused Babel presets
+
+- Frontend `npm run type-check` explicitly invokes `typescript-native`, an npm
+  alias of TypeScript 7.0.2. `npm run build` runs that check before Vite. Keep
+  canonical `typescript` 6.0.3 for typescript-eslint's classic compiler API and
+  supported `<6.1` peer range; do not replace the explicit compiler command with
+  bare `tsc`, whose bin can resolve either installed package. Lint rules and
+  strict type-check settings remain enabled. TypeScript 7 removed `baseUrl`;
+  path mapping targets are now relative to the config (`./src/...`). The
+  obsolete `ignoreDeprecations` setting is removed.
+- Removed backend direct `@babel/preset-env` and `@babel/preset-react`: neither
+  has a configuration/import/caller, and Jest transforms TypeScript via ts-jest.
+  Jest's own supported Babel 7 dependencies remain. This supersedes Dependabot
+  #107 without forcing Babel 8 into legacy syntax plugins; the frontend alias
+  migration supersedes #111. Historical entries describing these as blocked
+  refer to the old dependency layout.
+- Fresh full frontend audit reports 17 high propagated findings from the one
+  unpatched development dependency picomatch (GHSA-fc5q-39xc-vjpf, <=4.0.7).
+  Do not invent a patched release or accept npm audit's Vite downgrade.
+  Frontend production-only audit is clean. Backend audit reports 44 high full
+  and 5 high production findings, all propagated from the same unpatched
+  picomatch advisory. Production path: sqlite3 -> node-gyp -> tinyglobby/fdir
+  -> picomatch, used for native build discovery. No full-audit-zero merge gate
+  exists in this repository; retain the findings without suppressions.
+- Verification: frontend TypeScript 7.0.2 and linter compiler 6.0.3 both verified
+  at runtime; clean npm10 install, strict type-check, lint (34 existing warnings),
+  16 test files / 126 tests, and build pass. Backend clean npm10 install and
+  valid Babel 7 tree; sqlite3 rebuilt, strict type-check, lint (3 existing
+  warnings), 39 suites / 315 tests, and build pass on Node 24. The existing Jest
+  open-handle warning remains. No production change in this preparation step.
